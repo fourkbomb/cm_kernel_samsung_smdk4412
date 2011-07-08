@@ -23,7 +23,7 @@ extern void __flush_dcache_page(struct address_space *mapping, struct page *page
 
 #endif
 
-#ifdef CONFIG_ZONE_DMA
+#if defined(CONFIG_ZONE_DMA)
 extern phys_addr_t arm_dma_limit;
 #else
 #define arm_dma_limit ((u32)~0)
