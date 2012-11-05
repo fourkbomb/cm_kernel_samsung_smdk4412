@@ -1881,7 +1881,8 @@ static int selinux_binder_transfer_file(struct task_struct *from, struct task_st
 		if (rc)
 			return rc;
 	}
-	// Do not apply permission checks to private files.
+
+    // Do not apply permission checks to private files.
 	if (unlikely(IS_PRIVATE(inode)))
 		return 0;
 
