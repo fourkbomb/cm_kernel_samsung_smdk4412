@@ -73,6 +73,7 @@ extern int mali_voltage_lock_init(void);
 extern int mali_voltage_lock_push(int lock_vol);
 extern int mali_voltage_lock_pop(void);
 #endif
+
 #define CONFIG_TC_VOLTAGE /* Temperature compensated voltage */
 #endif
 
@@ -504,12 +505,12 @@ static int exynos_tc_volt(struct s5p_tmu_info *info, int enable)
 			goto err_lock;
 #endif
 #if defined(CONFIG_VIDEO_MALI400MP)
-		ret = mali_voltage_lock_push(data->temp_compensate.g3d_volt);
-		if (ret < 0) {
-			pr_err("TMU: g3d_push error: %u uV\n",
-				data->temp_compensate.g3d_volt);
-			goto err_lock;
-		}
+	ret = mali_voltage_lock_push(data->temp_compensate.g3d_volt);
+	if (ret < 0) {
+		pr_err("TMU: g3d_push error: %u uV\n",
+			data->temp_compensate.g3d_volt);
+		goto err_lock;
+	}
 #endif
 	} else {
 		exynos_cpufreq_lock_free(DVFS_LOCK_ID_TMU);
