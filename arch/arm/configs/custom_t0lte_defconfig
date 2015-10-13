@@ -150,11 +150,8 @@ CONFIG_COMPAT_BRK=y
 CONFIG_SLUB=y
 # CONFIG_SLOB is not set
 CONFIG_PROFILING=y
-<<<<<<< HEAD:arch/arm/configs/custom_t0lte_defconfig
 CONFIG_TRACEPOINTS=y
 CONFIG_OPROFILE=y
-=======
->>>>>>> 94327c0... Enable UID_CPUTIME and profiling:arch/arm/configs/cyanogenmod_t0lte_defconfig
 CONFIG_HAVE_OPROFILE=y
 # CONFIG_KPROBES is not set
 CONFIG_HAVE_KPROBES=y
