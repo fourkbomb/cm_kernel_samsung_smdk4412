@@ -1191,7 +1191,7 @@ int s5p_hdmi_phy_enable_control(bool enable)
 int s5p_hdmi_phy_pad_disable()
 {
 	u8 buff[2];
-#if !defined(ONFIG_CPU_EXYNOS4212) && !defined(CONFIG_CPU_EXYNOS4412)
+#if !defined(CONFIG_CPU_EXYNOS4212) && !defined(CONFIG_CPU_EXYNOS4412)
 	u32 size;
 	u8 read_buffer[0x40] = {0, };
 #endif
@@ -2115,6 +2115,7 @@ void s5p_hdmi_reg_hpd_gen(void)
 #endif
 }
 
+#ifdef CONFIG_HDMI_14A_3D
 void s5p_hdmi_reg_hpd_deglitch(bool on, u32 threshold)
 {
 	if (on) {
@@ -2126,6 +2127,13 @@ void s5p_hdmi_reg_hpd_deglitch(bool on, u32 threshold)
 	}
 
 }
+#else
+void s5p_hdmi_reg_hpd_deglitch(bool on, u32 threshold)
+{
+	// introduced in n7100 KK update
+	// no equivalent for boards without the newer HDMI part
+}
+#endif
 
 int s5p_hdmi_reg_intc_set_isr(irqreturn_t (*isr)(int, void *), u8 num)
 {
