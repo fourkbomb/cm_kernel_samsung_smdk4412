@@ -16,7 +16,6 @@
 #ifndef __MALI_OSK_MALI_H__
 #define __MALI_OSK_MALI_H__
 
-#include <linux/mali/mali_utgard.h>
 #include <mali_osk.h>
 
 #ifdef __cplusplus
@@ -46,16 +45,7 @@ struct _mali_osk_device_data
 	u32 utilization_interval;
 
 	/* Function that will receive periodic GPU utilization numbers */
-	void (*utilization_callback)(struct mali_gpu_utilization_data *data);
-
-	/*
-	 * Mali PMU switch delay.
-	 * Only needed if the power gates are connected to the PMU in a high fanout
-	 * network. This value is the number of Mali clock cycles it takes to
-	 * enable the power gates and turn on the power mesh.
-	 * This value will have no effect if a daisy chain implementation is used.
-	 */
-	u32 pmu_switch_delay;
+	void (*utilization_handler)(unsigned int);
 };
 
 /** @brief Find Mali GPU HW resource
@@ -78,12 +68,6 @@ u32 _mali_osk_resource_base_address(void);
  * @return _MALI_OSK_ERR_OK on success, otherwise failure.
  */
 _mali_osk_errcode_t _mali_osk_device_data_get(struct _mali_osk_device_data *data);
-
-/** @brief Determines if Mali GPU has been configured with shared interrupts.
- *
- * @return MALI_TRUE if shared interrupts, MALI_FALSE if not.
- */
-mali_bool _mali_osk_shared_interrupts(void);
 
 /** @} */ /* end group _mali_osk_miscellaneous */
 
@@ -249,16 +233,6 @@ _mali_osk_errcode_t _mali_osk_mem_mapregion_map( mali_memory_allocation * descri
  * \ref _MALI_OSK_MEM_MAPREGION_FLAG_OS_ALLOCATED_PHYSADDR set.
  */
 void _mali_osk_mem_mapregion_unmap( mali_memory_allocation * descriptor, u32 offset, u32 size, _mali_osk_mem_mapregion_flags_t flags );
-
-/** @brief Copy as much data as possible from src to dest, do not crash if src or dest isn't available.
- *
- * @param dest Destination buffer (limited to user space mapped Mali memory)
- * @param src Source buffer
- * @param size Number of bytes to copy
- * @return Number of bytes actually copied
- */
-u32 _mali_osk_mem_write_safe(void *dest, const void *src, u32 size);
-
 /** @} */ /* end group _mali_osk_low_level_memory */
 
 

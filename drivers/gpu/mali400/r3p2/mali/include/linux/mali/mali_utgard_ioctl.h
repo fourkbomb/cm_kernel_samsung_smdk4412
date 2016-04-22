@@ -45,8 +45,6 @@ extern "C"
 #define MALI_IOC_GET_USER_SETTING           _IOWR(MALI_IOC_CORE_BASE, _MALI_UK_GET_USER_SETTING, _mali_uk_get_user_setting_s *)
 #define MALI_IOC_GET_USER_SETTINGS          _IOWR(MALI_IOC_CORE_BASE, _MALI_UK_GET_USER_SETTINGS, _mali_uk_get_user_settings_s *)
 #define MALI_IOC_STREAM_CREATE              _IOWR(MALI_IOC_CORE_BASE, _MALI_UK_STREAM_CREATE, _mali_uk_stream_create_s *)
-#define MALI_IOC_FENCE_CREATE_EMPTY         _IOWR(MALI_IOC_CORE_BASE, _MALI_UK_FENCE_CREATE_EMPTY, _mali_uk_fence_create_empty_s *)
-#define MALI_IOC_FENCE_CREATE_SIGNALLED     _IOWR(MALI_IOC_CORE_BASE, _MALI_UK_FENCE_CREATE_SIGNALLED, _mali_uk_fence_create_signalled_s *)
 #define MALI_IOC_FENCE_VALIDATE             _IOR(MALI_IOC_CORE_BASE, _MALI_UK_FENCE_VALIDATE, _mali_uk_fence_validate_s *)
 
 #define MALI_IOC_MEM_GET_BIG_BLOCK          _IOWR(MALI_IOC_MEMORY_BASE, _MALI_UK_GET_BIG_BLOCK, void *)
@@ -62,7 +60,6 @@ extern "C"
 #define MALI_IOC_MEM_RELEASE_UMP            _IOW(MALI_IOC_MEMORY_BASE, _MALI_UK_RELEASE_UMP_MEM, _mali_uk_release_ump_mem_s *)
 #define MALI_IOC_MEM_QUERY_MMU_PAGE_TABLE_DUMP_SIZE _IOR (MALI_IOC_MEMORY_BASE, _MALI_UK_QUERY_MMU_PAGE_TABLE_DUMP_SIZE, _mali_uk_query_mmu_page_table_dump_size_s *)
 #define MALI_IOC_MEM_DUMP_MMU_PAGE_TABLE    _IOWR(MALI_IOC_MEMORY_BASE, _MALI_UK_DUMP_MMU_PAGE_TABLE, _mali_uk_dump_mmu_page_table_s *)
-#define MALI_IOC_MEM_WRITE_SAFE             _IOWR(MALI_IOC_MEMORY_BASE, _MALI_UK_MEM_WRITE_SAFE, _mali_uk_mem_write_safe_s *)
 
 #define MALI_IOC_PP_START_JOB               _IOWR(MALI_IOC_PP_BASE, _MALI_UK_PP_START_JOB, _mali_uk_pp_start_job_s *)
 #define MALI_IOC_PP_NUMBER_OF_CORES_GET	    _IOR (MALI_IOC_PP_BASE, _MALI_UK_GET_PP_NUMBER_OF_CORES, _mali_uk_get_pp_number_of_cores_s *)

@@ -37,12 +37,6 @@
 #if defined(CONFIG_MALI400_INTERNAL_PROFILING)
 #include "mali_profiling_internal.h"
 #endif
-/* MALI_SEC */
-#if defined(CONFIG_CPU_EXYNOS4212) || defined(CONFIG_CPU_EXYNOS4412) || defined(CONFIG_CPU_EXYNOS4210)
-#include "../platform/pegasus-m400/exynos4_pmm.h"
-#elif defined(CONFIG_SOC_EXYNOS3470)
-#include "../platform/exynos4270/exynos4_pmm.h"
-#endif
 
 /* Streamline support for the Mali driver */
 #if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_MALI400_PROFILING)
@@ -66,16 +60,16 @@ extern int mali_l2_max_reads;
 module_param(mali_l2_max_reads, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(mali_l2_max_reads, "Maximum reads for Mali L2 cache");
 
-extern unsigned int mali_dedicated_mem_start;
-module_param(mali_dedicated_mem_start, uint, S_IRUSR | S_IRGRP | S_IROTH);
+extern int mali_dedicated_mem_start;
+module_param(mali_dedicated_mem_start, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(mali_dedicated_mem_start, "Physical start address of dedicated Mali GPU memory.");
 
-extern unsigned int mali_dedicated_mem_size;
-module_param(mali_dedicated_mem_size, uint, S_IRUSR | S_IRGRP | S_IROTH);
+extern int mali_dedicated_mem_size;
+module_param(mali_dedicated_mem_size, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(mali_dedicated_mem_size, "Size of dedicated Mali GPU memory.");
 
-extern unsigned int mali_shared_mem_size;
-module_param(mali_shared_mem_size, uint, S_IRUSR | S_IRGRP | S_IROTH);
+extern int mali_shared_mem_size;
+module_param(mali_shared_mem_size, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(mali_shared_mem_size, "Size of shared Mali GPU memory.");
 
 #if defined(CONFIG_MALI400_PROFILING)
@@ -171,7 +165,7 @@ static struct platform_driver mali_platform_driver =
 #endif
 	.driver =
 	{
-		.name   = "mali_dev", /* MALI_SEC MALI_GPU_NAME_UTGARD, */
+		.name   = MALI_GPU_NAME_UTGARD,
 		.owner  = THIS_MODULE,
 		.bus = &platform_bus_type,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
@@ -193,6 +187,11 @@ struct file_operations mali_fops =
 #endif
 	.mmap = mali_mmap
 };
+
+
+
+
+
 
 int mali_module_init(void)
 {
@@ -355,15 +354,11 @@ static void mali_miscdevice_unregister(void)
 static int mali_driver_suspend_scheduler(struct device *dev)
 {
 	mali_pm_os_suspend();
-	/* MALI_SEC */
-	mali_platform_power_mode_change(dev, MALI_POWER_MODE_DEEP_SLEEP);
 	return 0;
 }
 
 static int mali_driver_resume_scheduler(struct device *dev)
 {
-	/* MALI_SEC */
-	mali_platform_power_mode_change(dev, MALI_POWER_MODE_ON);
 	mali_pm_os_resume();
 	return 0;
 }
@@ -372,15 +367,11 @@ static int mali_driver_resume_scheduler(struct device *dev)
 static int mali_driver_runtime_suspend(struct device *dev)
 {
 	mali_pm_runtime_suspend();
-	/* MALI_SEC */
-	mali_platform_power_mode_change(dev, MALI_POWER_MODE_LIGHT_SLEEP);
 	return 0;
 }
 
 static int mali_driver_runtime_resume(struct device *dev)
 {
-	/* MALI_SEC */
-	mali_platform_power_mode_change(dev, MALI_POWER_MODE_ON);
 	mali_pm_runtime_resume();
 	return 0;
 }
@@ -590,10 +581,6 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 			err = mem_term_wrapper(session_data, (_mali_uk_term_mem_s __user *)arg);
 			break;
 
-		case MALI_IOC_MEM_WRITE_SAFE:
-			err = mem_write_safe_wrapper(session_data, (_mali_uk_mem_write_safe_s __user *)arg);
-			break;
-
 		case MALI_IOC_MEM_MAP_EXT:
 			err = mem_map_ext_wrapper(session_data, (_mali_uk_map_external_mem_s __user *)arg);
 			break;
@@ -690,16 +677,6 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 		case MALI_IOC_STREAM_CREATE:
 #if defined(CONFIG_SYNC)
 			err = stream_create_wrapper(session_data, (_mali_uk_stream_create_s __user *)arg);
-			break;
-#endif
-		case MALI_IOC_FENCE_CREATE_EMPTY:
-#if defined(CONFIG_SYNC)
-			err = sync_fence_create_empty_wrapper(session_data, (_mali_uk_fence_create_empty_s __user *)arg);
-			break;
-#endif
-		case MALI_IOC_FENCE_CREATE_SIGNALLED:
-#if defined(CONFIG_SYNC)
-			err = sync_fence_create_signalled_wrapper(session_data, (_mali_uk_fence_create_signalled_s __user *)arg);
 			break;
 #endif
 		case MALI_IOC_FENCE_VALIDATE:

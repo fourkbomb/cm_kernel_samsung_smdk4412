@@ -756,20 +756,6 @@ static void external_memory_release(void * ctx, void * handle)
 	return;
 }
 
-_mali_osk_errcode_t _mali_ukk_mem_write_safe(_mali_uk_mem_write_safe_s *args)
-{
-	MALI_DEBUG_ASSERT_POINTER(args);
-
-	if (NULL == args->ctx)
-	{
-		return _MALI_OSK_ERR_INVALID_ARGS;
-	}
-
-	/* Return number of bytes actually copied */
-	args->size = _mali_osk_mem_write_safe(args->dest, args->src, args->size);
-	return _MALI_OSK_ERR_OK;
-}
-
 _mali_osk_errcode_t _mali_ukk_map_external_mem( _mali_uk_map_external_mem_s *args )
 {
 	mali_physical_memory_allocator external_memory_allocator;
@@ -1033,6 +1019,22 @@ static _mali_osk_errcode_t _mali_ukk_mem_munmap_internal( _mali_uk_mem_munmap_s 
 	/* Unmapping the memory from the mali virtual address space.
 	   It is allowed to call this function severeal times, which might happen if zapping below fails. */
 	mali_allocation_engine_release_pt1_mali_pagetables_unmap(memory_engine, descriptor);
+
+#ifdef MALI_UNMAP_FLUSH_ALL_MALI_L2
+	{
+		u32 i;
+		u32 number_of_l2_ccores = mali_l2_cache_core_get_glob_num_l2_cores();
+		for (i = 0; i < number_of_l2_ccores; i++)
+		{
+			struct mali_l2_cache_core *core;
+			core = mali_l2_cache_core_get_glob_l2_core(i);
+			if (mali_l2_cache_power_is_enabled_get(core) )
+			{
+				mali_l2_cache_invalidate_all_force(core);
+			}
+		}
+	}
+#endif
 
 	mali_scheduler_zap_all_active(session_data);
 

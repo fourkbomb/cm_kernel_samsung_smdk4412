@@ -98,12 +98,6 @@ void _mali_osk_wq_delete_work( _mali_osk_wq_work_t *work )
 	kfree(work_object);
 }
 
-void _mali_osk_wq_delete_work_nonflush( _mali_osk_wq_work_t *work )
-{
-	mali_osk_wq_work_object_t *work_object = (mali_osk_wq_work_object_t *)work;
-	kfree(work_object);
-}
-
 void _mali_osk_wq_schedule_work( _mali_osk_wq_work_t *work )
 {
 	mali_osk_wq_work_object_t *work_object = (mali_osk_wq_work_object_t *)work;

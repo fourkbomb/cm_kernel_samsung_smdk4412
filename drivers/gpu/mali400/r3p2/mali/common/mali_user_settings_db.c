@@ -38,11 +38,7 @@ void mali_set_user_setting(_mali_uk_user_setting_t setting, u32 value)
 {
 	mali_bool notify = MALI_FALSE;
 
-	if (setting >= _MALI_UK_USER_SETTING_MAX || setting < 0)
-	{
-		MALI_DEBUG_PRINT_ERROR(("Invalid user setting %ud\n"));
-		return;
-	}
+	MALI_DEBUG_ASSERT(setting < _MALI_UK_USER_SETTING_MAX && setting >= 0);
 
 	if (mali_user_settings[setting] != value)
 	{
@@ -59,10 +55,7 @@ void mali_set_user_setting(_mali_uk_user_setting_t setting, u32 value)
 
 u32 mali_get_user_setting(_mali_uk_user_setting_t setting)
 {
-	if (setting >= _MALI_UK_USER_SETTING_MAX || setting < 0)
-	{
-		return 0;
-	}
+	MALI_DEBUG_ASSERT(setting < _MALI_UK_USER_SETTING_MAX && setting >= 0);
 
 	return mali_user_settings[setting];
 }

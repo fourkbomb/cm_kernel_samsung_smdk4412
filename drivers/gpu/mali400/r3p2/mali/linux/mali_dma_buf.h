@@ -17,21 +17,10 @@ extern "C"
 #endif
 
 #include "mali_osk.h"
-#include "common/mali_pp_job.h"
-
-struct mali_dma_buf_attachment;
 
 int mali_attach_dma_buf(struct mali_session_data *session, _mali_uk_attach_dma_buf_s __user *arg);
 int mali_release_dma_buf(struct mali_session_data *session, _mali_uk_release_dma_buf_s __user *arg);
 int mali_dma_buf_get_size(struct mali_session_data *session, _mali_uk_dma_buf_get_size_s __user *arg);
-int mali_dma_buf_map(struct mali_dma_buf_attachment *mem, struct mali_session_data *session, u32 virt, u32 *offset, u32 flags);
-void mali_dma_buf_unmap(struct mali_dma_buf_attachment *mem);
-void mali_dma_buf_release(void *ctx, void *handle);
-
-#if !defined(CONFIG_MALI_DMA_BUF_MAP_ON_ATTACH)
-int mali_dma_buf_map_job(struct mali_pp_job *job);
-void mali_dma_buf_unmap_job(struct mali_pp_job *job);
-#endif
 
 #ifdef __cplusplus
 }
