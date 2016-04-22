@@ -32,11 +32,6 @@ static irqreturn_t irq_handler_upper_half (int port_name, void* dev_id ); /* , s
 _mali_osk_irq_t *_mali_osk_irq_init( u32 irqnum, _mali_osk_irq_uhandler_t uhandler, void *int_data, _mali_osk_irq_trigger_t trigger_func, _mali_osk_irq_ack_t ack_func, void *probe_data, const char *description )
 {
 	mali_osk_irq_object_t *irq_object;
-	unsigned long irq_flags = 0;
-
-#if defined(CONFIG_MALI_SHARED_INTERRUPTS)
-	irq_flags |= IRQF_SHARED;
-#endif /* defined(CONFIG_MALI_SHARED_INTERRUPTS) */
 
 	irq_object = kmalloc(sizeof(mali_osk_irq_object_t), GFP_KERNEL);
 	if (NULL == irq_object)
@@ -96,7 +91,7 @@ _mali_osk_irq_t *_mali_osk_irq_init( u32 irqnum, _mali_osk_irq_uhandler_t uhandl
 		return NULL;
 	}
 
-	if (0 != request_irq(irqnum, irq_handler_upper_half, irq_flags, description, irq_object))
+	if (0 != request_irq(irqnum, irq_handler_upper_half, IRQF_SHARED, description, irq_object))
 	{
 		MALI_DEBUG_PRINT(2, ("Unable to install IRQ handler for core '%s'\n", description));
 		kfree(irq_object);
@@ -127,13 +122,12 @@ void _mali_osk_irq_term( _mali_osk_irq_t *irq )
  */
 static irqreturn_t irq_handler_upper_half (int port_name, void* dev_id ) /* , struct pt_regs *regs*/
 {
-	irqreturn_t ret = IRQ_NONE;
 	mali_osk_irq_object_t *irq_object = (mali_osk_irq_object_t *)dev_id;
 
-	if (_MALI_OSK_ERR_OK == irq_object->uhandler(irq_object->data))
+	if (irq_object->uhandler(irq_object->data) == _MALI_OSK_ERR_OK)
 	{
-		ret = IRQ_HANDLED;
+		return IRQ_HANDLED;
 	}
-
-	return ret;
+	return IRQ_NONE;
 }
+

@@ -65,49 +65,6 @@ int mem_term_wrapper(struct mali_session_data *session_data, _mali_uk_term_mem_s
     return 0;
 }
 
-int mem_write_safe_wrapper(struct mali_session_data *session_data, _mali_uk_mem_write_safe_s __user * uargs)
-{
-	_mali_uk_mem_write_safe_s kargs;
-	_mali_osk_errcode_t err;
-
-	MALI_CHECK_NON_NULL(uargs, -EINVAL);
-	MALI_CHECK_NON_NULL(session_data, -EINVAL);
-
-	if (0 != copy_from_user(&kargs, uargs, sizeof(_mali_uk_mem_write_safe_s)))
-	{
-		return -EFAULT;
-	}
-
-	kargs.ctx = session_data;
-
-	/* Check if we can access the buffers */
-	if (!access_ok(VERIFY_WRITE, kargs.dest, kargs.size)
-	    || !access_ok(VERIFY_READ, kargs.src, kargs.size))
-	{
-		return -EINVAL;
-	}
-
-	/* Check if size wraps */
-	if ((kargs.size + kargs.dest) <= kargs.dest
-	    || (kargs.size + kargs.src) <= kargs.src)
-	{
-		return -EINVAL;
-	}
-
-	err = _mali_ukk_mem_write_safe(&kargs);
-	if (_MALI_OSK_ERR_OK != err)
-	{
-		return map_errcode(err);
-	}
-
-	if (0 != put_user(kargs.size, &uargs->size))
-	{
-		return -EFAULT;
-	}
-
-	return 0;
-}
-
 int mem_map_ext_wrapper(struct mali_session_data *session_data, _mali_uk_map_external_mem_s __user * argument)
 {
 	_mali_uk_map_external_mem_s uk_args;
@@ -273,7 +230,6 @@ int mem_dump_mmu_page_table_wrapper(struct mali_session_data *session_data, _mal
     if (!access_ok(VERIFY_WRITE, buffer, kargs.size)) goto err_exit;
 
     /* allocate temporary buffer (kernel side) to store mmu page table info */
-    MALI_CHECK(kargs.size > 0, -ENOMEM);
     kargs.buffer = _mali_osk_valloc(kargs.size);
     if (NULL == kargs.buffer)
     {

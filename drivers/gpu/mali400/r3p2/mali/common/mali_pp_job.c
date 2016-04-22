@@ -13,7 +13,6 @@
 #include "mali_osk_list.h"
 #include "mali_kernel_common.h"
 #include "mali_uk_types.h"
-#include "mali_pp_scheduler.h"
 
 static u32 pp_counter_src0 = MALI_HW_CORE_NO_COUNTER;      /**< Performance counter 0, MALI_HW_CORE_NO_COUNTER for disabled */
 static u32 pp_counter_src1 = MALI_HW_CORE_NO_COUNTER;      /**< Performance counter 1, MALI_HW_CORE_NO_COUNTER for disabled */
@@ -23,24 +22,36 @@ struct mali_pp_job *mali_pp_job_create(struct mali_session_data *session, _mali_
 	struct mali_pp_job *job;
 	u32 perf_counter_flag;
 
-	job = _mali_osk_calloc(1, sizeof(struct mali_pp_job));
+	job = _mali_osk_malloc(sizeof(struct mali_pp_job));
 	if (NULL != job)
 	{
+		u32 i;
+
 		if (0 != _mali_osk_copy_from_user(&job->uargs, uargs, sizeof(_mali_uk_pp_start_job_s)))
 		{
-			goto fail;
+			_mali_osk_free(job);
+			return NULL;
 		}
 
 		if (job->uargs.num_cores > _MALI_PP_MAX_SUB_JOBS)
 		{
 			MALI_PRINT_ERROR(("Mali PP job: Too many sub jobs specified in job object\n"));
-			goto fail;
+			_mali_osk_free(job);
+			return NULL;
 		}
 
 		if (!mali_pp_job_use_no_notification(job))
 		{
 			job->finished_notification = _mali_osk_notification_create(_MALI_NOTIFICATION_PP_FINISHED, sizeof(_mali_uk_pp_job_finished_s));
-			if (NULL == job->finished_notification) goto fail;
+			if (NULL == job->finished_notification)
+			{
+				_mali_osk_free(job);
+				return NULL;
+			}
+		}
+		else
+		{
+			job->finished_notification = NULL;
 		}
 
 		perf_counter_flag = mali_pp_job_get_perf_counter_flag(job);
@@ -59,58 +70,24 @@ struct mali_pp_job *mali_pp_job_create(struct mali_session_data *session, _mali_
 		_mali_osk_list_init(&job->session_list);
 		job->id = id;
 
+		for (i = 0; i < job->uargs.num_cores; i++)
+		{
+			job->perf_counter_value0[i] = 0;
+			job->perf_counter_value1[i] = 0;
+		}
 		job->sub_jobs_num = job->uargs.num_cores ? job->uargs.num_cores : 1;
+		job->sub_jobs_started = 0;
+		job->sub_jobs_completed = 0;
+		job->sub_job_errors = 0;
 		job->pid = _mali_osk_get_pid();
 		job->tid = _mali_osk_get_tid();
-
-		job->num_memory_cookies = job->uargs.num_memory_cookies;
-		if (job->num_memory_cookies > 0)
-		{
-			u32 size;
-
-			if (job->uargs.num_memory_cookies > session->descriptor_mapping->current_nr_mappings)
-			{
-				MALI_PRINT_ERROR(("Mali PP job: Too many memory cookies specified in job object\n"));
-				goto fail;
-			}
-
-			size = sizeof(*job->uargs.memory_cookies) * job->num_memory_cookies;
-
-			job->memory_cookies = _mali_osk_malloc(size);
-			if (NULL == job->memory_cookies)
-			{
-				MALI_PRINT_ERROR(("Mali PP job: Failed to allocate %d bytes of memory cookies!\n", size));
-				goto fail;
-			}
-
-			if (0 != _mali_osk_copy_from_user(job->memory_cookies, job->uargs.memory_cookies, size))
-			{
-				MALI_PRINT_ERROR(("Mali PP job: Failed to copy %d bytes of memory cookies from user!\n", size));
-				goto fail;
-			}
-
-#if defined(CONFIG_DMA_SHARED_BUFFER) && !defined(CONFIG_MALI_DMA_BUF_MAP_ON_ATTACH)
-			job->num_dma_bufs = job->num_memory_cookies;
-			job->dma_bufs = _mali_osk_calloc(job->num_dma_bufs, sizeof(struct mali_dma_buf_attachment *));
-			if (NULL == job->dma_bufs)
-			{
-				MALI_PRINT_ERROR(("Mali PP job: Failed to allocate dma_bufs array!\n"));
-				goto fail;
-			}
+#if defined(CONFIG_SYNC)
+		job->sync_point = NULL;
+		job->pre_fence = NULL;
+		job->sync_work = NULL;
 #endif
-		}
-		else
-		{
-			job->memory_cookies = NULL;
-		}
 
 		return job;
-	}
-
-fail:
-	if (NULL != job)
-	{
-		mali_pp_job_delete(job);
 	}
 
 	return NULL;
@@ -119,8 +96,6 @@ fail:
 void mali_pp_job_delete(struct mali_pp_job *job)
 {
 #ifdef CONFIG_SYNC
-	/* It is safe to delete the work without flushing. */
-	if (NULL != job->sync_work) _mali_osk_wq_delete_work_nonflush(job->sync_work);
 	if (NULL != job->pre_fence) sync_fence_put(job->pre_fence);
 	if (NULL != job->sync_point) sync_fence_put(job->sync_point->fence);
 #endif
@@ -128,19 +103,6 @@ void mali_pp_job_delete(struct mali_pp_job *job)
 	{
 		_mali_osk_notification_delete(job->finished_notification);
 	}
-
-	_mali_osk_free(job->memory_cookies);
-
-#if defined(CONFIG_DMA_SHARED_BUFFER) && !defined(CONFIG_MALI_DMA_BUF_MAP_ON_ATTACH)
-	/* Unmap buffers attached to job */
-	if (0 < job->num_dma_bufs)
-	{
-		mali_dma_buf_unmap_job(job);
-	}
-
-	_mali_osk_free(job->dma_bufs);
-#endif /* CONFIG_DMA_SHARED_BUFFER */
-
 	_mali_osk_free(job);
 }
 

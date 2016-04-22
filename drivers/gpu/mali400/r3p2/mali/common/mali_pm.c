@@ -8,6 +8,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#include <linux/version.h>
+#ifdef CONFIG_PM_RUNTIME
+#include <linux/pm_runtime.h>
+#endif
+#include <linux/platform_device.h>
 #include "mali_pm.h"
 #include "mali_kernel_common.h"
 #include "mali_osk.h"
@@ -16,21 +21,55 @@
 #include "mali_scheduler.h"
 #include "mali_kernel_utilization.h"
 #include "mali_group.h"
-#include "mali_pm_domain.h"
-#include "mali_pmu.h"
+
+extern struct platform_device *mali_platform_device;
 
 static mali_bool mali_power_on = MALI_FALSE;
 
 _mali_osk_errcode_t mali_pm_initialize(void)
 {
+#ifdef CONFIG_PM_RUNTIME
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37))
+	pm_runtime_set_autosuspend_delay(&(mali_platform_device->dev), 1000);
+	pm_runtime_use_autosuspend(&(mali_platform_device->dev));
+#endif
+	pm_runtime_enable(&(mali_platform_device->dev));
+#endif
 	_mali_osk_pm_dev_enable();
 	return _MALI_OSK_ERR_OK;
 }
 
 void mali_pm_terminate(void)
 {
-	mali_pm_domain_terminate();
+#ifdef CONFIG_PM_RUNTIME
+	pm_runtime_disable(&(mali_platform_device->dev));
+#endif
 	_mali_osk_pm_dev_disable();
+}
+
+void mali_pm_core_event(enum mali_core_event core_event)
+{
+	MALI_DEBUG_ASSERT(MALI_CORE_EVENT_GP_START == core_event ||
+	                  MALI_CORE_EVENT_PP_START == core_event ||
+	                  MALI_CORE_EVENT_GP_STOP  == core_event ||
+	                  MALI_CORE_EVENT_PP_STOP  == core_event);
+
+	if (MALI_CORE_EVENT_GP_START == core_event || MALI_CORE_EVENT_PP_START == core_event)
+	{
+		_mali_osk_pm_dev_ref_add();
+		if (mali_utilization_enabled())
+		{
+			mali_utilization_core_start(_mali_osk_time_get_ns());
+		}
+	}
+	else
+	{
+		_mali_osk_pm_dev_ref_dec();
+		if (mali_utilization_enabled())
+		{
+			mali_utilization_core_end(_mali_osk_time_get_ns());
+		}
+	}
 }
 
 /* Reset GPU after power up */
@@ -48,55 +87,21 @@ void mali_pm_os_suspend(void)
 	MALI_DEBUG_PRINT(3, ("Mali PM: OS suspend\n"));
 	mali_gp_scheduler_suspend();
 	mali_pp_scheduler_suspend();
-	mali_utilization_suspend();
-/* MALI_SEC */
-#if !defined(CONFIG_PM_RUNTIME)
 	mali_group_power_off();
 	mali_power_on = MALI_FALSE;
-#endif
 }
 
 void mali_pm_os_resume(void)
 {
-#if !defined(CONFIG_PM_RUNTIME)
-	struct mali_pmu_core *pmu = mali_pmu_get_global_pmu_core();
-	mali_bool do_reset = MALI_FALSE;
-#endif
-
 	MALI_DEBUG_PRINT(3, ("Mali PM: OS resume\n"));
-/* MALI_SEC */
-/******************************************************************
- *
- * <2013. 08. 23>
- *  In Pegasus prime, PMU is not enabled(Power off) while
- * system wake up(suspend -> resume).
- *
- * Because PMU power is off, GPU does not work.
- * Therefore code is commented like below.
- *
- *****************************************************************/
-#if !defined(CONFIG_PM_RUNTIME)
 	if (MALI_TRUE != mali_power_on)
-	{
-		do_reset = MALI_TRUE;
-	}
-
-	if (NULL != pmu)
-	{
-		mali_pmu_reset(pmu);
-	}
-
-	mali_power_on = MALI_TRUE;
-	_mali_osk_write_mem_barrier();
-
-	if (do_reset)
 	{
 		mali_pm_reset_gpu();
 		mali_group_power_on();
 	}
-#endif
 	mali_gp_scheduler_resume();
 	mali_pp_scheduler_resume();
+	mali_power_on = MALI_TRUE;
 }
 
 void mali_pm_runtime_suspend(void)
@@ -108,37 +113,11 @@ void mali_pm_runtime_suspend(void)
 
 void mali_pm_runtime_resume(void)
 {
-	struct mali_pmu_core *pmu = mali_pmu_get_global_pmu_core();
-	mali_bool do_reset = MALI_FALSE;
-
 	MALI_DEBUG_PRINT(3, ("Mali PM: Runtime resume\n"));
-
 	if (MALI_TRUE != mali_power_on)
-	{
-		do_reset = MALI_TRUE;
-	}
-
-	if (NULL != pmu)
-	{
-		mali_pmu_reset(pmu);
-	}
-
-	mali_power_on = MALI_TRUE;
-	_mali_osk_write_mem_barrier();
-
-	if (do_reset)
 	{
 		mali_pm_reset_gpu();
 		mali_group_power_on();
 	}
-}
-
-void mali_pm_set_power_is_on(void)
-{
 	mali_power_on = MALI_TRUE;
-}
-
-mali_bool mali_pm_is_power_on(void)
-{
-	return mali_power_on;
 }

@@ -22,9 +22,6 @@
 #include <linux/sync.h>
 #endif
 #include "mali_dlbu.h"
-#if defined(CONFIG_DMA_SHARED_BUFFER) && !defined(CONFIG_MALI_DMA_BUF_MAP_ON_ATTACH)
-#include "linux/mali_dma_buf.h"
-#endif
 
 /**
  * The structure represents a PP job, including all sub-jobs
@@ -47,12 +44,6 @@ struct mali_pp_job
 	u32 pid;                                           /**< Process ID of submitting process */
 	u32 tid;                                           /**< Thread ID of submitting thread */
 	_mali_osk_notification_t *finished_notification;   /**< Notification sent back to userspace on job complete */
-	u32 num_memory_cookies;                            /**< Number of memory cookies attached to job */
-	u32 *memory_cookies;                               /**< Memory cookies attached to job */
-#if defined(CONFIG_DMA_SHARED_BUFFER) && !defined(CONFIG_MALI_DMA_BUF_MAP_ON_ATTACH)
-	struct mali_dma_buf_attachment **dma_bufs;         /**< Array of DMA-bufs used by job */
-	u32 num_dma_bufs;                                  /**< Number of DMA-bufs used by job */
-#endif
 #ifdef CONFIG_SYNC
 	mali_sync_pt *sync_point;                          /**< Sync point to signal on completion */
 	struct sync_fence_waiter sync_waiter;              /**< Sync waiter for async wait */
@@ -216,6 +207,14 @@ MALI_STATIC_INLINE void mali_pp_job_mark_sub_job_started(struct mali_pp_job *job
 	/* Assert that we are marking the "first unstarted sub job" as started */
 	MALI_DEBUG_ASSERT(job->sub_jobs_started == sub_job);
 	job->sub_jobs_started++;
+}
+
+MALI_STATIC_INLINE void mali_pp_job_mark_sub_job_not_stated(struct mali_pp_job *job, u32 sub_job)
+{
+	/* This is only safe on Mali-200. */
+	MALI_DEBUG_ASSERT(_MALI_PRODUCT_ID_MALI200 == mali_kernel_core_get_product_id());
+
+	job->sub_jobs_started--;
 }
 
 MALI_STATIC_INLINE void mali_pp_job_mark_sub_job_completed(struct mali_pp_job *job, mali_bool success)

@@ -24,14 +24,14 @@
 /* Number of frame registers on Mali-300 and later */
 #define MALI_PP_MALI400_NUM_FRAME_REGISTERS ((0x058/4)+1)
 
-static struct mali_pp_core* mali_global_pp_cores[MALI_MAX_NUMBER_OF_PP_CORES] = { NULL };
+static struct mali_pp_core* mali_global_pp_cores[MALI_MAX_NUMBER_OF_PP_CORES];
 static u32 mali_global_num_pp_cores = 0;
 
 /* Interrupt handlers */
 static void mali_pp_irq_probe_trigger(void *data);
 static _mali_osk_errcode_t mali_pp_irq_probe_ack(void *data);
 
-struct mali_pp_core *mali_pp_create(const _mali_osk_resource_t *resource, struct mali_group *group, mali_bool is_virtual, u32 bcast_id)
+struct mali_pp_core *mali_pp_create(const _mali_osk_resource_t *resource, struct mali_group *group, mali_bool is_virtual)
 {
 	struct mali_pp_core* core = NULL;
 
@@ -48,7 +48,6 @@ struct mali_pp_core *mali_pp_create(const _mali_osk_resource_t *resource, struct
 	if (NULL != core)
 	{
 		core->core_id = mali_global_num_pp_cores;
-		core->bcast_id = bcast_id;
 		core->counter_src0_used = MALI_HW_CORE_NO_COUNTER;
 		core->counter_src1_used = MALI_HW_CORE_NO_COUNTER;
 
@@ -121,21 +120,12 @@ void mali_pp_delete(struct mali_pp_core *core)
 	mali_hw_core_delete(&core->hw_core);
 
 	/* Remove core from global list */
-	for (i = 0; i < mali_global_num_pp_cores; i++)
+	for (i = 0; i < MALI_MAX_NUMBER_OF_PP_CORES; i++)
 	{
 		if (mali_global_pp_cores[i] == core)
 		{
 			mali_global_pp_cores[i] = NULL;
 			mali_global_num_pp_cores--;
-
-			if (i != mali_global_num_pp_cores)
-			{
-				/* We removed a PP core from the middle of the array -- move the last
-				 * PP core to the current position to close the gap */
-				mali_global_pp_cores[i] = mali_global_pp_cores[mali_global_num_pp_cores];
-				mali_global_pp_cores[mali_global_num_pp_cores] = NULL;
-			}
-
 			break;
 		}
 	}
@@ -279,15 +269,14 @@ _mali_osk_errcode_t mali_pp_reset_wait(struct mali_pp_core *core)
 	int i;
 	u32 rawstat = 0;
 
+	/* TODO: For virtual Mali-450 core, check that PP active in STATUS is 0 (this must be initiated from group) */
+
 	for (i = 0; i < MALI_REG_POLL_COUNT_FAST; i++)
 	{
-		if (!(mali_pp_read_status(core) & MALI200_REG_VAL_STATUS_RENDERING_ACTIVE))
+		rawstat = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_INT_RAWSTAT);
+		if (rawstat & MALI400PP_REG_VAL_IRQ_RESET_COMPLETED)
 		{
-			rawstat = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_INT_RAWSTAT);
-			if (rawstat == MALI400PP_REG_VAL_IRQ_RESET_COMPLETED)
-			{
-				break;
-			}
+			break;
 		}
 	}
 
@@ -313,6 +302,7 @@ _mali_osk_errcode_t mali_pp_reset(struct mali_pp_core *core)
 
 void mali_pp_job_start(struct mali_pp_core *core, struct mali_pp_job *job, u32 sub_job, mali_bool restart_virtual)
 {
+	u32 num_frame_registers;
 	u32 relative_address;
 	u32 start_index;
 	u32 nr_of_regs;
@@ -326,6 +316,7 @@ void mali_pp_job_start(struct mali_pp_core *core, struct mali_pp_job *job, u32 s
 	MALI_DEBUG_ASSERT_POINTER(core);
 
 	/* Write frame registers */
+	num_frame_registers = (_MALI_PRODUCT_ID_MALI200 == mali_kernel_core_get_product_id()) ? MALI_PP_MALI200_NUM_FRAME_REGISTERS : MALI_PP_MALI400_NUM_FRAME_REGISTERS;
 
 	/*
 	 * There are two frame registers which are different for each sub job:
@@ -362,7 +353,7 @@ void mali_pp_job_start(struct mali_pp_core *core, struct mali_pp_job *job, u32 s
 	/* Write remaining registers */
 	relative_address = MALI200_REG_ADDR_ORIGIN_OFFSET_X;
 	start_index = MALI200_REG_ADDR_ORIGIN_OFFSET_X / sizeof(u32);
-	nr_of_regs = MALI_PP_MALI400_NUM_FRAME_REGISTERS - MALI200_REG_ADDR_ORIGIN_OFFSET_X / sizeof(u32);
+	nr_of_regs = num_frame_registers - MALI200_REG_ADDR_ORIGIN_OFFSET_X / sizeof(u32);
 
 	mali_hw_core_register_write_array_relaxed_conditional(&core->hw_core,
 	        relative_address, &frame_registers[start_index],
@@ -415,7 +406,7 @@ u32 mali_pp_core_get_version(struct mali_pp_core *core)
 
 struct mali_pp_core* mali_pp_get_global_pp_core(u32 index)
 {
-	if (mali_global_num_pp_cores > index)
+	if (MALI_MAX_NUMBER_OF_PP_CORES > index)
 	{
 		return mali_global_pp_cores[index];
 	}
@@ -480,30 +471,33 @@ void mali_pp_print_state(struct mali_pp_core *core)
 }
 #endif
 
-void mali_pp_update_performance_counters(struct mali_pp_core *parent, struct mali_pp_core *child, struct mali_pp_job *job, u32 subjob)
+void mali_pp_update_performance_counters(struct mali_pp_core *core, struct mali_pp_job *job, u32 subjob)
 {
 	u32 val0 = 0;
 	u32 val1 = 0;
 #if defined(CONFIG_MALI400_PROFILING)
-	int counter_index = COUNTER_FP_0_C0 + (2 * child->core_id);
+	int counter_index = COUNTER_FP0_C0 + (2 * core->core_id);
 #endif
 
-	if (MALI_HW_CORE_NO_COUNTER != parent->counter_src0_used)
+	if (MALI_HW_CORE_NO_COUNTER != core->counter_src0_used)
 	{
-		val0 = mali_hw_core_register_read(&child->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_0_VALUE);
+		val0 = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_0_VALUE);
+
 		mali_pp_job_set_perf_counter_value0(job, subjob, val0);
 
 #if defined(CONFIG_MALI400_PROFILING)
+		/*todo: check if the group is virtual - in such case, does it make sense to send a HW counter ?*/
 		_mali_osk_profiling_report_hw_counter(counter_index, val0);
 #endif
 	}
 
-	if (MALI_HW_CORE_NO_COUNTER != parent->counter_src1_used)
+	if (MALI_HW_CORE_NO_COUNTER != core->counter_src1_used)
 	{
-		val1 = mali_hw_core_register_read(&child->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_1_VALUE);
+		val1 = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_1_VALUE);
 		mali_pp_job_set_perf_counter_value1(job, subjob, val1);
 
 #if defined(CONFIG_MALI400_PROFILING)
+		/*todo: check if the group is virtual - in such case, does it make sense to send a HW counter ?*/
 		_mali_osk_profiling_report_hw_counter(counter_index + 1, val1);
 #endif
 	}

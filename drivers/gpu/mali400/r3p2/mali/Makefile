@@ -11,7 +11,6 @@
 USE_UMPV2=0
 USING_PROFILING ?= 1
 USING_INTERNAL_PROFILING ?= 0
-MALI_DMA_BUF_MAP_ON_ATTACH ?= 1
 
 # The Makefile sets up "arch" based on the CONFIG, creates the version info
 # string and the __malidrv_build_info.c file, and then call the Linux build
@@ -109,16 +108,6 @@ export CONFIG_MALI400_INTERNAL_PROFILING=y
 export EXTRA_DEFINES += -DCONFIG_MALI400_INTERNAL_PROFILING=1
 endif
 endif
-endif
-
-ifeq ($(MALI_DMA_BUF_MAP_ON_ATTACH),1)
-export CONFIG_MALI_DMA_BUF_MAP_ON_ATTACH=y
-export EXTRA_DEFINES += -DCONFIG_MALI_DMA_BUF_MAP_ON_ATTACH
-endif
-
-ifeq ($(MALI_SHARED_INTERRUPTS),1)
-export CONFIG_MALI_SHARED_INTERRUPTS=y
-export EXTRA_DEFINES += -DCONFIG_MALI_SHARED_INTERRUPTS
 endif
 
 ifneq ($(BUILD),release)

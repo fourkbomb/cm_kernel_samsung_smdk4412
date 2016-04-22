@@ -216,8 +216,6 @@ typedef enum
 	_MALI_OSK_LOCK_ORDER_MEM_INFO,
 	_MALI_OSK_LOCK_ORDER_MEM_SESSION,
 	_MALI_OSK_LOCK_ORDER_SESSIONS,
-	_MALI_OSK_LOCK_ORDER_PM_DOMAIN,
-	_MALI_OSK_LOCK_ORDER_PMU,
 
 	_MALI_OSK_LOCK_ORDER_FIRST
 } _mali_osk_lock_order_t;
@@ -616,13 +614,6 @@ _mali_osk_wq_work_t *_mali_osk_wq_create_work( _mali_osk_wq_work_handler_t handl
  * be called after deletion.
  */
 void _mali_osk_wq_delete_work( _mali_osk_wq_work_t *work );
-
-/** @brief Delete a work object
- *
- * This will NOT flush the work queue, so only call this if you are sure that the work handler will
- * not be called after deletion.
- */
-void _mali_osk_wq_delete_work_nonflush( _mali_osk_wq_work_t *work );
 
 /** @brief Cause a queued, deferred call of the work handler
  *
@@ -1782,10 +1773,6 @@ mali_bool _mali_osk_pm_dev_ref_add_no_power_on(void);
  * @note This must be used to release references taken with \a _mali_osk_pm_dev_ref_add_no_power_on().
  */
 void _mali_osk_pm_dev_ref_dec_no_power_on(void);
-
-/** @brief Block untill pending PM operations are done
- */
-void _mali_osk_pm_dev_barrier(void);
 
 /** @} */ /* end group  _mali_osk_miscellaneous */
 

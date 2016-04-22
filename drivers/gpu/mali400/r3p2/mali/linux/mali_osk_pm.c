@@ -26,12 +26,12 @@
 
 static _mali_osk_atomic_t mali_pm_ref_count;
 
-void _mali_osk_pm_dev_enable(void)
+void _mali_osk_pm_dev_enable(void) /* @@@@ todo: change to init of some kind.. or change the way or where atomics are initialized? */
 {
 	_mali_osk_atomic_init(&mali_pm_ref_count, 0);
 }
 
-void _mali_osk_pm_dev_disable(void)
+void _mali_osk_pm_dev_disable(void) /* @@@@ todo: change to term of some kind */
 {
 	_mali_osk_atomic_term(&mali_pm_ref_count);
 }
@@ -99,12 +99,5 @@ void _mali_osk_pm_dev_ref_dec_no_power_on(void)
 	pm_runtime_put(&(mali_platform_device->dev));
 #endif
 	MALI_DEBUG_PRINT(4, ("Mali OSK PM: No-power ref released (%u)\n", _mali_osk_atomic_read(&mali_pm_ref_count)));
-#endif
-}
-
-void _mali_osk_pm_dev_barrier(void)
-{
-#ifdef CONFIG_PM_RUNTIME
-	pm_runtime_barrier(&(mali_platform_device->dev));
 #endif
 }

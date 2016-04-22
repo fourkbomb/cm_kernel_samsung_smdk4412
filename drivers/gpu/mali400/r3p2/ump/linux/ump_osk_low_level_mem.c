@@ -23,8 +23,6 @@
 #include <linux/module.h>            /* kernel module definitions */
 #include <linux/kernel.h>
 #include <linux/mm.h>
-/* MALI_SEC */
-#include <linux/sched.h>
 #include <linux/slab.h>
 
 #include <asm/memory.h>
@@ -150,14 +148,7 @@ _mali_osk_errcode_t _ump_osk_mem_mapregion_init( ump_memory_allocation * descrip
 
 	vma->vm_private_data = vma_usage_tracker;
 	vma->vm_flags |= VM_IO;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
 	vma->vm_flags |= VM_RESERVED;
-#else
-	vma->vm_flags |= VM_DONTDUMP;
-	vma->vm_flags |= VM_DONTEXPAND;
-	vma->vm_flags |= VM_PFNMAP;
-#endif
-
 
 	if (0==descriptor->is_cached)
 	{
@@ -219,189 +210,33 @@ _mali_osk_errcode_t _ump_osk_mem_mapregion_map( ump_memory_allocation * descript
 	return retval;
 }
 
-/* MALI_SEC */
-static u32 _ump_osk_virt_to_phys_start(ump_dd_mem * mem, u32 start, u32 address, int *index)
+
+void _ump_osk_msync( ump_dd_mem * mem, void * virt, u32 offset, u32 size, ump_uk_msync_op op )
 {
 	int i;
-	u32 offset = address - start;
-	ump_dd_physical_block *block;
-	u32 sum = 0;
-
-	for (i=0; i<mem->nr_blocks; i++) {
-		block = &mem->block_array[i];
-		sum += block->size;
-		if (sum > offset) {
-			*index = i;
-			DBG_MSG(3, ("_ump_osk_virt_to_phys : index : %d, virtual 0x%x, phys 0x%x\n", i, address, (u32)block->addr + offset - (sum -block->size)));
-			return (u32)block->addr + offset - (sum -block->size);
-		}
-	}
-
-	return _MALI_OSK_ERR_FAULT;
-}
-
-/* MALI_SEC */
-static u32 _ump_osk_virt_to_phys_end(ump_dd_mem * mem, u32 start, u32 address, int *index)
-{
-	int i;
-	u32 offset = address - start;
-	ump_dd_physical_block *block;
-	u32 sum = 0;
-
-	for (i=0; i<mem->nr_blocks; i++) {
-		block = &mem->block_array[i];
-		sum += block->size;
-		if (sum >= offset) {
-			*index = i;
-			DBG_MSG(3, ("_ump_osk_virt_to_phys : index : %d, virtual 0x%x, phys 0x%x\n", i, address, (u32)block->addr + offset - (sum -block->size)));
-			return (u32)block->addr + offset - (sum -block->size);
-		}
-	}
-
-	return _MALI_OSK_ERR_FAULT;
-}
-
-/* MALI_SEC */
-static void _ump_osk_msync_with_virt(ump_dd_mem * mem, ump_uk_msync_op op, u32 start, u32 address, u32 size)
-{
-	int start_index, end_index;
-	u32 start_p, end_p;
-
-	DBG_MSG(3, ("Cache flush with user virtual address. start : 0x%x, end : 0x%x, address 0x%x, size 0x%x\n", start, start+mem->size_bytes, address, size));
-
-	start_p = _ump_osk_virt_to_phys_start(mem, start, address, &start_index);
-	end_p = _ump_osk_virt_to_phys_end(mem, start, address+size, &end_index);
-
-	if (start_index==end_index) {
-		if (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE)
-			outer_flush_range(start_p, end_p);
-		else
-			outer_clean_range(start_p, end_p);
-	} else {
-		ump_dd_physical_block *block;
-		int i;
-
-		for (i=start_index; i<=end_index; i++) {
-			block = &mem->block_array[i];
-
-			if (i == start_index) {
-				if (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE) {
-					outer_flush_range(start_p, block->addr+block->size);
-				} else {
-					outer_clean_range(start_p, block->addr+block->size);
-				}
-			}
-			else if (i == end_index) {
-				if (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE) {
-					outer_flush_range(block->addr, end_p);
-				} else {
-					outer_clean_range(block->addr, end_p);
-				}
-				break;
-			}
-			else {
-				if (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE) {
-					outer_flush_range(block->addr, block->addr+block->size);
-				} else {
-					outer_clean_range(block->addr, block->addr+block->size);
-				}
-			}
-		}
-	}
-	return;
-}
-/* The end of MALI_SEC */
-
-static void level1_cache_flush_all(void)
-{
-	DBG_MSG(4, ("UMP[xx] Flushing complete L1 cache\n"));
-	__cpuc_flush_kern_all();
-}
-
-void _ump_osk_msync( ump_dd_mem * mem, void * virt, u32 offset, u32 size, ump_uk_msync_op op, ump_session_data * session_data )
-{
-	int i;
-	/* MALI_SEC */
 	const void *start_v, *end_v;
+
+	DBG_MSG(3, ("Flushing nr of blocks: %u, size: %u. First: paddr: 0x%08x vaddr: 0x%08x offset: 0x%08x size:%uB\n",
+	            mem->nr_blocks, mem->size_bytes, mem->block_array[0].addr, virt, offset, size));
 
 	/* Flush L1 using virtual address, the entire range in one go.
 	 * Only flush if user space process has a valid write mapping on given address. */
-	if( (mem) && (virt!=NULL) && (access_ok(VERIFY_WRITE, virt, size)) )
+	if(access_ok(VERIFY_WRITE, virt, size))
 	{
-		/* MALI_SEC */
 		start_v = (void *)virt;
 		end_v   = (void *)(start_v + size - 1);
 		/*  There is no dmac_clean_range, so the L1 is always flushed,
 		 *  also for UMP_MSYNC_CLEAN. */
-		if (size >= SZ_64K)
-			flush_all_cpu_caches();
-		else
-			dmac_flush_range(start_v, end_v);
-
-		/* MALI ORIGINAL CODE */
-		//__cpuc_flush_dcache_area(virt, size);
-
-		DBG_MSG(3, ("UMP[%02u] Flushing CPU L1 Cache. Cpu address: %x-%x\n", mem->secure_id, start_v,end_v));
+		dmac_flush_range(start_v, end_v);
 	}
 	else
 	{
-		if (session_data)
-		{
-			if (op == _UMP_UK_MSYNC_FLUSH_L1  )
-			{
-				DBG_MSG(4, ("UMP Pending L1 cache flushes: %d\n", session_data->has_pending_level1_cache_flush));
-				session_data->has_pending_level1_cache_flush = 0;
-				level1_cache_flush_all();
-				return;
-			}
-			else
-			{
-				if (session_data->cache_operations_ongoing)
-				{
-					session_data->has_pending_level1_cache_flush++;
-					DBG_MSG(4, ("UMP[%02u] Defering the L1 flush. Nr pending:%d\n", mem->secure_id, session_data->has_pending_level1_cache_flush) );
-				}
-				else
-				{
-					/* Flushing the L1 cache for each switch_user() if ump_cache_operations_control(START) is not called */
-					level1_cache_flush_all();
-				}
-			}
-		}
-		else
-		{
-			DBG_MSG(4, ("Unkown state %s %d\n", __FUNCTION__, __LINE__));
-			level1_cache_flush_all();
-		}
-	}
-
-	if ( NULL == mem ) return;
-
-	if ( mem->size_bytes==size)
-	{
-		DBG_MSG(3, ("UMP[%02u] Flushing CPU L2 Cache\n",mem->secure_id));
-	}
-	else
-	{
-		DBG_MSG(3, ("UMP[%02u] Flushing CPU L2 Cache. Blocks:%u, TotalSize:%u. FlushSize:%u Offset:0x%x FirstPaddr:0x%08x\n",
-	            mem->secure_id, mem->nr_blocks, mem->size_bytes, size, offset, mem->block_array[0].addr));
-	}
-
-
-	/* Flush L2 using physical addresses, block for block. */
-	/* MALI_SEC */
-	if ((virt!=NULL) && (mem->size_bytes >= SZ_1M)) {
-		if (op == _UMP_UK_MSYNC_CLEAN)
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
-			outer_clean_all();
-#else
-			outer_sync();
-#endif
-		else if ((op == _UMP_UK_MSYNC_INVALIDATE) || (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE))
-			outer_flush_all();
+		DBG_MSG(1, ("Attempt to flush %d@%x as part of ID %u rejected: there is no valid mapping.\n",
+		            size, virt, mem->secure_id));
 		return;
 	}
 
+	/* Flush L2 using physical addresses, block for block. */
 	for (i=0 ; i < mem->nr_blocks; i++)
 	{
 		u32 start_p, end_p;
@@ -452,9 +287,6 @@ void _ump_osk_msync( ump_dd_mem * mem, void * virt, u32 offset, u32 size, ump_uk
 				case _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE:
 						outer_flush_range(start_p, end_p);
 						break;
-				case _UMP_UK_MSYNC_INVALIDATE:
-						outer_inv_range(start_p, end_p);
-						break;
 				default:
 						break;
 		}
@@ -467,41 +299,4 @@ void _ump_osk_msync( ump_dd_mem * mem, void * virt, u32 offset, u32 size, ump_uk
 	}
 
 	return;
-}
-
-/* MALI_SEC */
-void _ump_osk_mem_mapregion_get( ump_dd_mem ** mem, unsigned long vaddr)
-{
-	struct mm_struct *mm = current->mm;
-	struct vm_area_struct *vma;
-	ump_vma_usage_tracker * vma_usage_tracker;
-	ump_memory_allocation *descriptor;
-	ump_dd_handle handle;
-
-	DBG_MSG(3, ("_ump_osk_mem_mapregion_get: vaddr 0x%08lx\n", vaddr));
-
-	down_read(&mm->mmap_sem);
-	vma = find_vma(mm, vaddr);
-	up_read(&mm->mmap_sem);
-	if(!vma)
-	{
-		DBG_MSG(3, ("Not found VMA\n"));
-		*mem = NULL;
-		return;
-	}
-	DBG_MSG(4, ("Get vma: 0x%08lx vma->vm_start: 0x%08lx\n", (unsigned long)vma, vma->vm_start));
-
-	vma_usage_tracker = (struct ump_vma_usage_tracker*)vma->vm_private_data;
-	if(vma_usage_tracker == NULL)
-	{
-		DBG_MSG(3, ("Not found vma_usage_tracker\n"));
-		*mem = NULL;
-		return;
-	}
-
-	descriptor = (struct ump_memory_allocation*)vma_usage_tracker->descriptor;
-	handle = (ump_dd_handle)descriptor->handle;
-
-	DBG_MSG(3, ("Get handle: 0x%08lx\n", handle));
-	*mem = (ump_dd_mem*)handle;
 }

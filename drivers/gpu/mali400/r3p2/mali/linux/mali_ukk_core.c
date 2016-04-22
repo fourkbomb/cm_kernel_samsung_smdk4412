@@ -10,7 +10,6 @@
 #include <linux/fs.h>       /* file system operations */
 #include <linux/slab.h>     /* memort allocation functions */
 #include <asm/uaccess.h>    /* user space access */
-#include <linux/pid.h>
 
 #include "mali_ukk.h"
 #include "mali_osk.h"
@@ -23,9 +22,6 @@ int get_api_version_wrapper(struct mali_session_data *session_data, _mali_uk_get
 {
 	_mali_uk_get_api_version_s kargs;
     _mali_osk_errcode_t err;
-
-	u32 mem = _mali_ukk_report_memory_usage();
-	printk("Mali: mem_usage before %d : %u\n", _mali_osk_get_pid(), mem);
 
     MALI_CHECK_NON_NULL(uargs, -EINVAL);
 
@@ -128,46 +124,6 @@ int stream_create_wrapper(struct mali_session_data *session_data, _mali_uk_strea
 
 	kargs.ctx = NULL; /* prevent kernel address to be returned to user space */
 	if (0 != copy_to_user(uargs, &kargs, sizeof(_mali_uk_stream_create_s))) return -EFAULT;
-
-	return 0;
-}
-
-int sync_fence_create_empty_wrapper(struct mali_session_data *session_data, _mali_uk_fence_create_empty_s __user *uargs)
-{
-	_mali_uk_fence_create_empty_s kargs;
-
-	MALI_CHECK_NON_NULL(uargs, -EINVAL);
-
-	if (0 != get_user(kargs.stream, &uargs->stream)) return -EFAULT;
-
-	kargs.fence = mali_stream_create_empty_fence(kargs.stream);
-	if (0 > kargs.fence)
-	{
-		return kargs.fence;
-	}
-
-	kargs.ctx = NULL; /* prevent kernel address to be returned to user space */
-	if (0 != copy_to_user(uargs, &kargs, sizeof(_mali_uk_fence_create_empty_s))) return -EFAULT;
-
-	return 0;
-}
-
-int sync_fence_create_signalled_wrapper(struct mali_session_data *session_data, _mali_uk_fence_create_signalled_s __user *uargs)
-{
-	_mali_uk_fence_create_signalled_s kargs;
-
-	MALI_CHECK_NON_NULL(uargs, -EINVAL);
-
-	if (0 != get_user(kargs.stream, &uargs->stream)) return -EFAULT;
-
-	kargs.fence = mali_stream_create_signalled_fence(kargs.stream);
-	if (0 > kargs.fence)
-	{
-		return kargs.fence;
-	}
-
-	kargs.ctx = NULL; /* prevent kernel address to be returned to user space */
-	if (0 != copy_to_user(uargs, &kargs, sizeof(_mali_uk_fence_create_signalled_s))) return -EFAULT;
 
 	return 0;
 }

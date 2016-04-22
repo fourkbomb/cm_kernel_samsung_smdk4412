@@ -319,8 +319,6 @@ static mali_physical_memory_allocation_result block_allocator_allocate_page_tabl
 
 			alloc->next = NULL; /* Could potentially link many blocks together instead */
 
-			_mali_osk_memset(block->mapping, 0, size);
-
 			result = MALI_MEM_ALLOC_FINISHED;
 		}
 	}
