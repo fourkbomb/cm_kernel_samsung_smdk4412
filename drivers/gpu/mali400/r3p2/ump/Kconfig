@@ -14,6 +14,7 @@ config UMP_MEM_SIZE
 config UMP_DEBUG
 	bool "Enables debug messages"
 	depends on UMP
+	depends on MALI400_DEBUG
 	default n
 	---help---
 		This enables UMP driver debug messages
