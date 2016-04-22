@@ -422,12 +422,12 @@ struct mshci_ops {
 	void		(*init_issue_cmd)(struct mshci_host *host);
 	void		(*init_card)(struct mshci_host *host);
 
-	int		(*dma_map_sg)(struct mshci_host *host,
+	int		(*do_dma_map_sg)(struct mshci_host *host,
 				struct device *dev,
 				struct scatterlist *sg,
 				int nents, enum dma_data_direction dir,
 				int flush_type);
-	void		(*dma_unmap_sg)(struct mshci_host *host,
+	void		(*do_dma_unmap_sg)(struct mshci_host *host,
 				struct device *dev,
 				struct scatterlist *sg,
 				int nents, enum dma_data_direction dir,
