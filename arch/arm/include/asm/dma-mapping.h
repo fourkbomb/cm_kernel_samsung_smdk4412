@@ -10,9 +10,6 @@
 
 #include <asm-generic/dma-coherent.h>
 #include <asm/memory.h>
-#ifdef CONFIG_DMA_CMA
-#include <linux/dma-contiguous.h>
-#endif
 
 #define DMA_ERROR_CODE	(~0)
 extern struct dma_map_ops arm_dma_ops;
@@ -110,21 +107,6 @@ static inline void dma_free_noncoherent(struct device *dev, size_t size,
 		void *cpu_addr, dma_addr_t handle)
 {
 }
-
-#ifdef CONFIG_DMA_CMA
-static inline int dma_prepare_alloc_coherent(struct device *dev, size_t size)
-{
-	int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
-	int align = get_order(PAGE_ALIGN(size));
-
-	return dma_prepare_alloc_from_contiguous(dev, count, align);
-}
-#else
-static inline int dma_prepare_alloc_coherent(struct device *dev, size_t size)
-{
-	return 0;
-}
-#endif
 
 extern int dma_supported(struct device *dev, u64 mask);
 
@@ -225,7 +207,7 @@ static inline void dma_free_writecombine(struct device *dev, size_t size,
  * DMA region above it's default value of 2MB. It must be called before the
  * memory allocator is initialised, i.e. before any core_initcall.
  */
-extern void __init init_consistent_dma_size(unsigned long size);
+static inline void init_consistent_dma_size(unsigned long size) { }
 
 /*
  * For SA-1111, IXP425, and ADI systems  the dma-mapping functions are "magic"
@@ -279,6 +261,9 @@ extern void arm_dma_sync_sg_for_cpu(struct device *, struct scatterlist *, int,
 		enum dma_data_direction);
 extern void arm_dma_sync_sg_for_device(struct device *, struct scatterlist *, int,
 		enum dma_data_direction);
+extern int arm_dma_get_sgtable(struct device *dev, struct sg_table *sgt,
+		void *cpu_addr, dma_addr_t dma_addr, size_t size,
+		struct dma_attrs *attrs);
 
 #endif /* __KERNEL__ */
 #endif
