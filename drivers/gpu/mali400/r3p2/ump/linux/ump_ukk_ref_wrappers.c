@@ -103,7 +103,7 @@ int ump_ion_import_wrapper(u32 __user * argument, struct ump_session_data  * ses
 
 	ump_session_memory_list_element * session_memory_element = NULL;
 	if (ion_client_ump==NULL)
-	    ion_client_ump = ion_client_create(exynos_ion_dev, -1, "ump");
+	    ion_client_ump = ion_client_create(exynos_ion_dev, "ump");
 
 	/* Sanity check input parameters */
 	if (NULL == argument || NULL == session_data)

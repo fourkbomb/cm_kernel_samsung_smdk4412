@@ -40,6 +40,17 @@ else
     ccflags-y += -I$(srctree)/$(src)/linux/license/gpl
 endif
 
+ifeq ($(CONFIG_MALI400_UMP),y)
+mali-y += \
+	linux/mali_osk_irq.o \
+	linux/mali_osk_wq.o \
+	linux/mali_osk_wait_queue.o \
+	linux/mali_osk_low_level_mem.o \
+	linux/mali_osk_mali.o \
+	linux/mali_osk_notification.o \
+	linux/mali_osk_time.o \
+	linux/mali_osk_timers.o
+else
 mali-y += \
 	linux/mali_osk_atomics.o \
 	linux/mali_osk_irq.o \
@@ -54,6 +65,7 @@ mali-y += \
 	linux/mali_osk_notification.o \
 	linux/mali_osk_time.o \
 	linux/mali_osk_timers.o
+endif
 
 mali-y += \
 	linux/mali_ukk_mem.o \
