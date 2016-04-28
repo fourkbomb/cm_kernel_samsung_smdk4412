@@ -203,7 +203,7 @@ static int setdma_tx(struct s3c_ep *ep, struct s3c_request *req)
 
 static void complete_rx(struct s3c_udc *dev, u8 ep_num)
 {
-	struct dma_map_ops *dma_ops;
+//	struct dma_map_ops *dma_ops;
 	struct s3c_ep *ep = &dev->ep[ep_num];
 	struct s3c_request *req = NULL;
 	u32 ep_tsr = 0, xfer_size = 0, xfer_length, is_short = 0;
@@ -223,9 +223,9 @@ static void complete_rx(struct s3c_udc *dev, u8 ep_num)
 
 	else
 		xfer_size = (ep_tsr & 0x7fff);
-	dma_ops = get_dma_ops(NULL);
-	dma_ops->sync_single_for_device(NULL, req->req.dma, (unsigned long)((PAGE_SIZE - 1) &
-		(uintptr_t)(req->req.buf)), req->req.length, DMA_FROM_DEVICE);
+//	dma_ops = get_dma_ops(NULL);
+//	dma_ops->sync_single_for_device(NULL, req->req.dma, (unsigned long)((PAGE_SIZE - 1) &
+//		(uintptr_t)(req->req.buf)), req->req.length, DMA_FROM_DEVICE);
 	xfer_length = req->req.length - xfer_size;
 	req->req.actual += min(xfer_length, req->req.length - req->req.actual);
 	is_short = (xfer_length < ep->ep.maxpacket);
@@ -796,6 +796,7 @@ static void s3c_ep0_read(struct s3c_udc *dev)
  */
 static int s3c_ep0_write(struct s3c_udc *dev)
 {
+	int ret;
 	struct s3c_request *req;
 	struct s3c_ep *ep = &dev->ep[0];
 
@@ -832,8 +833,8 @@ u16     g_status __attribute__((aligned(8)));
 static int s3c_udc_get_status(struct s3c_udc *dev,
 		struct usb_ctrlrequest *crq)
 {
-	dma_addr_t dma_addr;
-	struct dma_map_ops *dma_ops;
+//	dma_addr_t dma_addr;
+//	struct dma_map_ops *dma_ops;
 	u8 ep_num = crq->wIndex & 0x7F;
 	u32 ep_ctrl;
 
@@ -867,10 +868,10 @@ static int s3c_udc_get_status(struct s3c_udc *dev,
 	default:
 		return 1;
 	}
-	dma_addr = pfn_to_dma(NULL, page_to_pfn(virt_to_page(&g_status)));
-	dma_ops = get_dma_ops(NULL);
-	dma_ops->sync_single_for_device(NULL, dma_addr, (unsigned long)((PAGE_SIZE - 1) &
-		(uintptr_t)(&g_status)), 2, DMA_TO_DEVICE);
+//	dma_addr = pfn_to_dma(NULL, page_to_pfn(virt_to_page(&g_status)));
+//	dma_ops = get_dma_ops(NULL);
+//	dma_ops->sync_single_for_device(NULL, dma_addr, (unsigned long)((PAGE_SIZE - 1) &
+//		(uintptr_t)(&g_status)), 2, DMA_TO_DEVICE);
 
 	__raw_writel(virt_to_phys(&g_status), dev->regs + S3C_UDC_OTG_DIEPDMA(EP0_CON));
 	__raw_writel((1<<19)|(2<<0), dev->regs + S3C_UDC_OTG_DIEPTSIZ(EP0_CON));
@@ -1126,8 +1127,8 @@ static int s3c_udc_clear_feature(struct usb_ep *_ep)
 /* Set into the test mode for Test Mode set_feature request */
 static inline void set_test_mode(struct s3c_udc *dev)
 {
-	dma_addr_t dma_addr;
-	struct dma_map_ops *dma_ops;
+//	dma_addr_t dma_addr;
+//	struct dma_map_ops *dma_ops;
 	u32 ep_ctrl, dctl;
 	u8 test_selector = (dev->usb_ctrl->wIndex>>8) & TEST_SELECTOR_MASK;
 
@@ -1172,10 +1173,10 @@ static inline void set_test_mode(struct s3c_udc *dev)
 		/* some delay is necessary like printk() or udelay() */
 		printk(KERN_INFO "Test mode selector in set_feature request is"
 			"TEST PACKET\n");
-		dma_addr = pfn_to_dma(NULL, page_to_pfn(virt_to_page(test_pkt)));
-		dma_ops = get_dma_ops(NULL);
-		dma_ops->sync_single_for_device(NULL, dma_addr, (unsigned long)((PAGE_SIZE - 1) &
-			(uintptr_t)(test_pkt)), TEST_PKT_SIZE, DMA_TO_DEVICE);
+//		dma_addr = pfn_to_dma(NULL, page_to_pfn(virt_to_page(test_pkt)));
+//		dma_ops = get_dma_ops(NULL);
+//		dma_ops->sync_single_for_device(NULL, dma_addr, (unsigned long)((PAGE_SIZE - 1) &
+//			(uintptr_t)(test_pkt)), TEST_PKT_SIZE, DMA_TO_DEVICE);
 
 		__raw_writel(virt_to_phys(test_pkt), dev->regs + S3C_UDC_OTG_DIEPDMA(EP0_CON));
 
