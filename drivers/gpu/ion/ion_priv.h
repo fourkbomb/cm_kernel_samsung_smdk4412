@@ -23,7 +23,7 @@
 #include <linux/mutex.h>
 #include <linux/rbtree.h>
 #include <linux/sched.h>
-#include <linux/shrinker.h>
+#include <linux/mm.h>
 #include <linux/types.h>
 
 struct ion_buffer *ion_handle_buffer(struct ion_handle *handle);
