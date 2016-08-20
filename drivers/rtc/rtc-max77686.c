@@ -394,7 +394,7 @@ static int max77686_rtc_start_alarm(struct max77686_rtc_info *info)
 	data[RTC_SEC] |= (1 << ALARM_ENABLE_SHIFT);
 	data[RTC_MIN] |= (1 << ALARM_ENABLE_SHIFT);
 	data[RTC_HOUR] |= (1 << ALARM_ENABLE_SHIFT);
-	data[RTC_WEEKDAY] |= (1 << ALARM_ENABLE_SHIFT);
+	data[RTC_WEEKDAY] |= 0;
 	if (data[RTC_MONTH] & 0xf)
 		data[RTC_MONTH] |= (1 << ALARM_ENABLE_SHIFT);
 	if (data[RTC_YEAR] & 0x7f)
@@ -620,12 +620,7 @@ static const struct rtc_class_ops max77686_rtc_ops = {
 	.read_time = max77686_rtc_read_time,
 	.set_time = max77686_rtc_set_time,
 	.read_alarm = max77686_rtc_read_alarm,
-#if defined(CONFIG_RTC_ALARM_BOOT) && defined(CONFIG_SLP)
-	.set_alarm = max77686_rtc_set_alarm_boot,
-#else
 	.set_alarm = max77686_rtc_set_alarm,
-#endif
-
 #if defined(CONFIG_RTC_ALARM_BOOT)
 	.set_alarm_boot = max77686_rtc_set_alarm_boot,
 #endif

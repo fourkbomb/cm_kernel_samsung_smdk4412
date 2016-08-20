@@ -32,7 +32,12 @@ typedef int __bitwise suspend_state_t;
 #define PM_SUSPEND_ON		((__force suspend_state_t) 0)
 #define PM_SUSPEND_STANDBY	((__force suspend_state_t) 1)
 #define PM_SUSPEND_MEM		((__force suspend_state_t) 3)
+#ifdef CONFIG_PARTIALSUSPEND_SLP
+#define PM_SUSPEND_PRE			((__force suspend_state_t) 4)
+#define PM_SUSPEND_MAX		((__force suspend_state_t) 5)
+#else
 #define PM_SUSPEND_MAX		((__force suspend_state_t) 4)
+#endif
 
 /**
  * struct platform_suspend_ops - Callbacks for managing platform dependent
@@ -132,6 +137,9 @@ struct platform_suspend_ops {
  */
 extern void suspend_set_ops(const struct platform_suspend_ops *ops);
 extern int suspend_valid_only_mem(suspend_state_t state);
+#ifdef CONFIG_PARTIALSUSPEND_SLP
+extern int suspend_valid_partialsuspend(suspend_state_t state);
+#endif
 
 /**
  * arch_suspend_disable_irqs - disable IRQs for suspend
@@ -282,6 +290,10 @@ extern int unregister_pm_notifier(struct notifier_block *nb);
 	register_pm_notifier(&fn##_nb);			\
 }
 
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+extern int wakeup_state;
+extern unsigned long wakeup_counter;
+#endif
 /* drivers/base/power/wakeup.c */
 extern bool events_check_enabled;
 

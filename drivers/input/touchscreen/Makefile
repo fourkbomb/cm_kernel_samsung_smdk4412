@@ -17,7 +17,7 @@ obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT224)	+= mxt224.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT224_GC)	+= mxt224_gc.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT224_U1)       += mxt224_u1.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT224_GRANDE)       += mxt224_grande.o
-obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT224S_GRANDE)       += mxt224s_grande.o
+obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT224S_GRANDE)       += mxt224s_grande.o mxt224s_grande_sec.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT1536E)       += mxt1536e.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT1664S)       += mxt1664s.o mxt1664s_sec.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_TSADCC)	+= atmel_tsadcc.o
@@ -62,7 +62,6 @@ obj-$(CONFIG_TOUCHSCREEN_TSC2005)	+= tsc2005.o
 obj-$(CONFIG_TOUCHSCREEN_TSC2007)	+= tsc2007.o
 obj-$(CONFIG_TOUCHSCREEN_UCB1400)	+= ucb1400_ts.o
 obj-$(CONFIG_TOUCHSCREEN_WACOM_W8001)	+= wacom_w8001.o
-obj-$(CONFIG_INPUT_WACOM)		+= wacom/
 obj-$(CONFIG_TOUCHSCREEN_WM831X)	+= wm831x-ts.o
 obj-$(CONFIG_TOUCHSCREEN_WM97XX)	+= wm97xx-ts.o
 wm97xx-ts-$(CONFIG_TOUCHSCREEN_WM9705)	+= wm9705.o
@@ -86,8 +85,6 @@ obj-$(CONFIG_TOUCHSCREEN_MXT768E)	+= mxt768e.o
 obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S7301)      += synaptics_s7301.o synaptics_fw_updater.o synaptics_sysfs.o
 obj-$(CONFIG_KEYPAD_MELFAS_TOUCH)                += grande_touchkey.o grande_download.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT540S)       += mxt540s.o
-obj-$(CONFIG_TOUCHSCREEN_CYTTSP4)   += cyttsp4_i2c.o cyttsp4_core.o
-
 ifeq ($(TARGET_BUILD_VARIANT), eng)
 KBUILD_CFLAGS		+= -DSEC_TSP_EVENT_DEBUG
 endif

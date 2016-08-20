@@ -30,9 +30,11 @@
 #include <linux/irq.h>
 #include <linux/gpio.h>
 #include <linux/delay.h>
+#ifdef CONFIG_HAS_WAKELOCK
 #include <linux/wakelock.h>
+#endif
 
-#include "modem.h"
+#include <linux/platform_data/modem.h>
 #include "modem_prj.h"
 #include "modem_variation.h"
 #include "modem_utils.h"
@@ -201,21 +203,37 @@ static int attach_devices(struct io_device *iod, enum modem_link tx_link)
 
 	switch (iod->format) {
 	case IPC_FMT:
+#ifdef CONFIG_HAS_WAKELOCK
 		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+#else
+		device_init_wakeup(iod->miscdev.this_device, true);
+#endif
 		iod->waketime = FMT_WAKE_TIME;
 		break;
 
 	case IPC_RFS:
+#ifdef CONFIG_HAS_WAKELOCK
 		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+#else
+		device_init_wakeup(iod->miscdev.this_device, true);
+#endif
 		iod->waketime = RFS_WAKE_TIME;
 		break;
 
 	case IPC_MULTI_RAW:
+#ifdef CONFIG_HAS_WAKELOCK
 		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+#else
+		device_init_wakeup(iod->miscdev.this_device, true);
+#endif
 		iod->waketime = RAW_WAKE_TIME;
 		break;
 	case IPC_BOOT:
+#ifdef CONFIG_HAS_WAKELOCK
 		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+#else
+		device_init_wakeup(iod->miscdev.this_device, true);
+#endif
 		iod->waketime = 3 * HZ;
 	default:
 		break;
@@ -328,22 +346,9 @@ static int modem_resume(struct device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_FAST_BOOT
-static void modem_complete(struct device *pdev)
-{
-	struct modem_ctl *mc = dev_get_drvdata(pdev);
-
-	if (mc->modem_complete)
-		mc->modem_complete(mc);
-}
-#endif
-
 static const struct dev_pm_ops modem_pm_ops = {
 	.suspend    = modem_suspend,
 	.resume     = modem_resume,
-#ifdef CONFIG_FAST_BOOT
-	.complete  = modem_complete,
-#endif
 };
 
 static struct platform_driver modem_driver = {

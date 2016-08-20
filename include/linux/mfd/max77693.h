@@ -39,7 +39,6 @@ enum {
 	MAX77693_MUIC_DOCK_DETACHED = 0,
 	MAX77693_MUIC_DOCK_DESKDOCK,
 	MAX77693_MUIC_DOCK_CARDOCK,
-	MAX77693_MUIC_DOCK_AUDIODOCK = 7,
 	MAX77693_MUIC_DOCK_SMARTDOCK = 8
 };
 
@@ -68,7 +67,7 @@ struct max77693_charger_platform_data {
 #endif
 };
 
-#ifdef CONFIG_VIBETONZ
+#if defined(CONFIG_VIBETONZ)
 #define MAX8997_MOTOR_REG_CONFIG2	0x2
 #define MOTOR_LRA			(1<<7)
 #define MOTOR_ERM			(0<<7)
@@ -86,6 +85,14 @@ struct max77693_haptic_platform_data {
 
 	void (*init_hw) (void);
 	void (*motor_en) (bool);
+};
+#elif defined(CONFIG_HAPTIC_MAX77693)
+struct max77693_haptic_platform_data {
+	const char *name;
+	int pwm_duty;
+	int pwm_period;
+	const char *regulator_name;
+	unsigned int pwm_id;
 };
 #endif
 
@@ -107,7 +114,7 @@ struct max77693_platform_data {
 	bool (*is_default_uart_path_cp) (void);
 	struct max77693_regulator_data *regulators;
 	int num_regulators;
-#ifdef CONFIG_VIBETONZ
+#if defined(CONFIG_VIBETONZ) || defined(CONFIG_HAPTIC_MAX77693)
 	/* haptic motor data */
 	struct max77693_haptic_platform_data *haptic_data;
 #endif
@@ -147,7 +154,7 @@ struct max77693_muic_data {
 };
 
 #if defined(CONFIG_MACH_M0_CTC)
-extern int max7693_muic_cp_usb_state(void);
+int max7693_muic_cp_usb_state(void);
 #endif
 
 #endif				/* __LINUX_MFD_MAX77693_H */

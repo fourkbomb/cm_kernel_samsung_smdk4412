@@ -156,9 +156,11 @@ static int mxt_start(struct mxt_data *data)
 {
 	int error;
 
-	/* Touch report enable */
-	error = mxt_write_object(data, TOUCH_MULTITOUCHSCREEN_T9,
-		MXT_T9_CTRL, data->tsp_ctrl);
+	/* Touch enable */
+	error = mxt_write_object(data,
+		GEN_POWERCONFIG_T7, MXT_T7_IDLE_ACQ_INT, data->idle_cycle_time);
+	error |= mxt_write_object(data,
+		GEN_POWERCONFIG_T7, MXT_T7_ACT_ACQ_INT, data->actv_cycle_time);
 
 	if (error)
 		dev_err(&data->client->dev, "Fail to start touch\n");
@@ -169,7 +171,10 @@ static int mxt_start(struct mxt_data *data)
 static void mxt_stop(struct mxt_data *data)
 {
 	/* Touch report disable */
-	mxt_write_object(data, TOUCH_MULTITOUCHSCREEN_T9, MXT_T9_CTRL, 0);
+	mxt_write_object(data,
+		GEN_POWERCONFIG_T7, MXT_T7_IDLE_ACQ_INT, 0);
+	mxt_write_object(data,
+		GEN_POWERCONFIG_T7, MXT_T7_ACT_ACQ_INT, 0);
 }
 
 static int mxt_check_instance(struct mxt_data *data, u8 object_type)
@@ -497,136 +502,6 @@ static int mxt_write_config_from_pdata(struct mxt_data *data)
 	return ret;
 }
 
-#if DUAL_CFG
-static int mxt_write_config(struct mxt_fw_info *fw_info)
-{
-	struct mxt_data *data = fw_info->data;
-	struct device *dev = &data->client->dev;
-	struct mxt_object *object;
-	struct mxt_cfg_data *cfg_data;
-	u32 current_crc;
-	u8 i, val = 0;
-	u16 reg, index;
-	int ret;
-	u32 cfg_length = data->cfg_len = fw_info->cfg_len / 2 ;
-
-	if (!fw_info->ta_cfg_raw_data && !fw_info->batt_cfg_raw_data) {
-		dev_info(dev, "No cfg data in file\n");
-		ret = mxt_write_config_from_pdata(data);
-		return ret;
-	}
-
-	/* Get config CRC from device */
-	ret = mxt_read_config_crc(data, &current_crc);
-	if (ret)
-		return ret;
-
-	/* Check Version information */
-	if (fw_info->fw_ver != data->info.version) {
-		dev_err(dev, "Warning: version mismatch! %s\n", __func__);
-		return 0;
-	}
-	if (fw_info->build_ver != data->info.build) {
-		dev_err(dev, "Warning: build num mismatch! %s\n", __func__);
-		return 0;
-	}
-
-	/* Check config CRC */
-	if (current_crc == fw_info->cfg_crc) {
-		dev_info(dev, "Skip writing Config:[CRC 0x%06X]\n",
-			current_crc);
-		return 0;
-	}
-
-	dev_info(dev, "Writing Config:[CRC 0x%06X!=0x%06X]\n",
-		current_crc, fw_info->cfg_crc);
-
-	/* Get the address of configuration data */
-	data->batt_cfg_raw_data = fw_info->batt_cfg_raw_data;
-	data->ta_cfg_raw_data = fw_info->ta_cfg_raw_data =
-		fw_info->batt_cfg_raw_data + cfg_length;
-
-	/* Write config info */
-	for (index = 0; index < cfg_length;) {
-		if (index + sizeof(struct mxt_cfg_data) >= cfg_length) {
-			dev_err(dev, "index(%d) of cfg_data exceeded total size(%d)!!\n",
-				index + sizeof(struct mxt_cfg_data),
-				cfg_length);
-			return -EINVAL;
-		}
-
-		/* Get the info about each object */
-		if (data->charging_mode)
-			cfg_data = (struct mxt_cfg_data *)
-					(&fw_info->ta_cfg_raw_data[index]);
-		else
-			cfg_data = (struct mxt_cfg_data *)
-					(&fw_info->batt_cfg_raw_data[index]);
-
-		index += sizeof(struct mxt_cfg_data) + cfg_data->size;
-		if (index > cfg_length) {
-			dev_err(dev, "index(%d) of cfg_data exceeded total size(%d) in T%d object!!\n",
-				index, cfg_length, cfg_data->type);
-			return -EINVAL;
-		}
-
-		object = mxt_get_object(data, cfg_data->type);
-		if (!object) {
-			dev_err(dev, "T%d is Invalid object type\n",
-				cfg_data->type);
-			return -EINVAL;
-		}
-
-		/* Check and compare the size, instance of each object */
-		if (cfg_data->size > object->size) {
-			dev_err(dev, "T%d Object length exceeded!\n",
-				cfg_data->type);
-			return -EINVAL;
-		}
-		if (cfg_data->instance >= object->instances) {
-			dev_err(dev, "T%d Object instances exceeded!\n",
-				cfg_data->type);
-			return -EINVAL;
-		}
-
-		dev_dbg(dev, "Writing config for obj %d len %d instance %d (%d/%d)\n",
-			cfg_data->type, object->size,
-			cfg_data->instance, index, cfg_length);
-
-		reg = object->start_address + object->size * cfg_data->instance;
-
-		/* Write register values of each object */
-		ret = mxt_write_mem(data, reg, cfg_data->size,
-					 cfg_data->register_val);
-		if (ret) {
-			dev_err(dev, "Write T%d Object failed\n",
-				object->object_type);
-			return ret;
-		}
-
-		/*
-		 * If firmware is upgraded, new bytes may be added to end of
-		 * objects. It is generally forward compatible to zero these
-		 * bytes - previous behaviour will be retained. However
-		 * this does invalidate the CRC and will force a config
-		 * download every time until the configuration is updated.
-		 */
-		if (cfg_data->size < object->size) {
-			dev_err(dev, "Warning: zeroing %d byte(s) in T%d\n",
-				 object->size - cfg_data->size, cfg_data->type);
-
-			for (i = cfg_data->size + 1; i < object->size; i++) {
-				ret = mxt_write_mem(data, reg + i, 1, &val);
-				if (ret)
-					return ret;
-			}
-		}
-	}
-	dev_info(dev, "Updated configuration\n");
-
-	return ret;
-}
-#else
 static int mxt_write_config(struct mxt_fw_info *fw_info)
 {
 	struct mxt_data *data = fw_info->data;
@@ -746,8 +621,6 @@ static int mxt_write_config(struct mxt_fw_info *fw_info)
 
 	return ret;
 }
-#endif
-
 
 static int mxt_calibrate_chip(struct mxt_data *data)
 {
@@ -758,135 +631,9 @@ static int mxt_calibrate_chip(struct mxt_data *data)
 		data->cmd_proc + CMD_CALIBRATE_OFFSET,
 		1, &cal_data);
 	if (!ret)
-		dev_info(&data->client->dev, "success sending calibration cmd!!!\n");
+		dev_info(&data->client->dev, "sucess sending calibration cmd!!!\n");
 	return ret;
 }
-
-#if TSP_INFORM_CHARGER
-static int set_charger_config(struct mxt_data *data)
-{
-	struct device *dev = &data->client->dev;
-	struct mxt_object *object;
-	struct mxt_cfg_data *cfg_data;
-	u8 i, val = 0;
-	u16 reg, index;
-	int ret;
-
-	dev_dbg(dev, "set_charger_config data->cfg_len = %d\n", data->cfg_len);
-
-	for (index = 0; index < data->cfg_len;) {
-		if (index + sizeof(struct mxt_cfg_data) >= data->cfg_len) {
-			dev_err(dev, "index(%d) of cfg_data exceeded total size(%d)!!\n",
-				index + sizeof(struct mxt_cfg_data),
-				data->cfg_len);
-			return -EINVAL;
-		}
-
-		/* Get the info about each object */
-		if (data->charging_mode)
-			cfg_data = (struct mxt_cfg_data *)
-					(&data->ta_cfg_raw_data[index]);
-		else
-			cfg_data = (struct mxt_cfg_data *)
-					(&data->batt_cfg_raw_data[index]);
-
-		index += sizeof(struct mxt_cfg_data) + cfg_data->size;
-		if (index > data->cfg_len) {
-			dev_err(dev, "index(%d) of cfg_data exceeded total size(%d) in T%d object!!\n",
-				index, data->cfg_len, cfg_data->type);
-			return -EINVAL;
-		}
-
-		object = mxt_get_object(data, cfg_data->type);
-		if (!object) {
-			dev_err(dev, "T%d is Invalid object type\n",
-				cfg_data->type);
-			return -EINVAL;
-		}
-
-		/* Check and compare the size, instance of each object */
-		if (cfg_data->size > object->size) {
-			dev_err(dev, "T%d Object length exceeded!\n",
-				cfg_data->type);
-			return -EINVAL;
-		}
-		if (cfg_data->instance >= object->instances) {
-			dev_err(dev, "T%d Object instances exceeded!\n",
-				cfg_data->type);
-			return -EINVAL;
-		}
-
-		dev_dbg(dev, "Writing config for obj %d len %d instance %d (%d/%d)\n",
-			cfg_data->type, object->size,
-			cfg_data->instance, index, data->cfg_len);
-
-		reg = object->start_address + object->size * cfg_data->instance;
-
-		/* Write register values of each object */
-		ret = mxt_write_mem(data, reg, cfg_data->size,
-					 cfg_data->register_val);
-		if (ret) {
-			dev_err(dev, "Write T%d Object failed\n",
-				object->object_type);
-			return ret;
-		}
-
-		/*
-		 * If firmware is upgraded, new bytes may be added to end of
-		 * objects. It is generally forward compatible to zero these
-		 * bytes - previous behaviour will be retained. However
-		 * this does invalidate the CRC and will force a config
-		 * download every time until the configuration is updated.
-		 */
-		if (cfg_data->size < object->size) {
-			dev_err(dev, "Warning: zeroing %d byte(s) in T%d\n",
-				 object->size - cfg_data->size, cfg_data->type);
-
-			for (i = cfg_data->size + 1; i < object->size; i++) {
-				ret = mxt_write_mem(data, reg + i, 1, &val);
-				if (ret)
-					return ret;
-			}
-		}
-	}
-
-	return ret;
-}
-
-static void inform_charger(struct mxt_callbacks *cb,
-	bool en)
-{
-	struct mxt_data *data = container_of(cb,
-			struct mxt_data, callbacks);
-
-	cancel_delayed_work_sync(&data->noti_dwork);
-	data->charging_mode = en;
-	schedule_delayed_work(&data->noti_dwork, HZ / 5);
-}
-
-static void charger_noti_dwork(struct work_struct *work)
-{
-	struct mxt_data *data =
-		container_of(work, struct mxt_data,
-		noti_dwork.work);
-
-	if (!data->mxt_enabled) {
-		schedule_delayed_work(&data->noti_dwork, HZ / 5);
-		return ;
-	}
-
-	dev_info(&data->client->dev,
-		"%s mode\n",
-		data->charging_mode ? "charging" : "battery");
-
-	set_charger_config(data);
-}
-
-static void inform_charger_init(struct mxt_data *data)
-{
-	INIT_DELAYED_WORK(&data->noti_dwork, charger_noti_dwork);
-}
-#endif
 
 static void mxt_report_input_data(struct mxt_data *data)
 {
@@ -989,10 +736,6 @@ static void mxt_treat_T6_object(struct mxt_data *data, u8 *msg)
 	/* reset */
 	if (msg[1] & 0x80) {
 		dev_info(&data->client->dev, "reset is ongoing\n");
-#if TSP_INFORM_CHARGER
-		if (data->charging_mode)
-			set_charger_config(data);
-#endif
 #if TSP_SEC_SYSFS
 		data->sysfs_data->current_crc = msg[2]
 				| (msg[3] << 8) | (msg[4] << 16);
@@ -1281,76 +1024,6 @@ static int mxt_fw_write(struct i2c_client *client,
 	return 0;
 }
 
-#if DUAL_CFG
-int mxt_verify_fw(struct mxt_fw_info *fw_info, const struct firmware *fw)
-{
-	struct mxt_data *data = fw_info->data;
-	struct device *dev = &data->client->dev;
-	struct mxt_fw_image *fw_img;
-
-	if (!fw) {
-		dev_err(dev, "could not find firmware file\n");
-		return -ENOENT;
-	}
-
-	fw_img = (struct mxt_fw_image *)fw->data;
-
-	if (le32_to_cpu(fw_img->magic_code) != MXT_FW_MAGIC) {
-		/* In case, firmware file only consist of firmware */
-		dev_info(dev, "Firmware file only consist of raw firmware\n");
-		fw_info->fw_len = fw->size;
-		fw_info->fw_raw_data = fw->data;
-	} else {
-		/*
-		 * In case, firmware file consist of header,
-		 * configuration, firmware.
-		 */
-		dev_info(dev, "Firmware file consist of header, configuration, firmware\n");
-		fw_info->fw_ver = fw_img->fw_ver;
-		fw_info->build_ver = fw_img->build_ver;
-		fw_info->hdr_len = le32_to_cpu(fw_img->hdr_len);
-		fw_info->cfg_len = le32_to_cpu(fw_img->cfg_len);
-		fw_info->fw_len = le32_to_cpu(fw_img->fw_len);
-		fw_info->cfg_crc = le32_to_cpu(fw_img->cfg_crc);
-
-		/* Check the firmware file with header */
-		if (fw_info->hdr_len != sizeof(struct mxt_fw_image)
-			|| fw_info->hdr_len + fw_info->cfg_len
-				+ fw_info->fw_len != fw->size) {
-			dev_err(dev, "Firmware file is invaild !!hdr size[%d] cfg,fw size[%d,%d] filesize[%d]\n",
-				fw_info->hdr_len, fw_info->cfg_len,
-				fw_info->fw_len, fw->size);
-			return -EINVAL;
-		}
-
-		if (!fw_info->cfg_len) {
-			dev_err(dev, "Firmware file dose not include configuration data\n");
-			return -EINVAL;
-		}
-		if (!fw_info->fw_len) {
-			dev_err(dev, "Firmware file dose not include raw firmware data\n");
-			return -EINVAL;
-		}
-
-		/* Get the address of configuration data */
-		data->cfg_len = fw_info->cfg_len / 2;
-		data->batt_cfg_raw_data = fw_info->batt_cfg_raw_data
-			= fw_img->data;
-		data->ta_cfg_raw_data = fw_info->ta_cfg_raw_data
-			= fw_img->data +  (fw_info->cfg_len / 2) ;
-
-		/* Get the address of firmware data */
-		fw_info->fw_raw_data = fw_img->data + fw_info->cfg_len;
-
-#if TSP_SEC_SYSFS
-		data->sysfs_data->fw_ver = fw_info->fw_ver;
-		data->sysfs_data->build_ver = fw_info->build_ver;
-#endif
-	}
-
-	return 0;
-}
-#else
 int mxt_verify_fw(struct mxt_fw_info *fw_info, const struct firmware *fw)
 {
 	struct mxt_data *data = fw_info->data;
@@ -1415,7 +1088,6 @@ int mxt_verify_fw(struct mxt_fw_info *fw_info, const struct firmware *fw)
 
 	return 0;
 }
-#endif
 
 static int mxt_flash_fw(struct mxt_fw_info *fw_info)
 {
@@ -1478,7 +1150,7 @@ static int mxt_flash_fw(struct mxt_fw_info *fw_info)
 
 		msleep(20);
 	}
-	dev_info(dev, "success updating firmware\n");
+	dev_info(dev, "Sucess updating firmware\n");
 
 	msleep(MXT_540S_FW_RESET_TIME);
 out:
@@ -1561,15 +1233,22 @@ static void mxt_handle_init_data(struct mxt_data *data)
 			MXT_T9_YRANGE_MSB, (pdata->max_y) >> 8);
 
 	/* Get acquistion time */
-	ret = mxt_read_object(data, TOUCH_MULTITOUCHSCREEN_T9,
-		MXT_T9_CTRL, &val);
-
+	ret = mxt_read_object(data, GEN_POWERCONFIG_T7,
+				 MXT_T7_IDLE_ACQ_INT, &val);
 	if (ret)
-		data->tsp_ctrl = 0x83;
+		data->idle_cycle_time = 0xFF;
 	else
-		data->tsp_ctrl = (val > 0) ? val : 0x83;
+		data->idle_cycle_time = (val >= 0) ? val : 0xFF;
 
-	dev_info(&data->client->dev, "T9 CTRL : %d", data->tsp_ctrl);
+	ret = mxt_read_object(data, GEN_POWERCONFIG_T7,
+				 MXT_T7_ACT_ACQ_INT, &val);
+	if (ret)
+		data->actv_cycle_time = 0xFF;
+	else
+		data->actv_cycle_time = (val >= 0) ? val : 0xFF;
+
+	dev_info(&data->client->dev, "IDLE_acquisition_time : %d, ACTV_acquisition_time : %d\n",
+			data->idle_cycle_time, data->actv_cycle_time);
 }
 
 int  mxt_rest_initialize(struct mxt_fw_info *fw_info)
@@ -1866,10 +1545,6 @@ static void mxt_early_suspend(struct early_suspend *h)
 {
 	struct mxt_data *data = container_of(h, struct mxt_data,
 								early_suspend);
-#if TSP_INFORM_CHARGER
-	cancel_delayed_work_sync(&data->noti_dwork);
-#endif
-
 	mutex_lock(&data->lock);
 
 	if (data->mxt_enabled) {
@@ -2025,25 +1700,15 @@ static int __devinit mxt_probe(struct i2c_client *client,
 	if (ret)
 		goto err_reg_dev;
 
-#if TSP_INFORM_CHARGER
-	/* Register callbacks */
-	/* To inform tsp , charger connection status*/
-	data->callbacks.inform_charger = inform_charger;
-	if (pdata->register_cb) {
-		pdata->register_cb(&data->callbacks);
-		inform_charger_init(data);
+	ret = mxt_touch_init(data, false);
+	if (ret) {
+		dev_err(&client->dev, "Failed to init driver\n");
+		goto err_init_drv;
 	}
-#endif
 
 	ret = mxt_sysfs_init(client);
 	if (ret < 0) {
 		dev_err(&client->dev, "Failed to creat sysfs\n");
-		goto err_init_drv;
-	}
-
-	ret = mxt_touch_init(data, false);
-	if (ret) {
-		dev_err(&client->dev, "Failed to init driver\n");
 		goto err_init_drv;
 	}
 

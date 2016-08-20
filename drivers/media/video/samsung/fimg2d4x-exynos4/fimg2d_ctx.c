@@ -18,54 +18,10 @@
 #include "fimg2d_ctx.h"
 #include "fimg2d_cache.h"
 #include "fimg2d_helper.h"
-#if defined(CONFIG_CMA)
-#include <linux/cma.h>
-#endif
-
-static inline int is_yuvfmt(enum color_format fmt)
-{
-	switch (fmt) {
-	case CF_YCBCR_420:
-	case CF_YCBCR_422:
-	case CF_YCBCR_444:
-		return 1;
-	default:
-		return 0;
-	}
-}
-
-/**
- * @plane: 0 for 1st plane, 1 for 2nd plane
- */
-static int yuv_stride(int width, enum color_format cf, enum pixel_order order,
-			int plane)
-{
-	int bpp;
-
-	switch (cf) {
-	case CF_YCBCR_420:
-		bpp = (!plane) ? 8 : 4;
-		break;
-	case CF_YCBCR_422:
-		if (order == P2_CRCB || order == P2_CBCR)
-			bpp = 8;
-		else
-			bpp = (!plane) ? 16 : 0;
-		break;
-	case CF_YCBCR_444:
-		bpp = (!plane) ? 8 : 16;
-		break;
-	default:
-		bpp = 0;
-		break;
-	}
-
-	return width * bpp >> 3;
-}
 
 static int fimg2d_check_params(struct fimg2d_bltcmd *cmd)
 {
-	int w, h, i, bw;
+	int w, h, i;
 	struct fimg2d_param *p = &cmd->param;
 	struct fimg2d_image *img;
 	struct fimg2d_scale *scl;
@@ -97,36 +53,6 @@ static int fimg2d_check_params(struct fimg2d_bltcmd *cmd)
 			r->x1 >= w || r->y1 >= h ||
 			r->x1 >= r->x2 || r->y1 >= r->y2)
 			return -1;
-#if defined(CONFIG_CMA)
-#if 0
-		if (img->addr.type == ADDR_PHYS) {
-			if (!cma_is_registered_region(img->addr.start, (h * img->stride))) {
-				printk(KERN_ERR "[%s] Surface[%d] is not included in CMA region\n", __func__, i);
-				return -1;
-			}
-		}
-#else
-		if (img->addr.type == ADDR_PHYS) {
-			if (is_yuvfmt(img->fmt))
-				bw = yuv_stride(img->width, img->fmt, img->order, 0);
-			else
-				bw = img->stride;
-
-			if (!cma_is_registered_region(img->addr.start, (h * bw))) {
-				printk(KERN_ERR "[%s] Surface[%d] is not included in CMA region\n", __func__, i);
-				 return -1;
-			}
-
-			if (img->order == P2_CRCB || img->order == P2_CBCR) {
-				bw = yuv_stride(img->width, img->fmt, img->order, 1);
-				if (!cma_is_registered_region(img->plane2.start, (h * bw))) {
-					printk(KERN_ERR "[%s] plane2[%d] is not included in CMA region\n", __func__, i);
-					return -1;
-				}
-			}
-		}
-#endif
-#endif
 	}
 
 	clp = &p->clipping;
@@ -204,7 +130,6 @@ static int fimg2d_check_dma_sync(struct fimg2d_bltcmd *cmd)
 	enum pt_status pt;
 	int clip_x, clip_w, clip_h, y, dir, i;
 	unsigned long clip_start;
-	unsigned long modified_addr;
 
 	clp = &p->clipping;
 
@@ -230,13 +155,6 @@ static int fimg2d_check_dma_sync(struct fimg2d_bltcmd *cmd)
 			pt = fimg2d_check_pagetable(mm, c->addr, c->size);
 			if (pt == PT_FAULT)
 				return -1;
-		} else if (img->addr.type == ADDR_USER_CONTIG) {
-			modified_addr = GET_MVA(img->addr.start, img->plane2.start);
-			pt = fimg2d_migrate_pagetable(cmd->ctx->pgd_clone,
-					modified_addr, img->plane2.start, img->height * img->stride);
-			if (pt != PT_NORMAL) {
-				return -1;
-			}
 		}
 
 		if (img->need_cacheopr && i != IMAGE_TMP) {
@@ -257,25 +175,7 @@ static int fimg2d_check_dma_sync(struct fimg2d_bltcmd *cmd)
 			c = &cmd->dma[i];
 			r = &img->rect;
 
-			if (!img->addr.type)
-				continue;
-
-			if ((cmd->image[IMAGE_SRC].addr.type == ADDR_USER_CONTIG) ||
-					(cmd->image[IMAGE_DST].addr.type == ADDR_USER_CONTIG)) {
-				if (img->addr.type == ADDR_USER_CONTIG) {
-					if (i == IMAGE_DST && clp->enable)
-						modified_addr = GET_MVA(img->addr.start, img->plane2.start) +
-								(img->stride * clp->y1);
-					else
-						modified_addr = GET_MVA(img->addr.start, img->plane2.start) +
-								(img->stride * r->y1);
-				} else {
-					modified_addr = c->addr;
-				}
-				fimg2d_clean_inner_pagetable_clone(cmd->ctx->pgd_clone, modified_addr, c->size);
-			}
-
-			if ( !c->cached)
+			if (!img->addr.type || !c->cached)
 				continue;
 
 			if (i == IMAGE_DST)
@@ -326,22 +226,8 @@ static int fimg2d_check_dma_sync(struct fimg2d_bltcmd *cmd)
 				continue;
 
 			/* clean pagetable */
-			if ((cmd->image[IMAGE_SRC].addr.type == ADDR_USER_CONTIG) ||
-					(cmd->image[IMAGE_DST].addr.type == ADDR_USER_CONTIG)) {
-				if (img->addr.type == ADDR_USER_CONTIG) {
-					if (i == IMAGE_DST && clp->enable)
-						modified_addr = GET_MVA(img->addr.start, img->plane2.start) +
-								(img->stride * clp->y1);
-					else
-						modified_addr = GET_MVA(img->addr.start, img->plane2.start) +
-								(img->stride * r->y1);
-				} else {
-					modified_addr = c->addr;
-				}
-				fimg2d_clean_outer_pagetable_clone(cmd->ctx->pgd_clone, modified_addr, c->size);
-			} else {
+			if (img->addr.type == ADDR_USER)
 				fimg2d_clean_outer_pagetable(mm, c->addr, c->size);
-			}
 
 			if (!c->cached)
 				continue;
@@ -389,7 +275,6 @@ int fimg2d_add_command(struct fimg2d_control *info, struct fimg2d_context *ctx,
 	int i, ret;
 	struct fimg2d_image *buf[MAX_IMAGES] = image_table(blit);
 	struct fimg2d_bltcmd *cmd;
-	struct fimg2d_image *img;
 
 	if ((blit->dst) && (type == ADDR_USER)
 			&& (blit->seq_no == SEQ_NO_BLT_SKIA))
@@ -447,13 +332,6 @@ int fimg2d_add_command(struct fimg2d_control *info, struct fimg2d_context *ctx,
 	}
 
 	fimg2d_fixup_params(cmd);
-
-	for (i = 0; i < MAX_IMAGES; i++) {
-		img = &cmd->image[i];
-		if (img->addr.type == ADDR_USER_CONTIG) {
-			memcpy(cmd->ctx->pgd_clone, cmd->ctx->mm->pgd, L1_DESCRIPTOR_SIZE);
-		}
-	}
 
 	if (fimg2d_check_dma_sync(cmd)) {
 		ret = -EFAULT;

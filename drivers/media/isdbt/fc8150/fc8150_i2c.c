@@ -32,6 +32,7 @@ static int i2c_bulkread(HANDLE hDevice, u8 chip, u8 addr, u8 *data, u16 length)
 
 static int i2c_bulkwrite(HANDLE hDevice, u8 chip, u8 addr, u8 *data, u16 length)
 {
+
 	/* Write your own i2c driver code here for Write operation. */
 
 	return BBM_OK;
@@ -50,8 +51,8 @@ int fc8150_bypass_read(HANDLE hDevice, u8 chip, u8 addr, u8 *data, u16 length)
 	u8 bypass_len  = 1;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, bypass_addr
-		, &bypass_data, bypass_len);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, bypass_addr, &bypass_data, \
+		bypass_len);
 	res |= i2c_bulkread(hDevice, chip, addr, data, length);
 	OAL_RELEASE_SEMAPHORE();
 
@@ -66,8 +67,8 @@ int fc8150_bypass_write(HANDLE hDevice, u8 chip, u8 addr, u8 *data, u16 length)
 	u8 bypass_len  = 1;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, bypass_addr
-		, &bypass_data, bypass_len);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, bypass_addr, &bypass_data, \
+		bypass_len);
 	res |= i2c_bulkwrite(hDevice, chip, addr, data, length);
 	OAL_RELEASE_SEMAPHORE();
 
@@ -96,8 +97,8 @@ int fc8150_i2c_byteread(HANDLE hDevice, u16 addr, u8 *data)
 	u8 command = HPIC_READ | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkread(hDevice, CHIP_ADDR, BBM_DATA_REG, data, 1);
 	OAL_RELEASE_SEMAPHORE();
@@ -111,8 +112,8 @@ int fc8150_i2c_wordread(HANDLE hDevice, u16 addr, u16 *data)
 	u8 command = HPIC_READ | HPIC_AINC | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkread(hDevice, CHIP_ADDR, BBM_DATA_REG, (u8 *)data, 2);
 	OAL_RELEASE_SEMAPHORE();
@@ -126,8 +127,8 @@ int fc8150_i2c_longread(HANDLE hDevice, u16 addr, u32 *data)
 	u8 command = HPIC_READ | HPIC_AINC | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkread(hDevice, CHIP_ADDR, BBM_DATA_REG, (u8 *)data, 4);
 	OAL_RELEASE_SEMAPHORE();
@@ -141,8 +142,8 @@ int fc8150_i2c_bulkread(HANDLE hDevice, u16 addr, u8 *data, u16 length)
 	u8 command = HPIC_READ | HPIC_AINC | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkread(hDevice, CHIP_ADDR, BBM_DATA_REG, data, length);
 	OAL_RELEASE_SEMAPHORE();
@@ -156,8 +157,8 @@ int fc8150_i2c_bytewrite(HANDLE hDevice, u16 addr, u8 data)
 	u8 command = HPIC_WRITE | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_DATA_REG, (u8 *)&data, 1);
 	OAL_RELEASE_SEMAPHORE();
@@ -171,8 +172,8 @@ int fc8150_i2c_wordwrite(HANDLE hDevice, u16 addr, u16 data)
 	u8 command = HPIC_WRITE | HPIC_AINC | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_DATA_REG, (u8 *)&data, 2);
 	OAL_RELEASE_SEMAPHORE();
@@ -186,8 +187,8 @@ int fc8150_i2c_longwrite(HANDLE hDevice, u16 addr, u32 data)
 	u8 command = HPIC_WRITE | HPIC_AINC | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_DATA_REG, (u8 *)&data, 4);
 	OAL_RELEASE_SEMAPHORE();
@@ -201,8 +202,8 @@ int fc8150_i2c_bulkwrite(HANDLE hDevice, u16 addr, u8 *data, u16 length)
 	u8 command = HPIC_WRITE | HPIC_AINC | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_DATA_REG, data, length);
 	OAL_RELEASE_SEMAPHORE();
@@ -216,8 +217,8 @@ int fc8150_i2c_dataread(HANDLE hDevice, u16 addr, u8 *data, u32 length)
 	u8 command = HPIC_READ | HPIC_BMODE | HPIC_ENDIAN;
 
 	OAL_OBTAIN_SEMAPHORE();
-	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG
-		, (u8 *)&addr, 2);
+	res = i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_ADDRESS_REG,
+		(u8 *)&addr, 2);
 	res |= i2c_bulkwrite(hDevice, CHIP_ADDR, BBM_COMMAND_REG, &command, 1);
 	res |= i2c_dataread(hDevice, CHIP_ADDR, BBM_DATA_REG, data, length);
 	OAL_RELEASE_SEMAPHORE();
@@ -229,7 +230,7 @@ int fc8150_i2c_deinit(HANDLE hDevice)
 {
 	bbm_write(hDevice, BBM_TS_SEL, 0x00);
 
-	/* tsif_disable(); */
+	/*tsif_disable(); */
 
 	OAL_DELETE_SEMAPHORE();
 

@@ -90,7 +90,7 @@
 #define G2D_START_BITBLT		(1 << 0)
 
 #define G2D_CMDLIST_SIZE		(PAGE_SIZE / 4)
-#define G2D_CMDLIST_NUM			64
+#define G2D_CMDLIST_NUM			256
 #define G2D_CMDLIST_POOL_SIZE		(G2D_CMDLIST_SIZE * G2D_CMDLIST_NUM)
 #define G2D_CMDLIST_DATA_NUM		(G2D_CMDLIST_SIZE / sizeof(u32) - 2)
 
@@ -154,7 +154,7 @@ struct g2d_data {
 };
 
 static int g2d_init_cmdlist(struct g2d_data *g2d,
-									struct exynos_drm_private *drm_priv)
+		struct exynos_drm_private *drm_priv)
 {
 	struct device *dev = g2d->dev;
 	struct g2d_cmdlist_node *node = g2d->cmdlist_node;
@@ -182,8 +182,7 @@ static int g2d_init_cmdlist(struct g2d_data *g2d,
 		goto err;
 	}
 
-	node = kcalloc(G2D_CMDLIST_NUM, G2D_CMDLIST_NUM * sizeof(*node),
-			GFP_KERNEL);
+	node = kcalloc(G2D_CMDLIST_NUM, sizeof(*node), GFP_KERNEL);
 	if (!node) {
 		dev_err(dev, "failed to allocate memory\n");
 		ret = -ENOMEM;
@@ -531,6 +530,7 @@ int exynos_g2d_set_cmdlist_ioctl(struct drm_device *drm_dev, void *data,
 	struct device *dev = g2d_priv->dev;
 	struct g2d_data *g2d;
 	struct drm_exynos_g2d_set_cmdlist *req = data;
+	struct drm_exynos_g2d_cmd *cmd;
 	struct drm_exynos_pending_g2d_event *e;
 	struct g2d_cmdlist_node *node;
 	struct g2d_cmdlist *cmdlist;
@@ -612,9 +612,11 @@ int exynos_g2d_set_cmdlist_ioctl(struct drm_device *drm_dev, void *data,
 		goto err_free_event;
 	}
 
+	cmd = (struct drm_exynos_g2d_cmd *)(uint32_t)req->cmd;
+
 	if (copy_from_user(cmdlist->data + cmdlist->last,
-				(void __user *)req->cmd,
-				sizeof(*req->cmd) * req->cmd_nr)) {
+				  (void __user *)cmd,
+				  sizeof(*cmd) * req->cmd_nr)) {
 		ret = -EFAULT;
 		goto err_free_event;
 	}
@@ -626,7 +628,9 @@ int exynos_g2d_set_cmdlist_ioctl(struct drm_device *drm_dev, void *data,
 
 	node->map_nr = req->cmd_gem_nr;
 	if (req->cmd_gem_nr) {
-		struct drm_exynos_g2d_cmd *cmd_gem = req->cmd_gem;
+		struct drm_exynos_g2d_cmd *cmd_gem;
+
+		cmd_gem = (struct drm_exynos_g2d_cmd *)(uint32_t)req->cmd_gem;
 
 		if (copy_from_user(cmdlist->data + cmdlist->last,
 					(void __user *)cmd_gem,

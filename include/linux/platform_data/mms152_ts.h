@@ -27,7 +27,7 @@ struct melfas_tsi_platform_data {
 	int gpio_sda;
 	int gpio_scl;
 	int (*mux_fw_flash) (bool to_gpios);
-	int (*power) (bool on);
+	int (*power) (int on);
 	int (*is_vdd_on) (void);
 	const char *fw_name;
 	bool use_touchkey;
@@ -39,13 +39,8 @@ struct melfas_tsi_platform_data {
 	void (*input_event) (void *data);
 	int (*lcd_type) (void);
 	void (*register_cb) (void *);
-#ifdef CONFIG_LCD_FREQ_SWITCH
-	void (*register_lcd_cb) (void *);
-#endif
 };
 extern struct class *sec_class;
 void tsp_charger_infom(bool en);
-#ifdef CONFIG_LCD_FREQ_SWITCH
-void tsp_lcd_infom(bool en);
-#endif
+
 #endif /* _LINUX_MMS_TOUCH_H */

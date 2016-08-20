@@ -30,4 +30,4 @@ extern int fc8150_ppi_deinit(HANDLE hDevice);
 }
 #endif
 
-#endif
+#endif /* __FC8150_PPI_H__ */

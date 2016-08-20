@@ -58,6 +58,7 @@ struct exynos_hdmi_ops {
 				unsigned int *height);
 	void (*commit)(void *ctx);
 	void (*dpms)(void *ctx, int mode);
+	void (*audio_control)(void *ctx, struct drm_exynos_hdmi_audio *audio);
 };
 
 struct exynos_mixer_ops {
@@ -67,6 +68,7 @@ struct exynos_mixer_ops {
 	void (*dpms)(void *ctx, int mode);
 
 	/* overlay */
+	void (*wait_for_vblank)(void *ctx);
 	void (*win_mode_set)(void *ctx, struct exynos_drm_overlay *overlay);
 	void (*win_commit)(void *ctx, int zpos);
 	void (*win_disable)(void *ctx, int zpos);
@@ -74,4 +76,16 @@ struct exynos_mixer_ops {
 
 void exynos_hdmi_ops_register(struct exynos_hdmi_ops *ops);
 void exynos_mixer_ops_register(struct exynos_mixer_ops *ops);
+
+#ifdef CONFIG_DRM_EXYNOS_HDMI
+extern int exynos_drm_hdmi_audio(struct drm_device *drm_dev, void *data,
+					 struct drm_file *file);
+#else
+static inline int exynos_drm_hdmi_audio(struct drm_device *drm_dev,
+						void *data,
+						struct drm_file *file_priv)
+{
+	return -ENOTTY;
+}
+#endif
 #endif

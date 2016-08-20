@@ -14,6 +14,7 @@
 */
 
 #include <linux/i2c.h>
+#include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/slab.h>
@@ -27,7 +28,7 @@
 #include "ak8975-reg.h"
 #include <linux/sensor/sensors_core.h>
 
-#ifdef CONFIG_SLP
+#if defined(CONFIG_SLP) || defined(CONFIG_MACH_GC1)
 #define FACTORY_TEST
 #else
 #undef FACTORY_TEST
@@ -54,6 +55,17 @@
 #define AK8975_REG_ASAY			0x11
 #define AK8975_REG_ASAZ			0x12
 
+static const int position_map[][3][3] = {
+	{{-1,  0,  0}, { 0, -1,  0}, { 0,  0,  1} }, /* 0 top/upper-left */
+	{{ 0, -1,  0}, { 1,  0,  0}, { 0,  0,  1} }, /* 1 top/upper-right */
+	{{ 1,  0,  0}, { 0,  1,  0}, { 0,  0,  1} }, /* 2 top/lower-right */
+	{{ 0,  1,  0}, {-1,  0,  0}, { 0,  0,  1} }, /* 3 top/lower-left */
+	{{ 1,  0,  0}, { 0, -1,  0}, { 0,  0, -1} }, /* 4 bottom/upper-left */
+	{{ 0,  1,  0}, { 1,  0,  0}, { 0,  0, -1} }, /* 5 bottom/upper-right */
+	{{-1,  0,  0}, { 0,  1,  0}, { 0,  0, -1} }, /* 6 bottom/lower-right */
+	{{ 0, -1,  0}, {-1,  0,  0}, { 0,  0, -1} }, /* 7 bottom/lower-left*/
+};
+
 struct akm8975_data {
 	struct i2c_client *this_client;
 	struct akm8975_platform_data *pdata;
@@ -61,9 +73,16 @@ struct akm8975_data {
 	struct miscdevice akmd_device;
 	struct completion data_ready;
 	struct device *dev;
+	struct input_dev *input_dev;
+	struct hrtimer timer;
+	struct workqueue_struct *work_queue;
+	struct work_struct work;
+	ktime_t poll_delay;
 	wait_queue_head_t state_wq;
 	u8 asa[3];
 	int irq;
+	int position;
+	bool enabled;
 };
 
 #ifdef FACTORY_TEST
@@ -108,6 +127,9 @@ static int akm8975_ecs_set_mode(struct akm8975_data *akm, char mode)
 
 	/* Wait at least 300us after changing mode. */
 	udelay(300);
+
+	/* Workaround: Some sensors (defective?) require more delay */
+	mdelay(5);
 
 	return 0;
 }
@@ -181,6 +203,61 @@ static int akm8975_wait_for_data_ready(struct akm8975_data *akm)
 	return err;
 }
 
+static int akm8975_get_raw_data(struct akm8975_data *akm,
+				short *x, short *y, short *z)
+{
+	short raw_data[3] = {0, };
+	u8 data[8] = {0, };
+	int i, err, ret;
+
+	mutex_lock(&akm->lock);
+	err = akm8975_ecs_set_mode(akm, AK8975_MODE_SNG_MEASURE);
+	if (err) {
+		pr_err("%s: failed to set ecs mode\n", __func__);
+		goto done;
+	}
+
+	err = akm8975_wait_for_data_ready(akm);
+	if (err) {
+		pr_err("%s: failed to wait for data ready\n", __func__);
+		goto done;
+	}
+
+	/* akm8975_wait_for_data_ready() revice IRQ signal.
+	 * But, akm8975 is not ready to send magnetic data.
+	 */
+	mdelay(5);
+
+	ret = i2c_smbus_read_i2c_block_data(akm->this_client,
+			AK8975_REG_ST1, sizeof(data), data);
+	if (ret != sizeof(data)) {
+		pr_err("%s: failed to read %d bytes of mag data\n",
+				__func__, sizeof(data));
+		err = ret;
+		goto done;
+	}
+
+	if (data[0] & 0x01) {
+		raw_data[0] = (data[2] << 8) + data[1];
+		raw_data[1] = (data[4] << 8) + data[3];
+		raw_data[2] = (data[6] << 8) + data[5];
+
+		for (i = 0; i < 3; i++) {
+			*x += (position_map[akm->position][0][i] * raw_data[i]);
+			*y += (position_map[akm->position][1][i] * raw_data[i]);
+			*z += (position_map[akm->position][2][i] * raw_data[i]);
+		}
+	} else {
+		pr_err("%s: invalid raw data(st1 = %d)\n",
+				__func__, data[0] & 0x01);
+	}
+
+done:
+	mutex_unlock(&akm->lock);
+
+	return err;
+}
+
 static ssize_t akmd_read(struct file *file, char __user *buf,
 					size_t count, loff_t *pos)
 {
@@ -188,38 +265,11 @@ static ssize_t akmd_read(struct file *file, char __user *buf,
 			struct akm8975_data, akmd_device);
 	short x = 0, y = 0, z = 0;
 	int ret;
-	u8 data[8];
 
-	mutex_lock(&akm->lock);
-	ret = akm8975_ecs_set_mode(akm, AK8975_MODE_SNG_MEASURE);
-	if (ret) {
-		mutex_unlock(&akm->lock);
-		goto done;
-	}
-	ret = akm8975_wait_for_data_ready(akm);
-	if (ret) {
-		mutex_unlock(&akm->lock);
-		goto done;
-	}
-	ret = i2c_smbus_read_i2c_block_data(akm->this_client, AK8975_REG_ST1,
-						sizeof(data), data);
-	mutex_unlock(&akm->lock);
+	ret = akm8975_get_raw_data(akm, &x, &y, &z);
+	if (ret)
+		pr_err("%s: failed to get raw data %d\n", __func__, ret);
 
-	if (ret != sizeof(data)) {
-		pr_err("%s: failed to read %d bytes of mag data\n",
-		       __func__, sizeof(data));
-		goto done;
-	}
-
-	if (data[0] & 0x01) {
-		x = (data[2] << 8) + data[1];
-		y = (data[4] << 8) + data[3];
-		z = (data[6] << 8) + data[5];
-	} else
-		pr_err("%s: invalid raw data(st1 = %d)\n",
-					__func__, data[0] & 0x01);
-
-done:
 	return sprintf(buf, "%d,%d,%d\n", x, y, z);
 }
 
@@ -230,6 +280,9 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 	struct akm8975_data *akm = container_of(file->private_data,
 			struct akm8975_data, akmd_device);
 	int ret;
+	int i;
+	short raw_data[3] = {0, };
+	short adjust_raw[3] = {0,};
 	#ifdef MAGNETIC_LOGGING
 	short x, y, z;
 	#endif
@@ -291,10 +344,38 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 		y = (rwbuf.data[4] << 8) + rwbuf.data[3];
 		z = (rwbuf.data[6] << 8) + rwbuf.data[5];
 
-		printk(KERN_INFO "%s:ST1=%d, x=%d, y=%d, z=%d, ST2=%d\n",
+		pr_info("%s:ST1=%d, x=%d, y=%d, z=%d, ST2=%d\n",
 			__func__, rwbuf.data[0], x, y, z, rwbuf.data[7]);
 		#endif
 
+		raw_data[0] = (rwbuf.data[2] << 8) + rwbuf.data[1];
+		raw_data[1] = (rwbuf.data[4] << 8) + rwbuf.data[3];
+		raw_data[2] = (rwbuf.data[6] << 8) + rwbuf.data[5];
+
+		for (i = 0; i < 3; i++) {
+			adjust_raw[0] +=
+				(position_map[akm->position][0][i]
+				* raw_data[i]);
+			adjust_raw[1] +=
+				(position_map[akm->position][1][i]
+				* raw_data[i]);
+			adjust_raw[2] +=
+				(position_map[akm->position][2][i]
+				* raw_data[i]);
+		}
+		#ifdef MAGNETIC_LOGGING
+		pr_info("%s:adjusted x=%d, y=%d, z=%d\n",
+			__func__, adjust_raw[0], adjust_raw[1], adjust_raw[2]);
+		#endif
+
+		rwbuf.data[1] = adjust_raw[0] & 0x00ff;
+		rwbuf.data[2] = (adjust_raw[0] & 0xff00) >> 8;
+
+		rwbuf.data[3] = adjust_raw[1] & 0x00ff;
+		rwbuf.data[4] = (adjust_raw[1] & 0xff00) >> 8;
+
+		rwbuf.data[5] = adjust_raw[2] & 0x00ff;
+		rwbuf.data[6] = (adjust_raw[2] & 0xff00) >> 8;
 		mutex_unlock(&akm->lock);
 		if (ret != sizeof(rwbuf.data)) {
 			pr_err("%s : failed to read %d bytes of mag data\n",
@@ -374,6 +455,7 @@ static void ak8975c_selftest(struct akm8975_data *ak_data)
 	u8 buf[6];
 	s16 x, y, z;
 
+	mutex_lock(&ak_data->lock);
 	/* read device info */
 	i2c_smbus_read_i2c_block_data(ak_data->this_client,
 					AK8975_REG_WIA, 2, buf);
@@ -391,7 +473,7 @@ static void ak8975c_selftest(struct akm8975_data *ak_data)
 
 	/* wait for data ready */
 	while (1) {
-		msleep(20);
+		mdelay(5);
 		if (i2c_smbus_read_byte_data(ak_data->this_client,
 						AK8975_REG_ST1) == 1) {
 			break;
@@ -404,6 +486,8 @@ static void ak8975c_selftest(struct akm8975_data *ak_data)
 	/* set ATSC self test bit to 0 */
 	i2c_smbus_write_byte_data(ak_data->this_client,
 					AK8975_REG_ASTC, 0x00);
+
+	mutex_unlock(&ak_data->lock);
 
 	x = buf[0] | (buf[1] << 8);
 	y = buf[2] | (buf[3] << 8);
@@ -526,8 +610,10 @@ static ssize_t ak8975_adc(struct device *dev,
 {
 	struct akm8975_data *ak_data  = dev_get_drvdata(dev);
 	u8 buf[8];
-	s16 x, y, z;
+	short raw_data[3] = {0,};
+	s16 x = 0, y = 0, z = 0;
 	int err, success;
+	int i;
 
 	/* start ADC conversion */
 	err = i2c_smbus_write_byte_data(ak_data->this_client,
@@ -539,7 +625,8 @@ static ssize_t ak8975_adc(struct device *dev,
 		pr_err("%s: wait for data ready failed\n", __func__);
 		return err;
 	}
-	msleep(20);
+
+	mdelay(5);
 	/* get the value and report it */
 	err = i2c_smbus_read_i2c_block_data(ak_data->this_client,
 					AK8975_REG_ST1, sizeof(buf), buf);
@@ -554,9 +641,15 @@ static ssize_t ak8975_adc(struct device *dev,
 	else
 		success = 1;
 
-	x = buf[1] | (buf[2] << 8);
-	y = buf[3] | (buf[4] << 8);
-	z = buf[5] | (buf[6] << 8);
+	raw_data[0] = buf[1] | (buf[2] << 8);
+	raw_data[1] = buf[3] | (buf[4] << 8);
+	raw_data[2] = buf[5] | (buf[6] << 8);
+
+	for (i = 0; i < 3; i++) {
+		x += (position_map[ak_data->position][0][i]*raw_data[i]);
+		y += (position_map[ak_data->position][1][i]*raw_data[i]);
+		z += (position_map[ak_data->position][2][i]*raw_data[i]);
+	}
 
 	pr_info("%s: raw x = %d, y = %d, z = %d\n", __func__, x, y, z);
 	return sprintf(strbuf, "%s, %d, %d, %d\n", (success ? "OK" : "NG"),\
@@ -569,39 +662,12 @@ static ssize_t ak8975_show_raw_data(struct device *dev,
 {
 	struct akm8975_data *akm = dev_get_drvdata(dev);
 	short x = 0, y = 0, z = 0;
-	int ret;
-	u8 data[8] = {0,};
+	int err;
 
-	mutex_lock(&akm->lock);
-	ret = akm8975_ecs_set_mode(akm, AK8975_MODE_SNG_MEASURE);
-	if (ret) {
-		mutex_unlock(&akm->lock);
-		goto done;
-	}
-	ret = akm8975_wait_for_data_ready(akm);
-	if (ret) {
-		mutex_unlock(&akm->lock);
-		goto done;
-	}
-	ret = i2c_smbus_read_i2c_block_data(akm->this_client, AK8975_REG_ST1,
-						sizeof(data), data);
-	mutex_unlock(&akm->lock);
+	err = akm8975_get_raw_data(akm, &x, &y, &z);
+	if (err)
+		pr_err("%s: failed to get raw data\n", __func__);
 
-	if (ret != sizeof(data)) {
-		pr_err("%s: failed to read %d bytes of mag data\n",
-			   __func__, sizeof(data));
-		goto done;
-	}
-
-	if (data[0] & 0x01) {
-		x = (data[2] << 8) + data[1];
-		y = (data[4] << 8) + data[3];
-		z = (data[6] << 8) + data[5];
-	} else
-		pr_err("%s: invalid raw data(st1 = %d)\n",
-					__func__, data[0] & 0x01);
-
-done:
 	return sprintf(buf, "%d,%d,%d\n", x, y, z);
 }
 
@@ -617,6 +683,88 @@ static ssize_t ak8975_show_name(struct device *dev,
 	return sprintf(buf, "%s\n", CHIP_ID);
 }
 
+static ssize_t ak8975_show_delay(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct akm8975_data *akm = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%lld\n", ktime_to_ns(akm->poll_delay));
+}
+
+static ssize_t ak8975_store_delay(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct akm8975_data *akm = dev_get_drvdata(dev);
+	u64 delay_ns;
+	int err;
+
+	err = strict_strtoll(buf, 10, &delay_ns);
+	if (err < 0)
+		pr_err("%s, kstrtoint failed.", __func__);
+
+	mutex_lock(&akm->lock);
+
+	if (akm->enabled)
+		hrtimer_cancel(&akm->timer);
+
+	akm->poll_delay = ns_to_ktime(delay_ns);
+
+	if (akm->enabled)
+		hrtimer_start(&akm->timer, akm->poll_delay,
+				HRTIMER_MODE_REL);
+	mutex_unlock(&akm->lock);
+
+	return count;
+}
+
+static ssize_t ak8975_show_enable(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct akm8975_data *akm = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", akm->enabled);
+}
+
+static ssize_t ak8975_store_enable(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct akm8975_data *akm = dev_get_drvdata(dev);
+	int err, enable;
+
+	err = kstrtoint(buf, 10, &enable);
+	if (err < 0)
+		pr_err("%s, kstrtoint failed.", __func__);
+
+	mutex_lock(&akm->lock);
+
+	if (enable) {
+		hrtimer_start(&akm->timer, akm->poll_delay, HRTIMER_MODE_REL);
+		akm->enabled = true;
+	} else {
+		hrtimer_cancel(&akm->timer);
+		akm->enabled = false;
+	}
+
+	mutex_unlock(&akm->lock);
+
+	return count;
+}
+
+static DEVICE_ATTR(poll_delay, 0644,
+		ak8975_show_delay, ak8975_store_delay);
+static DEVICE_ATTR(enable, 0644,
+		ak8975_show_enable, ak8975_store_enable);
+
+static struct attribute *ak8975_sysfs_attrs[] = {
+	&dev_attr_enable.attr,
+	&dev_attr_poll_delay.attr,
+	NULL
+};
+
+static struct attribute_group ak8975_attribute_group = {
+	.attrs = ak8975_sysfs_attrs,
+};
+
 static DEVICE_ATTR(raw_data, 0664,
 		ak8975_show_raw_data, NULL);
 static DEVICE_ATTR(vendor, 0664,
@@ -625,13 +773,13 @@ static DEVICE_ATTR(name, 0664,
 		ak8975_show_name, NULL);
 
 #ifdef FACTORY_TEST
-static DEVICE_ATTR(ak8975_asa, 0664,
+static DEVICE_ATTR(asa, 0664,
 		ak8975c_get_asa, NULL);
-static DEVICE_ATTR(ak8975_selftest, 0664,
+static DEVICE_ATTR(selftest, 0664,
 		ak8975c_get_selftest, NULL);
-static DEVICE_ATTR(ak8975_chk_registers, 0664,
+static DEVICE_ATTR(chk_registers, 0664,
 		ak8975c_check_registers, NULL);
-static DEVICE_ATTR(ak8975_chk_cntl, 0664,
+static DEVICE_ATTR(chk_cntl, 0664,
 		ak8975c_check_cntl, NULL);
 static DEVICE_ATTR(status, 0664,
 		ak8975c_get_status, NULL);
@@ -639,13 +787,42 @@ static DEVICE_ATTR(adc, 0664,
 		ak8975_adc, NULL);
 #endif
 
+static void akm8975_work_func(struct work_struct *work)
+{
+	struct akm8975_data *akm =
+		container_of(work, struct akm8975_data, work);
+	short x = 0, y = 0, z = 0;
+	int err;
+
+	err = akm8975_get_raw_data(akm, &x, &y, &z);
+	if (err) {
+		pr_err("%s: failed to get raw data\n", __func__);
+		return;
+	}
+
+	input_report_rel(akm->input_dev, REL_RX, x);
+	input_report_rel(akm->input_dev, REL_RY, y);
+	input_report_rel(akm->input_dev, REL_RZ, z);
+	input_sync(akm->input_dev);
+}
+
+static enum hrtimer_restart ak8975_timer_func(struct hrtimer *timer)
+{
+	struct akm8975_data *akm = container_of(timer,
+			struct akm8975_data, timer);
+	queue_work(akm->work_queue, &akm->work);
+	hrtimer_forward_now(&akm->timer, akm->poll_delay);
+
+	return HRTIMER_RESTART;
+}
+
 int akm8975_probe(struct i2c_client *client,
 		const struct i2c_device_id *devid)
 {
 	struct akm8975_data *akm;
 	int err;
 
-	printk(KERN_INFO "%s is called.\n", __func__);
+	pr_info("%s is called.\n", __func__);
 	if (client->dev.platform_data == NULL && client->irq == 0) {
 		dev_err(&client->dev, "platform data & irq are NULL.\n");
 		err = -ENODEV;
@@ -669,9 +846,16 @@ int akm8975_probe(struct i2c_client *client,
 	akm->pdata = client->dev.platform_data;
 	mutex_init(&akm->lock);
 	init_completion(&akm->data_ready);
+	akm->enabled = false;
 
 	i2c_set_clientdata(client, akm);
 	akm->this_client = client;
+
+	if (akm->pdata->magnetic_get_position)
+		akm->position = akm->pdata->magnetic_get_position();
+	else
+		akm->position = 2;	/*default position */
+	pr_info("%s: position info:%d\n", __func__, akm->position);
 
 	err = akm8975_ecs_set_mode_power_down(akm);
 	if (err < 0) {
@@ -697,6 +881,48 @@ int akm8975_probe(struct i2c_client *client,
 	}
 
 	init_waitqueue_head(&akm->state_wq);
+
+	/* initialize input device */
+	akm->input_dev = input_allocate_device();
+	if (!akm->input_dev) {
+		pr_err("%s: Failed to allocate input device\n", __func__);
+		err = -ENOMEM;
+		goto exit_akmd_alloc_input;
+	}
+
+	akm->input_dev->name = "magnetic_sensor";
+	input_set_drvdata(akm->input_dev, akm);
+	input_set_capability(akm->input_dev, EV_REL, REL_RX);
+	input_set_capability(akm->input_dev, EV_REL, REL_RY);
+	input_set_capability(akm->input_dev, EV_REL, REL_RZ);
+
+	err = input_register_device(akm->input_dev);
+	if (err < 0) {
+		input_free_device(akm->input_dev);
+		pr_err("%s: Failed to register input device\n", __func__);
+		goto exit_akmd_input_register;
+	}
+
+	err = sysfs_create_group(&akm->input_dev->dev.kobj,
+			&ak8975_attribute_group);
+	if (err) {
+		pr_err("%s: Failed to create sysfs group\n", __func__);
+		goto err_create_sysfs;
+	}
+
+	/* initialize poll delay */
+	hrtimer_init(&akm->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	akm->poll_delay = ns_to_ktime(200 * NSEC_PER_MSEC);
+	akm->timer.function = ak8975_timer_func;
+	akm->work_queue =
+		create_singlethread_workqueue("ak8975_workqueue");
+	if (!akm->work_queue) {
+		err = -ENOMEM;
+		pr_err("%s: Failed to create workqueue\n", __func__);
+		goto err_create_workqueue;
+	}
+
+	INIT_WORK(&akm->work, akm8975_work_func);
 
 	/* put into fuse access mode to read asa data */
 	err = i2c_smbus_write_byte_data(client, AK8975_REG_CNTL,
@@ -725,75 +951,75 @@ int akm8975_probe(struct i2c_client *client,
 
 	akm->dev = sensors_classdev_register("magnetic_sensor");
 	if (IS_ERR(akm->dev)) {
-		printk(KERN_ERR "Failed to create device!");
+		pr_err("Failed to create device!");
 		goto exit_class_create_failed;
 	}
 
 	if (device_create_file(akm->dev, &dev_attr_raw_data) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
+		pr_err("Failed to create device file(%s)!\n",
 			dev_attr_raw_data.attr.name);
 		goto exit_device_create_raw_data;
 	}
 
 	if (device_create_file(akm->dev, &dev_attr_vendor) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
+		pr_err("Failed to create device file(%s)!\n",
 			dev_attr_name.attr.name);
 		goto exit_device_create_vendor;
 	}
 
 	if (device_create_file(akm->dev, &dev_attr_name) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
+		pr_err("Failed to create device file(%s)!\n",
 			dev_attr_raw_data.attr.name);
 		goto exit_device_create_name;
 	}
 
 #ifdef FACTORY_TEST
 	if (device_create_file(akm->dev, &dev_attr_adc) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
+		pr_err("Failed to create device file(%s)!\n",
 			dev_attr_adc.attr.name);
 		goto exit_device_create_file1;
 	}
 
 	if (device_create_file(akm->dev, &dev_attr_status) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
+		pr_err("Failed to create device file(%s)!\n",
 			dev_attr_status.attr.name);
 		goto exit_device_create_file2;
 	}
 
-	if (device_create_file(akm->dev, &dev_attr_ak8975_asa) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
-			dev_attr_ak8975_asa.attr.name);
+	if (device_create_file(akm->dev, &dev_attr_asa) < 0) {
+		pr_err("Failed to create device file(%s)!\n",
+			dev_attr_asa.attr.name);
 		goto exit_device_create_file3;
 	}
-	if (device_create_file(akm->dev, &dev_attr_ak8975_selftest) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
-			dev_attr_ak8975_selftest.attr.name);
+	if (device_create_file(akm->dev, &dev_attr_selftest) < 0) {
+		pr_err("Failed to create device file(%s)!\n",
+			dev_attr_selftest.attr.name);
 		goto exit_device_create_file4;
 	}
 	if (device_create_file(akm->dev,\
-		&dev_attr_ak8975_chk_registers) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
-			dev_attr_ak8975_chk_registers.attr.name);
+		&dev_attr_chk_registers) < 0) {
+		pr_err("Failed to create device file(%s)!\n",
+			dev_attr_chk_registers.attr.name);
 		goto exit_device_create_file5;
 	}
-	if (device_create_file(akm->dev, &dev_attr_ak8975_chk_cntl) < 0) {
-		printk(KERN_ERR "Failed to create device file(%s)!\n",
-			dev_attr_ak8975_chk_cntl.attr.name);
+	if (device_create_file(akm->dev, &dev_attr_chk_cntl) < 0) {
+		pr_err("Failed to create device file(%s)!\n",
+			dev_attr_chk_cntl.attr.name);
 		goto exit_device_create_file6;
 	}
 #endif
 	dev_set_drvdata(akm->dev, akm);
 
-printk(KERN_INFO "%s is successful.\n", __func__);
-return 0;
+	pr_info("%s is successful.\n", __func__);
+	return 0;
 
 #ifdef FACTORY_TEST
 exit_device_create_file6:
-	device_remove_file(akm->dev, &dev_attr_ak8975_chk_registers);
+	device_remove_file(akm->dev, &dev_attr_chk_registers);
 exit_device_create_file5:
-	device_remove_file(akm->dev, &dev_attr_ak8975_selftest);
+	device_remove_file(akm->dev, &dev_attr_selftest);
 exit_device_create_file4:
-	device_remove_file(akm->dev, &dev_attr_ak8975_asa);
+	device_remove_file(akm->dev, &dev_attr_asa);
 exit_device_create_file3:
 	device_remove_file(akm->dev, &dev_attr_status);
 exit_device_create_file2:
@@ -809,6 +1035,15 @@ exit_device_create_raw_data:
 	sensors_classdev_unregister(akm->dev);
 exit_class_create_failed:
 exit_i2c_failed:
+	destroy_workqueue(akm->work_queue);
+err_create_workqueue:
+	sysfs_remove_group(&akm->input_dev->dev.kobj,
+				&ak8975_attribute_group);
+err_create_sysfs:
+	input_unregister_device(akm->input_dev);
+exit_akmd_input_register:
+	input_free_device(akm->input_dev);
+exit_akmd_alloc_input:
 	misc_deregister(&akm->akmd_device);
 exit_akmd_device_register_failed:
 	free_irq(akm->irq, akm);
@@ -827,16 +1062,27 @@ static int __devexit akm8975_remove(struct i2c_client *client)
 {
 	struct akm8975_data *akm = i2c_get_clientdata(client);
 
+	if (akm->enabled) {
+		hrtimer_cancel(&akm->timer);
+		cancel_work_sync(&akm->work);
+	}
+
 	#ifdef FACTORY_TEST
 	device_remove_file(akm->dev, &dev_attr_adc);
 	device_remove_file(akm->dev, &dev_attr_status);
-	device_remove_file(akm->dev, &dev_attr_ak8975_asa);
-	device_remove_file(akm->dev, &dev_attr_ak8975_selftest);
-	device_remove_file(akm->dev, &dev_attr_ak8975_chk_registers);
+	device_remove_file(akm->dev, &dev_attr_asa);
+	device_remove_file(akm->dev, &dev_attr_selftest);
+	device_remove_file(akm->dev, &dev_attr_chk_registers);
+	device_remove_file(akm->dev, &dev_attr_chk_cntl);
 	#endif
 	device_remove_file(akm->dev, &dev_attr_name);
 	device_remove_file(akm->dev, &dev_attr_vendor);
 	device_remove_file(akm->dev, &dev_attr_raw_data);
+
+	sysfs_remove_group(&akm->input_dev->dev.kobj,
+				&ak8975_attribute_group);
+	input_unregister_device(akm->input_dev);
+	input_free_device(akm->input_dev);
 	sensors_classdev_unregister(akm->dev);
 	misc_deregister(&akm->akmd_device);
 	free_irq(akm->irq, akm);

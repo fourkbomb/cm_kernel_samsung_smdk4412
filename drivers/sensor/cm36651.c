@@ -1181,7 +1181,11 @@ static int cm36651_i2c_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_SLP
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	device_init_wakeup_setirq(cm36651->proximity_dev, cm36651->irq);
+#else
 	device_init_wakeup(cm36651->proximity_dev, true);
+#endif
 #endif
 
 	dev_set_drvdata(cm36651->light_dev, cm36651);

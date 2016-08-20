@@ -571,7 +571,6 @@ struct device {
 					   core doesn't touch it */
 	struct dev_pm_info	power;
 	struct dev_power_domain	*pwr_domain;
-
 #ifdef CONFIG_NUMA
 	int		numa_node;	/* NUMA node this device is close to */
 #endif
@@ -588,10 +587,6 @@ struct device {
 
 	struct dma_coherent_mem	*dma_mem; /* internal for coherent mem
 					     override */
-#ifdef CONFIG_DMA_CMA
-	struct cma	*cma_area;	/* contiguous memory area for dma
-						allocation */
-#endif
 	/* arch specific additions */
 	struct dev_archdata	archdata;
 

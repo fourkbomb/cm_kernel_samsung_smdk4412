@@ -898,7 +898,6 @@ static int do_test(int m)
 		break;
 
 	case 28:
-
 		ret += tcrypt_test("tgr160");
 		break;
 
@@ -925,11 +924,9 @@ static int do_test(int m)
 	case 33:
 		ret += tcrypt_test("sha224");
 		break;
-#ifdef CONFIG_CRYPTO_SALSA20
 	case 34:
 		ret += tcrypt_test("salsa20");
 		break;
-#endif
 #ifdef CONFIG_CRYPTO_GCM
 	case 35:
 		ret += tcrypt_test("gcm(aes)");
@@ -1029,6 +1026,10 @@ static int do_test(int m)
 		ret += tcrypt_test("vmac(aes)");
 		break;
 #endif
+	case 110:
+		ret += tcrypt_test("hmac(crc32)");
+		break;
+
 	case 150:
 		ret += tcrypt_test("ansi_cprng");
 		break;
@@ -1040,6 +1041,18 @@ static int do_test(int m)
 #endif
 
 #ifdef CRYPTO_SPEED_TESTS
+	case 152:
+		ret += tcrypt_test("rfc4543(gcm(aes))");
+		break;
+
+	case 153:
+		ret += tcrypt_test("cmac(aes)");
+		break;
+
+	case 154:
+		ret += tcrypt_test("cmac(des3_ede)");
+		break;
+
 	case 200:
 		test_cipher_speed("ecb(aes)", ENCRYPT, sec, NULL, 0,
 				speed_template_16_24_32);

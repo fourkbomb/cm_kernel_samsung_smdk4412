@@ -93,6 +93,9 @@ struct exynos4_platform_fimc_is {
 	int	(*clk_cfg)(struct platform_device *pdev);
 	int	(*clk_on)(struct platform_device *pdev);
 	int	(*clk_off)(struct platform_device *pdev);
+#ifdef CONFIG_SLP
+	int	phy_rotate;
+#endif
 };
 
 #if defined(CONFIG_ARCH_EXYNOS5)

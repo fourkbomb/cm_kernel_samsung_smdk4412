@@ -74,6 +74,8 @@
 #define MXR_STATUS_BIG_ENDIAN		(1 << 3)
 #define MXR_STATUS_ENDIAN_MASK		(1 << 3)
 #define MXR_STATUS_SYNC_ENABLE		(1 << 2)
+#define MXR_STATUS_OPERATING		(0 << 1)
+#define MXR_STATUS_IDLE_MODE		(1 << 1)
 #define MXR_STATUS_REG_RUN		(1 << 0)
 
 /* bits for MXR_CFG */

@@ -1130,8 +1130,3 @@ int s5p_hdcp_encrypt_stop(bool on)
 
 	return 0;
 }
-
-void s5p_hdcp_flush_work(void)
-{
-	flush_workqueue(hdcp_wq);
-}

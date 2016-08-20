@@ -34,13 +34,8 @@
 #define ALIGN_H_L_L	16	/* Linear, Vertical, Luma		*/
 #define ALIGN_H_L_C	8	/* Linear, Vertical, Chroma		*/
 
-#if defined(CONFIG_USE_MFC_CMA) && defined(CONFIG_MACH_GC1)
-/* System */					/* Size, Port, Align */
-#define MFC_FW_SYSTEM_SIZE	(0x100000)	/* 1MB, A, N(4KB for VMEM) */
-#else
 /* System */					/* Size, Port, Align */
 #define MFC_FW_SYSTEM_SIZE	(0x80000)	/* 512KB, A, N(4KB for VMEM) */
-#endif
 
 /* Instance */
 #define MFC_CTX_SIZE_L		(0x96000)	/* 600KB, N, 2KB, H.264 Decoding only */
@@ -147,10 +142,6 @@ struct mfc_alloc_buffer {
 	unsigned char *addr;	/* kernel virtual address space */
 	unsigned int type;	/* buffer type			*/
 	int owner;		/* instance context id		*/
-#if defined(CONFIG_DMA_CMA) && defined(CONFIG_USE_MFC_CMA)
-	struct device *dev;
-	dma_addr_t dma_addr;
-#endif
 #if defined(CONFIG_VIDEO_MFC_VCM_UMP)
 	struct vcm_mmu_res *vcm_s;
 	struct vcm_res *vcm_k;

@@ -33,7 +33,6 @@
 #define MXT_T7_IDLE_ACQ_INT	0
 #define MXT_T7_ACT_ACQ_INT	1
 
-#define MXT_T9_CTRL 0
 #define MXT_T9_ORIENT 9
 #define MXT_T9_XRANGE_LSB	18
 #define MXT_T9_XRANGE_MSB	19
@@ -105,18 +104,12 @@
 
 /* Touchscreen configuration infomation */
 #define MXT_FW_MAGIC		0x4D3C2B1A
-#define DUAL_CFG	1
 
 /* Feature */
 #define TSP_FIRMUP_ON_PROBE	1
 #define TSP_BOOSTER		0
 #define TSP_DEBUG_INFO	1
 #define TSP_SEC_SYSFS	1
-#if DUAL_CFG
-#define TSP_INFORM_CHARGER	1
-#else
-#define TSP_INFORM_CHARGER	0
-#endif
 /* TSP_ITDEV feature just for atmel tunning app
 * so it should be disabled after finishing tunning
 * because it use other write permission. it will be cause
@@ -249,22 +242,11 @@ struct mxt_data {
 #if TSP_BOOSTER
 	struct touch_booster booster;
 #endif
-#if DUAL_CFG
-	const u8 *batt_cfg_raw_data;
-	const u8 *ta_cfg_raw_data;
-	u32 cfg_len;
-#endif
-#if TSP_INFORM_CHARGER
-	struct mxt_callbacks callbacks;
-	struct delayed_work noti_dwork;
-	bool charging_mode;
-#endif
 #ifdef TSP_ITDEV
 	int driver_paused;
 	int debug_enabled;
 	u16 last_read_addr;
 #endif
-	u8 tsp_ctrl;
 	u8 max_report_id;
 	u8 finger_report_id;
 	u16 msg_proc;
@@ -275,6 +257,8 @@ struct mxt_data {
 	u32 finger_mask;
 	int num_fingers;
 	bool mxt_enabled;
+	u8 idle_cycle_time;
+	u8 actv_cycle_time;
 	struct completion init_done;
 #if TSP_USE_SHAPETOUCH
 	int16_t sumsize;
@@ -308,12 +292,7 @@ struct mxt_fw_info {
 	u32 cfg_len;
 	u32 fw_len;
 	u32 cfg_crc;
-#if DUAL_CFG
-	const u8 *batt_cfg_raw_data;
-	const u8 *ta_cfg_raw_data;
-#else
-	const u8 *cfg_raw_data;
-#endif
+	const u8 *cfg_raw_data;	/* start address of configuration data */
 	const u8 *fw_raw_data;	/* start address of firmware data */
 	struct mxt_data *data;
 };

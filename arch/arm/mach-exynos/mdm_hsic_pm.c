@@ -36,27 +36,9 @@
 #include <linux/usb/hcd.h>
 #include <linux/usb/ehci_def.h>
 
-#ifdef CONFIG_CPU_FREQ_TETHERING
-#include <linux/kernel.h>
-#include <linux/netdevice.h>
-#include <mach/mdm2.h>
-#endif
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-#include <linux/usb/android_composite.h>
-#endif
-#ifdef CONFIG_USBIRQ_BALANCING_LTE_HIGHTP
-#include <mach/mdm2.h>
-#include <linux/cpu.h>
-#include <linux/cpufreq_pegasusq.h>
-#define dev_put devput
-#include <linux/netdevice.h>
-#undef dev_put
-#include <mach/dev.h>
-#endif
-
 #define EXTERNAL_MODEM "external_modem"
 #define EHCI_REG_DUMP
-#define DEFAULT_RAW_WAKE_TIME (0*HZ)
+#define DEFAULT_RAW_WAKE_TIME (6*HZ)
 
 BLOCKING_NOTIFIER_HEAD(mdm_reset_notifier_list);
 
@@ -98,19 +80,6 @@ struct mdm_hsic_pm_data {
 
 	/* control variables */
 	struct notifier_block pm_notifier;
-#ifdef CONFIG_CPU_FREQ_TETHERING
-	struct notifier_block netdev_notifier;
-#endif
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-	struct notifier_block usb_composite_notifier;
-#endif
-#ifdef CONFIG_USBIRQ_BALANCING_LTE_HIGHTP
-	struct notifier_block rndis_notifier;
-	struct notifier_block cpu_hotplug_notifier;
-	struct delayed_work hotplug_work;
-	bool is_rndis_running;
-#endif
-
 	bool block_request;
 	bool state_busy;
 	atomic_t pmlock_cnt;
@@ -125,9 +94,6 @@ struct mdm_hsic_pm_data {
 	/* wakelock for L0 - L2 */
 	struct wake_lock l2_wake;
 
-	/* wakelock for boot */
-	struct wake_lock boot_wake;
-
 	/* wakelock for fast dormancy */
 	struct wake_lock fd_wake;
 	long fd_wake_time; /* wake time for raw packet in jiffies */
@@ -137,19 +103,7 @@ struct mdm_hsic_pm_data {
 	struct delayed_work auto_rpm_start_work;
 	struct delayed_work auto_rpm_restart_work;
 	struct delayed_work request_resume_work;
-	struct delayed_work fast_dormancy_work;
-
-	struct mdm_hsic_pm_platform_data *mdm_pdata;
-
-	/* QMICM mode value */
-	bool qmicm_mode;
 };
-
-/* indicate wakeup from lpa state */
-bool lpa_handling;
-
-/* indicate receive hallo_packet_rx */
-int hello_packet_rx;
 
 #ifdef EHCI_REG_DUMP
 struct dump_ehci_regs {
@@ -181,7 +135,7 @@ struct s5p_ehci_hcd_stub {
 /* for EHCI register dump */
 struct dump_ehci_regs sec_debug_ehci_regs;
 
-#define pr_hcd(s, r) printk(KERN_DEBUG "hcd reg(%s):\t 0x%08x\n", s, r)
+#define pr_hcd(s, r) printk(KERN_ERR "hcd reg(%s):\t 0x%08x\n", s, r)
 static void print_ehci_regs(struct dump_ehci_regs *base)
 {
 	pr_hcd("HCCPBASE", base->caps_hc_capbase);
@@ -262,98 +216,34 @@ static struct mdm_hsic_pm_data *get_pm_data_by_dev_name(const char *name)
 	return NULL;
 }
 
-/* do not call in irq context */
-int pm_dev_runtime_get_enabled(struct usb_device *udev)
-{
-	int spin = 50;
-
-	while (spin--) {
-		pr_debug("%s: rpm status: %d\n", __func__,
-						udev->dev.power.runtime_status);
-		if (udev->dev.power.runtime_status == RPM_ACTIVE ||
-			udev->dev.power.runtime_status == RPM_SUSPENDED) {
-			usb_mark_last_busy(udev);
-			break;
-		}
-		msleep(20);
-	}
-	if (spin <= 0) {
-		pr_err("%s: rpm status %d, return -EAGAIN\n", __func__,
-						udev->dev.power.runtime_status);
-		return -EAGAIN;
-	}
-	usb_mark_last_busy(udev);
-
-	return 0;
-}
-
-/* do not call in irq context */
-int pm_dev_wait_lpa_wake(void)
-{
-	int spin = 50;
-
-	while (lpa_handling && spin--) {
-		pr_debug("%s: lpa wake wait loop\n", __func__);
-		msleep(20);
-	}
-
-	if (lpa_handling) {
-		pr_err("%s: in lpa wakeup, return EAGAIN\n", __func__);
-		return -EAGAIN;
-	}
-
-	return 0;
-}
-
-void set_shutdown(void)
-{
-	struct mdm_hsic_pm_data *pm_data =
-		get_pm_data_by_dev_name("mdm_hsic_pm0");
-
-	pm_data->shutdown = true;
-}
-
 void notify_modem_fatal(void)
 {
 	struct mdm_hsic_pm_data *pm_data =
 				get_pm_data_by_dev_name("mdm_hsic_pm0");
+	struct device *dev, *hdev;
 
 	pr_info("%s or shutdown\n", __func__);
-	print_mdm_gpio_state();
 
 	if (!pm_data || !pm_data->intf_cnt || !pm_data->udev)
 		return;
 
-	if (pm_data->shutdown == true) {
-		pr_info("During shutdown, return %s\n", __func__);
-		return;
-	}
-
 	pm_data->shutdown = true;
 
-	/* crash from sleep, ehci is in waking up, so do not control ehci */
-	if (!pm_data->block_request) {
-		struct device *dev, *hdev;
-		hdev = pm_data->udev->bus->root_hub->dev.parent;
-		dev = &pm_data->udev->dev;
+	hdev = pm_data->udev->bus->root_hub->dev.parent;
+	dev = &pm_data->udev->dev;
 
-		pm_runtime_get_noresume(dev);
-		pm_runtime_dont_use_autosuspend(dev);
-		/* if it's in going suspend, give settle time before wake up */
-		msleep(100);
-		wake_up_all(&dev->power.wait_queue);
-		pm_runtime_resume(dev);
-		pm_runtime_get_noresume(dev);
+	pm_runtime_get_noresume(dev);
 
-		blocking_notifier_call_chain(&mdm_reset_notifier_list, 0, 0);
-	}
+	flush_workqueue(pm_data->wq);
+
+	blocking_notifier_call_chain(&mdm_reset_notifier_list, 0, 0);
+
 }
 
 void request_autopm_lock(int status)
 {
 	struct mdm_hsic_pm_data *pm_data =
 					get_pm_data_by_dev_name("mdm_hsic_pm0");
-	int spin = 5;
 
 	if (!pm_data || !pm_data->udev)
 		return;
@@ -362,21 +252,11 @@ void request_autopm_lock(int status)
 
 	if (status) {
 		if (!atomic_read(&pm_data->pmlock_cnt)) {
-			atomic_inc(&pm_data->pmlock_cnt);
 			pr_info("get lock\n");
-
-			do {
-				if (!pm_dev_runtime_get_enabled(pm_data->udev))
-					break;
-			} while (spin--);
-
-			if (spin <= 0)
-				mdm_force_fatal();
-
 			pm_runtime_get(&pm_data->udev->dev);
 			pm_runtime_forbid(&pm_data->udev->dev);
-		} else
-			atomic_inc(&pm_data->pmlock_cnt);
+		}
+		atomic_inc(&pm_data->pmlock_cnt);
 	} else {
 		if (!atomic_read(&pm_data->pmlock_cnt))
 			pr_info("unbalanced release\n");
@@ -385,8 +265,6 @@ void request_autopm_lock(int status)
 			pm_runtime_allow(&pm_data->udev->dev);
 			pm_runtime_put(&pm_data->udev->dev);
 		}
-		/* initailize hello_packet_rx */
-		hello_packet_rx = 0;
 	}
 }
 
@@ -397,38 +275,12 @@ void request_active_lock_set(const char *name)
 	if (pm_data)
 		wake_lock(&pm_data->l2_wake);
 }
-
 void request_active_lock_release(const char *name)
 {
 	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
 	pr_info("%s\n", __func__);
 	if (pm_data)
 		wake_unlock(&pm_data->l2_wake);
-}
-
-void request_boot_lock_set(const char *name)
-{
-	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
-	pr_info("%s\n", __func__);
-	if (pm_data)
-		wake_lock(&pm_data->boot_wake);
-}
-
-void request_boot_lock_release(const char *name)
-{
-	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
-	pr_info("%s\n", __func__);
-	if (pm_data)
-		wake_unlock(&pm_data->boot_wake);
-}
-
-bool check_request_blocked(const char *name)
-{
-	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
-	if (!pm_data)
-		return false;
-
-	return pm_data->block_request;
 }
 
 void set_host_stat(const char *name, enum pwr_stat status)
@@ -441,22 +293,13 @@ void set_host_stat(const char *name, enum pwr_stat status)
 		return;
 	}
 
-	/* crash during kernel suspend/resume, do not control host ready pin */
-	/* and it has to be controlled when host driver initialized again */
-	if (pm_data->block_request && pm_data->shutdown)
-		return;
-
 	if (pm_data->gpio_host_ready) {
 		pr_info("dev rdy val = %d\n",
 				gpio_get_value(pm_data->gpio_device_ready));
 		pr_info("%s:set host port power status to [%d]\n",
 							__func__, status);
 
-		/*
-		 * need get some delay for MDM9x15 suspend
-		 * if L3 drive goes out to modem in suspending
-		 * modem goes to unstable PM state. now 10 ms is enough
-		 */
+		/*10ms delay location moved*/
 		if(status == POWER_OFF)
 			mdelay(10);
 
@@ -477,10 +320,6 @@ int wait_dev_pwr_stat(const char *name, enum pwr_stat status)
 		return -ENODEV;
 	}
 
-	/* in shutdown(including modem fatal) do not need to wait dev ready */
-	if (pm_data->shutdown)
-		return 0;
-
 	pr_info("%s:[%s]...\n", __func__, status ? "PWR ON" : "PWR OFF");
 
 	if (pm_data->gpio_device_ready) {
@@ -495,10 +334,8 @@ int wait_dev_pwr_stat(const char *name, enum pwr_stat status)
 
 	if (gpio_get_value(pm_data->gpio_device_ready) == status)
 		pr_info(" done\n");
-	else {
+	else
 		subsystem_restart(EXTERNAL_MODEM);
-		return -ETIMEDOUT;
-	}
 	return 0;
 }
 
@@ -533,26 +370,30 @@ int check_udev_suspend_allowed(const char *name)
 
 int set_hsic_lpa_states(int states)
 {
-	struct mdm_hsic_pm_data *pm_data =
-				get_pm_data_by_dev_name("mdm_hsic_pm0");
 	/* if modem need to check survive, get status in variable */
 	int val = 1;
-	int ret = 0;
 
 	/* set state for LPA enter */
 	if (val) {
 		switch (states) {
 		case STATE_HSIC_LPA_ENTER:
+			/*
+			 * need get some delay for MDM9x15 suspend
+			 * if L3 drive goes out to modem in suspending
+			 * modem goes to unstable PM state. now 10 ms is enough
+			 */
+			/*10ms delay location moved*/
+			//mdelay(10);
 			set_host_stat("mdm_hsic_pm0", POWER_OFF);
-			ret = wait_dev_pwr_stat("mdm_hsic_pm0", POWER_OFF);
-			if (ret)
-				return ret;
+			wait_dev_pwr_stat("mdm_hsic_pm0", POWER_OFF);
 			pr_info("set hsic lpa enter\n");
 			break;
 		case STATE_HSIC_LPA_WAKE:
-			lpa_handling = true;
-			pr_info("%s: set lpa handling to true\n", __func__);
-			request_active_lock_set("mdm_hsic_pm0");
+			/* host control is done by ehci runtime resume code */
+			#if 0
+			set_host_stat("mdm_hsic_pm0", POWER_ON);
+			wait_dev_pwr_stat("mdm_hsic_pm0", POWER_ON);
+			#endif
 			pr_info("set hsic lpa wake\n");
 			break;
 		case STATE_HSIC_LPA_PHY_INIT:
@@ -566,37 +407,12 @@ int set_hsic_lpa_states(int states)
 					return 1;
 				else
 					return 0;
-		case STATE_HSIC_LPA_ENABLE:
-			if (lpcharge)
-				return 0;
-			else if (pm_data)
-				return pm_data->shutdown;
-			else
-				return 1;
 		default:
 			pr_info("unknown lpa state\n");
 			break;
 		}
 	}
 	return 0;
-}
-
-bool mdm_check_main_connect(const char *name)
-{
-	/* find pm device from list by name */
-	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
-
-	if (!pm_data) {
-		pr_err("%s:no pm device(%s)\n", __func__, name);
-		return false;
-	}
-
-	print_pm_dev_info(pm_data);
-
-	if (pm_data->intf_cnt >= 3)
-		return true;
-	else
-		return false;
 }
 
 #define PM_START_DELAY_MS 3000
@@ -619,10 +435,6 @@ int register_udev_to_pm_dev(const char *name, struct usb_device *udev)
 		pm_data->udev = udev;
 		atomic_set(&pm_data->pmlock_cnt, 0);
 		usb_disable_autosuspend(udev);
-		pm_data->shutdown = false;
-#ifdef CONFIG_SIM_DETECT
-		get_sim_state_at_boot();
-#endif
 	} else if (pm_data->udev && pm_data->udev != udev) {
 		pr_err("%s:udev mismatching: pm_data->udev(0x%p), udev(0x%p)\n",
 		__func__, pm_data->udev, udev);
@@ -638,30 +450,14 @@ int register_udev_to_pm_dev(const char *name, struct usb_device *udev)
 	return 0;
 }
 
-int set_qmicm_mode(const char *name)
-{
-	/* find pm device from list by name */
-	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
-
-	if (!pm_data) {
-		pr_err("%s:no pm device(%s) exist\n", __func__, name);
-		return -ENODEV;
-	}
-
-	pm_data->qmicm_mode = true;
-	pr_info("%s: set QMICM mode\n", __func__);
-
-	return 0;
-}
-
-/* force fatal for debug when HSIC disconnect */
-extern void mdm_force_fatal(void);
-
 void unregister_udev_from_pm_dev(const char *name, struct usb_device *udev)
 {
 	/* find pm device from list by name */
 	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
 	struct device *hdev;
+
+	/* force fatal for debug when HSIC disconnect */
+	extern void mdm_force_fatal(void);			// kws_test
 
 	pr_info("%s\n", __func__);
 
@@ -691,10 +487,10 @@ void unregister_udev_from_pm_dev(const char *name, struct usb_device *udev)
 		pr_info("%s: all intf device unregistered from %s\n",
 						__func__, pm_data->name);
 		pm_data->udev = NULL;
+
 		/* force fatal for debug when HSIC disconnect */
-		if (!pm_data->shutdown) {
+		if (!pm_data->shutdown)
 			mdm_force_fatal();
-		}
 	}
 }
 
@@ -712,11 +508,6 @@ static void mdm_hsic_rpm_check(struct work_struct *work)
 
 	if (!pm_data->udev)
 		return;
-
-	if (lpa_handling) {
-		pr_info("ignore resume req, lpa handling\n");
-		return;
-	}
 
 	dev = &pm_data->udev->dev;
 
@@ -744,7 +535,7 @@ static void mdm_hsic_rpm_start(struct work_struct *work)
 
 	dev = &pm_data->udev->dev;
 	pdev = dev->parent;
-	pm_runtime_set_autosuspend_delay(dev, 500);
+	pm_runtime_set_autosuspend_delay(dev, 200);
 	hdev = udev->bus->root_hub->dev.parent;
 	pr_info("EHCI runtime %s, %s\n", dev_driver_string(hdev),
 			dev_name(hdev));
@@ -771,19 +562,6 @@ static void mdm_hsic_rpm_restart(struct work_struct *work)
 	pm_runtime_set_autosuspend_delay(dev, 500);
 }
 
-static void fast_dormancy_func(struct work_struct *work)
-{
-	struct mdm_hsic_pm_data *pm_data =
-			container_of(work, struct mdm_hsic_pm_data,
-					fast_dormancy_work.work);
-	pr_debug("%s\n", __func__);
-
-	if (!pm_data || !pm_data->fd_wake_time)
-		return;
-
-	wake_lock_timeout(&pm_data->fd_wake, pm_data->fd_wake_time);
-};
-
 void fast_dormancy_wakelock(const char *name)
 {
 	struct mdm_hsic_pm_data *pm_data = get_pm_data_by_dev_name(name);
@@ -791,7 +569,7 @@ void fast_dormancy_wakelock(const char *name)
 	if (!pm_data || !pm_data->fd_wake_time)
 		return;
 
-	queue_delayed_work(pm_data->wq, &pm_data->fast_dormancy_work, 0);
+	wake_lock_timeout(&pm_data->fd_wake, pm_data->fd_wake_time);
 }
 
 static ssize_t show_waketime(struct device *dev,
@@ -893,11 +671,6 @@ static int mdm_hsic_pm_notify_event(struct notifier_block *this,
 	case PM_POST_SUSPEND:
 		pm_data->block_request = false;
 		pr_info("%s: unblock request\n", __func__);
-
-		if (pm_data->shutdown) {
-			notify_modem_fatal();
-			return NOTIFY_DONE;
-		}
 		/**
 		 * cover L2 -> L3 broken and resume req blocked case :
 		 * force resume request for the lost request
@@ -908,8 +681,6 @@ static int mdm_hsic_pm_notify_event(struct notifier_block *this,
 		/*pm_runtime_set_autosuspend_delay(&pm_data->udev->dev, 200);*/
 		queue_delayed_work(pm_data->wq, &pm_data->auto_rpm_restart_work,
 						msecs_to_jiffies(20));
-
-		request_active_lock_set(pm_data->name);
 
 		return NOTIFY_OK;
 	}
@@ -923,9 +694,6 @@ static irqreturn_t mdm_hsic_irq_handler(int irq, void *data)
 	struct mdm_hsic_pm_data *pm_data = data;
 
 	if (!pm_data || !pm_data->intf_cnt || !pm_data->udev)
-		return IRQ_HANDLED;
-
-	if (pm_data->shutdown)
 		return IRQ_HANDLED;
 
 	/**
@@ -978,11 +746,6 @@ static int mdm_hsic_pm_gpio_init(struct mdm_hsic_pm_data *pm_data,
 		if (ret < 0)
 			return ret;
 		gpio_direction_output(pm_data->gpio_host_ready, 1);
-		s3c_gpio_cfgpin(pm_data->gpio_host_ready, S3C_GPIO_OUTPUT);
-		s3c_gpio_setpull(pm_data->gpio_host_ready, S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(pm_data->gpio_host_ready,
-							S5P_GPIO_DRVSTR_LV4);
-		gpio_set_value(pm_data->gpio_host_ready, 1);
 	} else
 		return -ENXIO;
 
@@ -1037,178 +800,6 @@ static void mdm_hsic_pm_gpio_free(struct mdm_hsic_pm_data *pm_data)
 		gpio_free(pm_data->gpio_host_wake);
 }
 
-#ifdef CONFIG_CPU_FREQ_TETHERING
-static int link_pm_netdev_event(struct notifier_block *this,
-				unsigned long event, void *ptr)
-{
-	struct mdm_hsic_pm_data *pm_data =
-		container_of(this, struct mdm_hsic_pm_data, netdev_notifier);
-	struct mdm_hsic_pm_platform_data *mdm_pdata = pm_data->mdm_pdata;
-	struct net_device *dev = ptr;
-
-	if (!net_eq(dev_net(dev), &init_net))
-		return NOTIFY_DONE;
-
-	if (!strncmp(dev->name, "rndis", 5)) {
-		switch (event) {
-		case NETDEV_UP:
-			pr_info("%s: %s UP\n", __func__, dev->name);
-			if (mdm_pdata->freq_lock)
-				mdm_pdata->freq_lock(mdm_pdata->dev);
-
-			break;
-		case NETDEV_DOWN:
-			pr_info("%s: %s DOWN\n", __func__, dev->name);
-			if (mdm_pdata->freq_unlock)
-				mdm_pdata->freq_unlock(mdm_pdata->dev);
-			break;
-		}
-	}
-	return NOTIFY_DONE;
-}
-
-static int usb_composite_notifier_event(struct notifier_block *this,
-		unsigned long event, void *ptr)
-{
-	struct mdm_hsic_pm_data *pm_data =
-		container_of(this, struct mdm_hsic_pm_data,
-				usb_composite_notifier);
-	struct mdm_hsic_pm_platform_data *mdm_pdata = pm_data->mdm_pdata;
-
-	switch (event) {
-	case 0:
-		if (mdm_pdata->freq_unlock)
-			mdm_pdata->freq_unlock(mdm_pdata->dev);
-		pr_info("%s: USB detached\n", __func__);
-		break;
-	case 1:
-		if (mdm_pdata->freq_lock)
-			mdm_pdata->freq_lock(mdm_pdata->dev);
-		pr_info("%s: USB attached\n", __func__);
-		break;
-	}
-	pr_info("%s: usb configuration: %s\n", __func__, (char *)ptr);
-
-	return NOTIFY_DONE;
-}
-#endif
-#ifdef CONFIG_USBIRQ_BALANCING_LTE_HIGHTP
-int boost_busfreq(struct device *dev, int enable)
-{
-	int ret = 0;
-	unsigned int busfreq = 440220; // T0
-	struct device *busdev = NULL;
-
-	if (dev == NULL)
-		return -ENODEV;
-
-	busdev = dev_get("exynos-busfreq");
-	if (busdev == NULL)
-		return -ENODEV;
-
-	if (enable)
-		ret = dev_lock(busdev, dev, busfreq);
-	else
-		ret = dev_unlock(busdev, dev);
-
-	return ret;
-}
-
-// only for T0 USB HOST
-int clear_cpu0_from_usbhost_irq(int enable)
-{
-	unsigned int irq = IRQ_USB_HOST;
-//	unsigned int irq = IRQ_USB_HSOTG;
-
-	cpumask_var_t new_value;
-	int err = 0;
-
-	if (!irq_can_set_affinity(irq))
-		return -EIO;
-
-	if (!alloc_cpumask_var(&new_value, GFP_KERNEL))
-		return -ENOMEM;
-
-	cpumask_setall(new_value);
-
-	if (enable) {
-		cpumask_and(new_value, new_value, cpu_online_mask);
-		cpumask_clear_cpu(0, new_value);
-	}
-
-	if (cpumask_intersects(new_value, cpu_online_mask)) {
-		err = irq_set_affinity(irq, new_value);
-	}
-
-	free_cpumask:
-	free_cpumask_var(new_value);
-	return err;
-}
-
-static int link_pm_rndis_event(struct notifier_block *this,
-				unsigned long event, void *ptr)
-{
-	struct mdm_hsic_pm_data *pm_data =
-		container_of(this, struct mdm_hsic_pm_data, rndis_notifier);
-	struct mdm_hsic_pm_platform_data *mdm_pdata = pm_data->mdm_pdata;
-	struct net_device *dev = ptr;
-
-	if (!net_eq(dev_net(dev), &init_net))
-		return NOTIFY_DONE;
-
-	if (!strncmp(dev->name, "rndis", 5)) {
-		switch (event) {
-		case NETDEV_UP:
-			if (mdm_pdata && mdm_pdata->dev)
-				boost_busfreq(mdm_pdata->dev, 1);
-			cpufreq_pegasusq_min_cpu_lock(2);
-			clear_cpu0_from_usbhost_irq(1);
-			pm_data->is_rndis_running = true;
-			pr_info("%s: %s UP\n", __func__, dev->name);
-			break;
-		case NETDEV_DOWN:
-			pm_data->is_rndis_running = false;
-			clear_cpu0_from_usbhost_irq(0);
-			cpufreq_pegasusq_min_cpu_unlock();
-			if (mdm_pdata && mdm_pdata->dev)
-				boost_busfreq(mdm_pdata->dev, 0);
-			pr_info("%s: %s DOWN\n", __func__, dev->name);
-			break;
-		}
-	}
-	return NOTIFY_DONE;
-}
-
-static void hotplug_work_start(struct work_struct *work)
-{
-	struct mdm_hsic_pm_data *pm_data =
-			container_of(work, struct mdm_hsic_pm_data,
-					hotplug_work.work);
-	clear_cpu0_from_usbhost_irq(1);
-}
-
-static int hotplug_notify_callback(struct notifier_block *this,
-		unsigned long action, void *hcpu)
-{
-	struct mdm_hsic_pm_data *pm_data =
-		container_of(this, struct mdm_hsic_pm_data, cpu_hotplug_notifier);
-
-	if (pm_data->is_rndis_running) {
-		switch (action) {
-
-		case CPU_POST_DEAD:
-			if (1 == num_online_cpus())
-			{
-				cpufreq_pegasusq_min_cpu_lock(2);
-				queue_delayed_work(pm_data->wq, &pm_data->hotplug_work,
-					msecs_to_jiffies(100));
-			}
-			break;
-		}
-	}
-	return NOTIFY_OK;
-}
-#endif
 static int mdm_hsic_pm_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -1255,43 +846,19 @@ static int mdm_hsic_pm_probe(struct platform_device *pdev)
 		goto err_create_sys_file;
 	}
 
-	pm_data->mdm_pdata =
-		(struct mdm_hsic_pm_platform_data *)pdev->dev.platform_data;
 	INIT_DELAYED_WORK(&pm_data->auto_rpm_start_work, mdm_hsic_rpm_start);
 	INIT_DELAYED_WORK(&pm_data->auto_rpm_restart_work,
 							mdm_hsic_rpm_restart);
 	INIT_DELAYED_WORK(&pm_data->request_resume_work, mdm_hsic_rpm_check);
-	INIT_DELAYED_WORK(&pm_data->fast_dormancy_work, fast_dormancy_func);
 	/* register notifier call */
 	pm_data->pm_notifier.notifier_call = mdm_hsic_pm_notify_event;
 	register_pm_notifier(&pm_data->pm_notifier);
 	blocking_notifier_chain_register(&mdm_reset_notifier_list,
 							&mdm_reset_main_block);
 
-#ifdef CONFIG_CPU_FREQ_TETHERING
-	pm_data->netdev_notifier.notifier_call = link_pm_netdev_event;
-	register_netdevice_notifier(&pm_data->netdev_notifier);
-
-	pm_data->usb_composite_notifier.notifier_call =
-		usb_composite_notifier_event;
-	register_usb_composite_notifier(&pm_data->usb_composite_notifier);
-#endif
-#ifdef CONFIG_USBIRQ_BALANCING_LTE_HIGHTP
-	pm_data->is_rndis_running = false;
-	INIT_DELAYED_WORK(&pm_data->hotplug_work, hotplug_work_start);
-
-	pm_data->rndis_notifier.notifier_call = link_pm_rndis_event;
-	register_netdevice_notifier(&pm_data->rndis_notifier);
-
-	pm_data->cpu_hotplug_notifier.notifier_call = hotplug_notify_callback;
-	register_cpu_notifier(&pm_data->cpu_hotplug_notifier);
-#endif
-
 	wake_lock_init(&pm_data->l2_wake, WAKE_LOCK_SUSPEND, pm_data->name);
-	wake_lock_init(&pm_data->boot_wake, WAKE_LOCK_SUSPEND, "mdm_boot");
 	wake_lock_init(&pm_data->fd_wake, WAKE_LOCK_SUSPEND, "fast_dormancy");
 	pm_data->fd_wake_time = DEFAULT_RAW_WAKE_TIME;
-	pm_data->qmicm_mode = false;
 
 	print_pm_dev_info(pm_data);
 	list_add(&pm_data->list, &hsic_pm_dev_list);

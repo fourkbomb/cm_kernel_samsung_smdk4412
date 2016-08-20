@@ -28,10 +28,6 @@
 #include <linux/firmware.h>
 #include <video/mipi_display.h>
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-#include <linux/devfreq/exynos4_display.h>
-#endif
-
 #include <plat/mipi_dsim2.h>
 #include "ea8061.h"
 
@@ -45,8 +41,9 @@
 #define MAX_STR				255
 #define LDI_MTP_LENGTH		24
 #define MAX_READ_LENGTH		64
-#define MIN_BRIGHTNESS		(0)
-#define MAX_BRIGHTNESS		(24)
+#define DIMMING_BRIGHTNESS	(0)
+#define MIN_BRIGHTNESS		(1)
+#define MAX_BRIGHTNESS		(100)
 
 #define POWER_IS_ON(pwr)		((pwr) == FB_BLANK_UNBLANK)
 #define POWER_IS_OFF(pwr)	((pwr) == FB_BLANK_POWERDOWN)
@@ -71,9 +68,6 @@ struct ea8061 {
 	struct regulator	*reg_vdd3;
 	struct regulator	*reg_vci;
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-	struct notifier_block	nb_disp;
-#endif
 	struct mutex	lock;
 
 	unsigned int	id;
@@ -144,7 +138,7 @@ static void ea8061_acl_on(struct ea8061 *lcd)
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	/* FIXME: off, 33%, 40%, 50% */
 	ops->cmd_write(lcd_to_master(lcd),
-		MIPI_DSI_DCS_SHORT_WRITE_PARAM, 0x55, 0x03);
+		MIPI_DSI_DCS_SHORT_WRITE_PARAM, 0x55, 0x00);
 }
 
 static void ea8061_acl_off(struct ea8061 *lcd)
@@ -179,13 +173,26 @@ static void ea8061_disable_mtp_register(struct ea8061 *lcd)
 
 static void ea8061_read_id(struct ea8061 *lcd, u8 *mtp_id)
 {
+	unsigned int retry_count = 3;
 	unsigned int ret;
 	unsigned int addr = 0xD1;	/* MTP ID */
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 
-	ret = ops->cmd_read(lcd_to_master(lcd),
-			MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM,
-			addr, 3, mtp_id);
+	ops->cmd_write(lcd_to_master(lcd),
+			MIPI_DSI_DCS_SHORT_WRITE_PARAM, 0xFD, addr);
+
+	/* FIXME: First read always failed */
+	do {
+		ret = ops->cmd_read(lcd_to_master(lcd),
+					MIPI_DSI_DCS_READ,
+					0xFE, 3, mtp_id);
+		if (!ret) {
+			dev_info(lcd->dev, "ea8061_read_id fail = %d.\n",
+					retry_count);
+			retry_count--;
+		} else
+			break;
+	} while (retry_count);
 }
 
 static unsigned int ea8061_read_mtp(struct ea8061 *lcd, u8 *mtp_data)
@@ -219,7 +226,7 @@ static void ea8061_panel_cond(struct ea8061 *lcd, int high_freq)
 	const unsigned char data_to_send[] = {
 		0xc4, 0x4E, 0xBD, 0x00, 0x00, 0x58, 0xA7, 0x0B, 0x34,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x92, 0x0B, 0x92,
-		0x08, 0x08, 0x07, 0x30, 0x30, 0x30, 0x00, 0x00, 0x00,
+		0x08, 0x08, 0x07, 0x30, 0x50, 0x30, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x02, 0x04, 0x04
 	};
 
@@ -232,7 +239,7 @@ static void ea8061_panel_cond(struct ea8061 *lcd, int high_freq)
 unsigned int convert_brightness_to_gamma(int brightness)
 {
 	const unsigned int gamma_table[] = {
-		30, 30, 50, 70, 80, 90, 100, 120, 130, 140,
+		20, 30, 50, 70, 80, 90, 100, 120, 130, 140,
 		150, 160, 170, 180, 190, 200, 210, 220, 230,
 		240, 250, 260, 270, 280, 300
 	};
@@ -243,6 +250,15 @@ unsigned int convert_brightness_to_gamma(int brightness)
 static int ea8061_gamma_ctrl(struct ea8061 *lcd, int brightness)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
+	const unsigned char data_to_send1[] = {
+		0xF7, 0x5A, 0x5A
+	};
+	const unsigned char data_to_send2[] = {
+		0xF7, 0xA5, 0xA5
+	};
+
+	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
+		(unsigned int)data_to_send1, ARRAY_SIZE(data_to_send1));
 
 #ifdef CONFIG_BACKLIGHT_SMART_DIMMING
 	unsigned int gamma;
@@ -258,28 +274,54 @@ static int ea8061_gamma_ctrl(struct ea8061 *lcd, int brightness)
 			(unsigned int)gamma_set,
 			GAMMA_TABLE_COUNT);
 #else
-	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
-			(unsigned int)ea8061_gamma22_table[brightness],
+	/* FIXME: clean up after enable smart dimming */
+	if (system_rev == 0x8) {
+		ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
+			(unsigned int)ea8061_gamma22_table_revD[brightness],
 			GAMMA_TABLE_COUNT);
+	} else {
+		ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
+			(unsigned int)ea8061_gamma22_table_revA[brightness],
+			GAMMA_TABLE_COUNT);
+	}
 #endif
-
-	/* update gamma table. */
-	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_SHORT_WRITE_PARAM,
-			0xf7, 0x03);
+	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
+		(unsigned int)data_to_send2, ARRAY_SIZE(data_to_send2));
 
 	ea8061_acl_on(lcd);
 
 	return 0;
 }
 
+static int ea8061_brightness_ctrl(struct ea8061 *lcd, int brightness)
+{
+	const unsigned int convert_table[] = {
+		0, 1, 1, 1, 2, 2, 2, 2, 3, 3,
+		3, 3, 4, 4, 4, 4, 5, 5, 5, 5,
+		6, 6, 6, 6, 7, 7, 7, 7, 7, 8,
+		8, 8, 8, 9, 9, 9, 9, 10, 10, 10,
+		10, 11, 11, 11, 11, 12, 12, 12, 12, 13,
+		13, 13, 13, 13, 14, 14, 14, 14, 15, 15,
+		15, 15, 16, 16, 16, 16, 17, 17, 17, 17,
+		18, 18, 18, 18, 19, 19, 19, 19, 19, 20,
+		20, 20, 20, 21, 21, 21, 21, 22, 22, 22,
+		22, 23, 23, 23, 23, 24, 24, 24, 24, 24,
+		24,
+	};
+
+	if (brightness > ARRAY_SIZE(convert_table)-1)
+		brightness = convert_table[ARRAY_SIZE(convert_table)-1];
+	else
+		brightness = convert_table[brightness];
+
+	return ea8061_gamma_ctrl(lcd, brightness);
+}
+
 static void ea8061_elvss_nvm_set(struct ea8061 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	unsigned char data_to_send[] = {
-		0xB2, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0C, 0x0D,
-		0x0E, 0x0F, 0x10, 0x11, 0x0B, 0x0C, 0x0E, 0x10, 0x12,
-		0x13, 0x15, 0x17, 0x18, 0x1A, 0x1A, 0x1B, 0x1B, 0x1B,
-		0x1C, 0x1C, 0x1C, 0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
+		0xB2, 0x07, 0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 	};
 
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
@@ -297,6 +339,17 @@ static void ea8061_slew_ctl(struct ea8061 *lcd)
 		(unsigned int)data_to_send, ARRAY_SIZE(data_to_send));
 }
 
+static void ea8061_ltps_aid(struct ea8061 *lcd)
+{
+	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
+	unsigned char data_to_send[] = {
+		0xB3, 0x00, 0x0A, 0x00, 0x0A,
+	};
+
+	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
+		(unsigned int)data_to_send, ARRAY_SIZE(data_to_send));
+}
+
 static int ea8061_panel_init(struct ea8061 *lcd)
 {
 	struct backlight_device *bd = lcd->bd;
@@ -308,7 +361,8 @@ static int ea8061_panel_init(struct ea8061 *lcd)
 
 	ea8061_panel_cond(lcd, 1);
 	ea8061_disp_cond(lcd);
-	ea8061_gamma_ctrl(lcd, brightness);
+	ea8061_brightness_ctrl(lcd, brightness);
+	ea8061_ltps_aid(lcd);
 	ea8061_elvss_nvm_set(lcd);
 	ea8061_acl_on(lcd);
 	ea8061_slew_ctl(lcd);
@@ -415,7 +469,7 @@ static int ea8061_get_brightness(struct backlight_device *bd)
 
 static int ea8061_set_brightness(struct backlight_device *bd)
 {
-	int ret = 0, brightness = bd->props.brightness;
+	int ret, brightness = bd->props.brightness;
 	struct ea8061 *lcd = bl_get_data(bd);
 
 	if (lcd->power == FB_BLANK_POWERDOWN) {
@@ -424,14 +478,13 @@ static int ea8061_set_brightness(struct backlight_device *bd)
 		return -EINVAL;
 	}
 
-	if (brightness < MIN_BRIGHTNESS ||
-		brightness > bd->props.max_brightness) {
+	if (brightness < 0 || brightness > bd->props.max_brightness) {
 		dev_err(lcd->dev, "lcd brightness should be %d to %d.\n",
-			MIN_BRIGHTNESS, MAX_BRIGHTNESS);
+			0, MAX_BRIGHTNESS);
 		return -EINVAL;
 	}
 
-	ret = ea8061_gamma_ctrl(lcd, brightness);
+	ret = ea8061_brightness_ctrl(lcd, brightness);
 	if (ret) {
 		dev_err(&bd->dev, "lcd brightness setting failed.\n");
 		return -EIO;
@@ -440,9 +493,36 @@ static int ea8061_set_brightness(struct backlight_device *bd)
 	return ret;
 }
 
+static int ea8061_set_dimming(struct backlight_device *bd)
+{
+	struct ea8061 *lcd = bl_get_data(bd);
+	int ret = 0, brightness = bd->props.brightness;
+
+	if (lcd->power == FB_BLANK_POWERDOWN) {
+		dev_err(lcd->dev,
+			"lcd dimming: dimming set failed.\n");
+		return -EINVAL;
+	}
+
+	dev_info(lcd->dev, "%s: brightness %d, dimming %d.\n",
+		__func__, brightness, bd->props.dimming);
+
+	if (bd->props.dimming)
+		ret = ea8061_brightness_ctrl(lcd, DIMMING_BRIGHTNESS);
+	else
+		ret = ea8061_brightness_ctrl(lcd, brightness);
+
+	if (ret)
+		dev_err(&bd->dev, "lcd dimming setting failed.\n");
+		return -EIO;
+
+	return ret;
+}
+
 static const struct backlight_ops ea8061_backlight_ops = {
 	.get_brightness = ea8061_get_brightness,
 	.update_status = ea8061_set_brightness,
+	.set_dimming = ea8061_set_dimming,
 };
 
 static ssize_t acl_control_show(struct device *dev, struct
@@ -618,7 +698,18 @@ static ssize_t write_reg_store(struct device *dev, struct
 	return size;
 }
 
-static struct device_attribute device_attrs[] = {
+static ssize_t backlight_show_min_brightness(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", MIN_BRIGHTNESS);
+}
+
+static struct device_attribute bd_device_attrs[] = {
+	__ATTR(min_brightness, S_IRUGO,
+			backlight_show_min_brightness, NULL),
+};
+
+static struct device_attribute ld_device_attrs[] = {
 	__ATTR(acl_control, S_IRUGO|S_IWUSR|S_IWGRP,
 			acl_control_show, acl_control_store),
 	__ATTR(lcd_type, S_IRUGO,
@@ -635,30 +726,6 @@ static struct panel_model ea8061_model[] = {
 		.name = "SMD_AMS555HBxx-0",
 	}
 };
-
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-static int ea8061_notifier_callback(struct notifier_block *this,
-			unsigned long event, void *_data)
-{
-	struct ea8061 *lcd = container_of(this, struct ea8061, nb_disp);
-
-	if (lcd->power == FB_BLANK_POWERDOWN)
-		return NOTIFY_DONE;
-
-	switch (event) {
-	case EXYNOS4_DISPLAY_LV_HF:
-		ea8061_panel_cond(lcd, 1);
-		break;
-	case EXYNOS4_DISPLAY_LV_LF:
-		ea8061_panel_cond(lcd, 0);
-		break;
-	default:
-		return NOTIFY_BAD;
-	}
-
-	return NOTIFY_DONE;
-}
-#endif
 
 static void ea8061_regulator_ctl(struct ea8061 *lcd, bool enable)
 {
@@ -702,8 +769,8 @@ static void ea8061_power_on(struct mipi_dsim_lcd_device *dsim_dev,
 		ea8061_delay(5);
 	} else {
 		/* lcd reset low */
-		if (lcd->ddi_pd->reset)
-			lcd->ddi_pd->reset(lcd->ld);
+		if (lcd->property->reset_low)
+			lcd->property->reset_low();
 
 		/* lcd power off */
 		ea8061_regulator_ctl(lcd, false);
@@ -712,7 +779,19 @@ static void ea8061_power_on(struct mipi_dsim_lcd_device *dsim_dev,
 
 static int ea8061_check_mtp(struct mipi_dsim_lcd_device *dsim_dev)
 {
-	/* FIXME:! read id mtp failed */
+	struct ea8061 *lcd = dev_get_drvdata(&dsim_dev->dev);
+	u8 mtp_id[3] = {0, };
+
+	ea8061_read_id(lcd, mtp_id);
+
+	if (mtp_id[0] == 0x00) {
+		dev_err(lcd->dev, "read id failed\n");
+		return -EIO;
+	}
+
+	dev_info(lcd->dev,
+		"Read ID : %x, %x, %x\n", mtp_id[0], mtp_id[1], mtp_id[2]);
+
 	return 0;
 }
 
@@ -742,7 +821,10 @@ static int ea8061_probe(struct mipi_dsim_lcd_device *dsim_dev)
 
 	mutex_init(&lcd->lock);
 
-	lcd->reg_vdd3 = regulator_get(lcd->dev, "VDD3");
+	if (system_rev == 0x8)
+		lcd->reg_vdd3 = regulator_get(lcd->dev, "VCC_LCD_1.8V");
+	else
+		lcd->reg_vdd3 = regulator_get(lcd->dev, "VDD3");
 	if (IS_ERR(lcd->reg_vdd3)) {
 		ret = PTR_ERR(lcd->reg_vdd3);
 		dev_err(lcd->dev, "failed to get %s regulator (%d)\n",
@@ -779,23 +861,24 @@ static int ea8061_probe(struct mipi_dsim_lcd_device *dsim_dev)
 	if (lcd->ddi_pd)
 		lcd->property = lcd->ddi_pd->pdata;
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-	if (lcd->property && lcd->property->dynamic_refresh) {
-		lcd->nb_disp.notifier_call = ea8061_notifier_callback;
-		ret = exynos4_display_register_client(&lcd->nb_disp);
-		if (ret < 0)
-			dev_warn(&lcd->ld->dev, "failed to register exynos-display notifier\n");
-	}
-#endif
-
 	lcd->bd->props.max_brightness = MAX_BRIGHTNESS;
 	lcd->bd->props.brightness = MAX_BRIGHTNESS;
 	lcd->power = FB_BLANK_UNBLANK;
 	lcd->model = ea8061_model;
 	lcd->model_count = ARRAY_SIZE(ea8061_model);
-	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
+
+	for (i = 0; i < ARRAY_SIZE(bd_device_attrs); i++) {
+		ret = device_create_file(&lcd->bd->dev,
+					&bd_device_attrs[i]);
+		if (ret < 0) {
+			dev_err(&lcd->ld->dev, "failed to add sysfs entries\n");
+			break;
+		}
+	}
+
+	for (i = 0; i < ARRAY_SIZE(ld_device_attrs); i++) {
 		ret = device_create_file(&lcd->ld->dev,
-					&device_attrs[i]);
+					&ld_device_attrs[i]);
 		if (ret < 0) {
 			dev_err(&lcd->ld->dev, "failed to add sysfs entries\n");
 			break;
@@ -830,10 +913,6 @@ static void ea8061_remove(struct mipi_dsim_lcd_device *dsim_dev)
 	regulator_put(lcd->reg_vci);
 	regulator_put(lcd->reg_vdd3);
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-	if (lcd->property && lcd->property->dynamic_refresh)
-		exynos4_display_unregister_client(&lcd->nb_disp);
-#endif
 	kfree(lcd);
 }
 
@@ -853,7 +932,6 @@ static int ea8061_resume(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct ea8061 *lcd = dev_get_drvdata(&dsim_dev->dev);
 
-	ea8061_sleep_out(lcd);
 	ea8061_delay(lcd->ddi_pd->power_on_delay);
 
 	return 0;

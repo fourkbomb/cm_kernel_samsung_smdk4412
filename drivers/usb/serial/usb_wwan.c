@@ -292,21 +292,18 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	struct tty_struct *tty;
 	unsigned char *data = urb->transfer_buffer;
 	int status = urb->status;
-	int rx_len = urb->actual_length;
-	struct usb_wwan_intf_private *intfdata;
 
 	dbg("%s: %p", __func__, urb);
 
 	endpoint = usb_pipeendpoint(urb->pipe);
 	port = urb->context;
-	intfdata = port->serial->private;
 
 	usb_mark_last_busy(interface_to_usbdev(port->serial->interface));
 	if (status) {
 		dbg("%s: nonzero status: %d on endpoint %02x.",
 		    __func__, status, endpoint);
 #ifdef CONFIG_MDM_HSIC_PM
-		if (status == -ENOENT && (urb->actual_length > 0)) {
+		if (status == -ENOENT && urb->actual_length) {
 			pr_info("%s: handle dropped packet\n", __func__);
 			goto handle_rx;
 		}
@@ -317,28 +314,20 @@ handle_rx:
 #endif
 		tty = tty_port_tty_get(&port->port);
 		if (tty) {
-			if (urb->actual_length > 0) {
+			if (urb->actual_length) {
 #ifdef CONFIG_MDM_HSIC_PM
 				struct usb_device *udev = port->serial->dev;
-				/* corner case : efs packet rx at rpm suspend
-				 * it can control twice in racing condition
-				 * rx call back and suspend, both of then ca
-				 * call this function , so clear the packet
-				 * length once it handled
-				 */
-				urb->status = -EINPROGRESS;
-				urb->actual_length = 0;
 				if (udev->actconfig->desc.bNumInterfaces == 9)
 					pr_info("%s: read urb received : %d\n",
-						__func__, rx_len);
+						__func__, urb->actual_length);
 #endif
-				tty_insert_flip_string(tty, data, rx_len);
+				tty_insert_flip_string(tty, data,
+						urb->actual_length);
 				tty_flip_buffer_push(tty);
 			} else
 				dbg("%s: empty read urb received", __func__);
 			tty_kref_put(tty);
-		} else
-			return;
+		}
 
 #ifdef CONFIG_MDM_HSIC_PM
 		/* do not re-submit urb for no entry status */
@@ -346,7 +335,7 @@ handle_rx:
 			return;
 #endif
 		/* Resubmit urb so we continue receiving */
-		if (status != -ESHUTDOWN || !intfdata->suspended) {
+		if (status != -ESHUTDOWN) {
 			err = usb_submit_urb(urb, GFP_ATOMIC);
 			if (err) {
 				if (err != -EPERM) {
@@ -447,7 +436,6 @@ int usb_wwan_open(struct tty_struct *tty, struct usb_serial_port *port)
 
 	portdata = usb_get_serial_port_data(port);
 	intfdata = serial->private;
-	intfdata->suspended = 0;
 
 	/* explicitly set the driver mode to raw */
 	tty->raw = 1;
@@ -650,10 +638,8 @@ static void stop_read_write_urbs(struct usb_serial *serial)
 
 void usb_wwan_disconnect(struct usb_serial *serial)
 {
-	struct usb_wwan_intf_private *intfdata = serial->private;
 	dbg("%s", __func__);
 
-	intfdata->suspended = 1;
 	stop_read_write_urbs(serial);
 }
 EXPORT_SYMBOL(usb_wwan_disconnect);

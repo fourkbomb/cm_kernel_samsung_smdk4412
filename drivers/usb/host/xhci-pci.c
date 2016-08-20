@@ -108,8 +108,6 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		xhci_dbg(xhci, "QUIRK: Resetting on resume\n");
 		xhci->quirks |= XHCI_TRUST_TX_LENGTH;
 	}
-	if (pdev->vendor == PCI_VENDOR_ID_VIA)
-		xhci->quirks |= XHCI_RESET_ON_RESUME;
 }
 
 /* called during probe() after chip reset completes */

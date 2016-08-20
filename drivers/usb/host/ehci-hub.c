@@ -619,6 +619,13 @@ static int check_reset_complete (
 			return port_status;
 		}
 
+#ifdef CONFIG_EHCI_MODEM_PORTNUM
+		if ((index+1) == CONFIG_EHCI_MODEM_PORTNUM) {
+			/* modem connection port doesn't support handoff */
+			ehci_err(ehci, "port %d cannot handoff\n", index + 1);
+			return port_status;
+		}
+#endif
 		ehci_dbg (ehci, "port %d full speed --> companion\n",
 			index + 1);
 
@@ -1367,9 +1374,9 @@ static int ehci_hub_control (
 	if (status & ~0xffff)	/* only if wPortChange is interesting */
 #endif
 		dbg_port (ehci, "GetStatus", wIndex + 1, temp);
-
 #if defined(CONFIG_EMI_ERROR_RECOVERY)
-		if (temp & PORT_ENABLE_DISABLE_CHANGE) {
+		if (((wIndex & 0xff) == MDM_HSIC_PORT_NUM) &&
+					(temp & PORT_ENABLE_DISABLE_CHANGE)) {
 			temp = ehci_readl(ehci, status_reg);
 			ehci_dbg(ehci, "recovery port status %d +\n", temp);
 
@@ -1380,8 +1387,6 @@ static int ehci_hub_control (
 			temp |= PORT_ENABLE_DISABLE_CHANGE;
 
 			ehci_writel(ehci, temp, status_reg);
-			ehci_readl(ehci, status_reg);
-
 			ehci_dbg(ehci, "recovery port status %d -\n",
 						ehci_readl(ehci, status_reg));
 

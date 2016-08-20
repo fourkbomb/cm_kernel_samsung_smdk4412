@@ -271,6 +271,8 @@ ssize_t  wake_unlock_store(struct kobject *kobj, struct kobj_attribute *attr,
 /* kernel/power/earlysuspend.c */
 void request_suspend_state(suspend_state_t state);
 suspend_state_t get_suspend_state(void);
+#elif defined(CONFIG_PARTIALSUSPEND_SLP)
+void request_slp_suspend_state(suspend_state_t state);
 #endif
 
 struct pm_wd_data {

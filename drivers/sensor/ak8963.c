@@ -27,8 +27,7 @@
 #include "ak8963-reg.h"
 #include <linux/sensor/sensors_core.h>
 
-#if defined(CONFIG_SLP) || defined(CONFIG_MACH_GC1)\
-	|| defined(CONFIG_MACH_M3_USA_TMO)
+#if defined(CONFIG_SLP) || defined(CONFIG_MACH_GC1)
 #define FACTORY_TEST
 #else
 #undef FACTORY_TEST
@@ -38,6 +37,16 @@
 #define VENDOR		"AKM"
 #define CHIP_ID		"AK8963C"
 
+static const int position_map[][3][3] = {
+	{{-1,  0,  0}, { 0, -1,  0}, { 0,  0,  1} }, /* 0 top/upper-left */
+	{{ 0, -1,  0}, { 1,  0,  0}, { 0,  0,  1} }, /* 1 top/upper-right */
+	{{ 1,  0,  0}, { 0,  1,  0}, { 0,  0,  1} }, /* 2 top/lower-right */
+	{{ 0,  1,  0}, {-1,  0,  0}, { 0,  0,  1} }, /* 3 top/lower-left */
+	{{ 1,  0,  0}, { 0, -1,  0}, { 0,  0, -1} }, /* 4 bottom/upper-left */
+	{{ 0,  1,  0}, { 1,  0,  0}, { 0,  0, -1} }, /* 5 bottom/upper-right */
+	{{-1,  0,  0}, { 0,  1,  0}, { 0,  0, -1} }, /* 6 bottom/lower-right */
+	{{ 0, -1,  0}, {-1,  0,  0}, { 0,  0, -1} }, /* 7 bottom/lower-left*/
+};
 
 struct akm8963_data {
 	struct i2c_client *this_client;
@@ -49,6 +58,7 @@ struct akm8963_data {
 	wait_queue_head_t state_wq;
 	u8 asa[3];
 	int irq;
+	int position;
 };
 
 
@@ -97,11 +107,13 @@ static int akm8963_Reset(struct akm8963_data *akm)
 {
 	int err = 0;
 
+#if !defined(CONFIG_MACH_GC1)
 	gpio_set_value(GPIO_MSENSE_RST_N, 0);
 	udelay(5);
 	gpio_set_value(GPIO_MSENSE_RST_N, 1);
 	/* Device will be accessible 100 us after */
 	udelay(100);
+#endif
 
 	return err;
 }
@@ -224,6 +236,9 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 	struct akm8963_data *akm = container_of(file->private_data,
 			struct akm8963_data, akmd_device);
 	int ret;
+	int i;
+	short raw_data[3] = {0, };
+	short adjust_raw[3] = {0,};
 	#ifdef MAGNETIC_LOGGING
 	short x, y, z;
 	#endif
@@ -239,7 +254,7 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 		return ret;
 
 	switch (cmd) {
-	case ECS_IOCTL_WRITE:
+	case AK8963_ECS_IOCTL_WRITE:
 		if ((rwbuf.raw[0] < 2) || (rwbuf.raw[0] > (RWBUF_SIZE - 1)))
 			return -EINVAL;
 		if (copy_from_user(&rwbuf.raw[2], argp+2, rwbuf.raw[0]-1))
@@ -250,7 +265,7 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 						     rwbuf.raw[0] - 1,
 						     &rwbuf.raw[2]);
 		break;
-	case ECS_IOCTL_READ:
+	case AK8963_ECS_IOCTL_READ:
 		if ((rwbuf.raw[0] < 1) || (rwbuf.raw[0] > (RWBUF_SIZE - 1)))
 			return -EINVAL;
 
@@ -263,15 +278,15 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 		if (copy_to_user(argp+1, rwbuf.raw+1, rwbuf.raw[0]))
 			return -EFAULT;
 		return 0;
-	case ECS_IOCTL_SET_MODE:
+	case AK8963_ECS_IOCTL_SET_MODE:
 		mutex_lock(&akm->lock);
 		ret = akm8963_ecs_set_mode(akm, rwbuf.mode);
 		mutex_unlock(&akm->lock);
 		break;
-	case ECS_IOCTL_RESET:
+	case AK8963_ECS_IOCTL_RESET:
 		akm8963_Reset(akm);
 		break;
-	case ECS_IOCTL_GETDATA:
+	case AK8963_ECS_IOCTL_GETDATA:
 		mutex_lock(&akm->lock);
 		ret = akm8963_wait_for_data_ready(akm);
 		if (ret) {
@@ -292,6 +307,34 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 			__func__, rwbuf.data[0], x, y, z, rwbuf.data[7]);
 		#endif
 
+		raw_data[0] = (rwbuf.data[2] << 8) + rwbuf.data[1];
+		raw_data[1] = (rwbuf.data[4] << 8) + rwbuf.data[3];
+		raw_data[2] = (rwbuf.data[6] << 8) + rwbuf.data[5];
+
+		for (i = 0; i < 3; i++) {
+			adjust_raw[0] +=
+				(position_map[akm->position][0][i]
+				* raw_data[i]);
+			adjust_raw[1] +=
+				(position_map[akm->position][1][i]
+				* raw_data[i]);
+			adjust_raw[2] +=
+				(position_map[akm->position][2][i]
+				* raw_data[i]);
+		}
+		#ifdef MAGNETIC_LOGGING
+		pr_info("%s:adjusted x=%d, y=%d, z=%d\n",
+			__func__, adjust_raw[0], adjust_raw[1], adjust_raw[2]);
+		#endif
+
+		rwbuf.data[1] = adjust_raw[0] & 0x00ff;
+		rwbuf.data[2] = (adjust_raw[0] & 0xff00) >> 8;
+
+		rwbuf.data[3] = adjust_raw[1] & 0x00ff;
+		rwbuf.data[4] = (adjust_raw[1] & 0xff00) >> 8;
+
+		rwbuf.data[5] = adjust_raw[2] & 0x00ff;
+		rwbuf.data[6] = (adjust_raw[2] & 0xff00) >> 8;
 		mutex_unlock(&akm->lock);
 		if (ret != sizeof(rwbuf.data)) {
 			pr_err("%s : failed to read %d bytes of mag data\n",
@@ -370,9 +413,10 @@ static int ak8963c_selftest(struct akm8963_data *ak_data, int *sf)
 {
 	u8 buf[6];
 	s16 x, y, z;
-	int retry_count = 0;
 
-retry:
+	mutex_lock(&ak_data->lock);
+	akm8963_Reset(ak_data);
+
 	/* read device info */
 	i2c_smbus_read_i2c_block_data(ak_data->this_client,
 					AK8963_REG_WIA, 2, buf);
@@ -403,6 +447,8 @@ retry:
 	/* set ATSC self test bit to 0 */
 	i2c_smbus_write_byte_data(ak_data->this_client,
 					AK8963_REG_ASTC, 0x00);
+
+	mutex_unlock(&ak_data->lock);
 
 	x = buf[0] | (buf[1] << 8);
 	y = buf[2] | (buf[3] << 8);
@@ -440,21 +486,10 @@ retry:
 
 	if (((x >= -200) && (x <= 200)) &&
 		((y >= -200) && (y <= 200)) &&
-		((z >= -3200) && (z <= -800))) {
-		pr_info("%s, Selftest is successful.\n", __func__);
+		((z >= -3200) && (z <= -800)))
 		return 1;
-	} else {
-		if (retry_count < 5) {
-			retry_count++;
-			pr_warn("############################################");
-			pr_warn("%s, retry_count=%d\n", __func__, retry_count);
-			pr_warn("############################################");
-			goto retry;
-		} else {
-			pr_err("%s, Selftest is failed.\n", __func__);
-			return 0;
-		}
-	}
+	else
+		return 0;
 }
 
 static ssize_t ak8963c_get_asa(struct device *dev,
@@ -541,17 +576,26 @@ static ssize_t ak8963_adc(struct device *dev,
 {
 	struct akm8963_data *ak_data  = dev_get_drvdata(dev);
 	u8 buf[8];
-	s16 x, y, z;
+	short raw_data[3] = {0,};
+	s16 x = 0, y = 0, z = 0;
 	int err, success;
+	int i;
 
+	mutex_lock(&ak_data->lock);
 	/* start ADC conversion */
 	err = i2c_smbus_write_byte_data(ak_data->this_client,
 			AK8963_REG_CNTL1, AK8963_CNTL1_SNG_MEASURE);
+	if (err) {
+		pr_err("%s: single measurement mode set failed\n", __func__);
+		mutex_unlock(&ak_data->lock);
+		return err;
+	}
 
 	/* wait for ADC conversion to complete */
 	err = akm8963_wait_for_data_ready(ak_data);
 	if (err) {
 		pr_err("%s: wait for data ready failed\n", __func__);
+		mutex_unlock(&ak_data->lock);
 		return err;
 	}
 	msleep(20);
@@ -560,8 +604,10 @@ static ssize_t ak8963_adc(struct device *dev,
 					AK8963_REG_ST1, sizeof(buf), buf);
 	if (err != sizeof(buf)) {
 		pr_err("%s: read data over i2c failed\n", __func__);
+		mutex_unlock(&ak_data->lock);
 		return err;
 	}
+	mutex_unlock(&ak_data->lock);
 
 	/* buf[0] is status1, buf[7] is status2 */
 	if ((buf[0] == 0) | (buf[7] == 1))
@@ -569,9 +615,15 @@ static ssize_t ak8963_adc(struct device *dev,
 	else
 		success = 1;
 
-	x = buf[1] | (buf[2] << 8);
-	y = buf[3] | (buf[4] << 8);
-	z = buf[5] | (buf[6] << 8);
+	raw_data[0] = buf[1] | (buf[2] << 8);
+	raw_data[1] = buf[3] | (buf[4] << 8);
+	raw_data[2] = buf[5] | (buf[6] << 8);
+
+	for (i = 0; i < 3; i++) {
+		x += (position_map[ak_data->position][0][i]*raw_data[i]);
+		y += (position_map[ak_data->position][1][i]*raw_data[i]);
+		z += (position_map[ak_data->position][2][i]*raw_data[i]);
+	}
 
 	pr_info("raw x = %d, y = %d, z = %d\n", x, y, z);
 	return sprintf(strbuf,
@@ -584,7 +636,8 @@ static ssize_t ak8963_show_raw_data(struct device *dev,
 {
 	struct akm8963_data *akm = dev_get_drvdata(dev);
 	short x = 0, y = 0, z = 0;
-	int ret;
+	short raw_data[3] = {0,};
+	int i, ret;
 	u8 data[8] = {0,};
 
 	mutex_lock(&akm->lock);
@@ -593,6 +646,7 @@ static ssize_t ak8963_show_raw_data(struct device *dev,
 		mutex_unlock(&akm->lock);
 		goto done;
 	}
+	mdelay(10);
 	ret = akm8963_wait_for_data_ready(akm);
 	if (ret) {
 		mutex_unlock(&akm->lock);
@@ -609,9 +663,15 @@ static ssize_t ak8963_show_raw_data(struct device *dev,
 	}
 
 	if (data[0] & 0x01) {
-		x = (data[2] << 8) + data[1];
-		y = (data[4] << 8) + data[3];
-		z = (data[6] << 8) + data[5];
+		raw_data[0] = (data[2] << 8) + data[1];
+		raw_data[1] = (data[4] << 8) + data[3];
+		raw_data[2] = (data[6] << 8) + data[5];
+
+		for (i = 0; i < 3; i++) {
+			x += (position_map[akm->position][0][i] * raw_data[i]);
+			y += (position_map[akm->position][1][i] * raw_data[i]);
+			z += (position_map[akm->position][2][i] * raw_data[i]);
+		}
 	} else
 		pr_err("%s: invalid raw data(st1 = %d)\n",
 					__func__, data[0] & 0x01);
@@ -687,6 +747,12 @@ int akm8963_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, akm);
 	akm->this_client = client;
+
+	if (akm->pdata->magnetic_get_position)
+		akm->position = akm->pdata->magnetic_get_position();
+	else
+		akm->position = 2;	/*default position */
+	pr_info("%s: position info:%d\n", __func__, akm->position);
 
 	err = akm8963_ecs_set_mode_power_down(akm);
 	if (err < 0) {

@@ -160,8 +160,23 @@ static void exynos_busfreq_timer(struct work_struct *work)
 			worker);
 	struct opp *opp;
 	unsigned int index;
+	unsigned long next_freq;
+	static unsigned int first_check;
+	static unsigned int saved_sampling_rate;
 
 	opp = data->monitor(data);
+
+	if (first_check == 0) {
+		first_check = 1;
+		saved_sampling_rate = data->sampling_rate;
+	}
+
+	next_freq = opp_get_freq(opp);
+
+	if (next_freq < 160160)
+		data->sampling_rate = usecs_to_jiffies(20000);
+	else
+		data->sampling_rate = saved_sampling_rate;
 
 	ppmu_start(data->dev);
 
@@ -444,6 +459,29 @@ static ssize_t store_load_history_size(struct device *device,
 	return count;
 }
 
+#if defined(CONFIG_SLP_BUSFREQ_ROUND_OFF)
+bool busfreq_round_off_onoff;
+static ssize_t show_busfreq_round_off(struct device *device,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", busfreq_round_off_onoff);
+}
+static ssize_t store_busfreq_round_off(struct device *device,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int onoff, ret;
+	ret = sscanf(buf, "%d", &onoff);
+	if (ret != 1)
+		return -EINVAL;
+
+	busfreq_round_off_onoff = onoff;
+
+	return count;
+}
+#endif
+
+
 static DEVICE_ATTR(curr_freq, 0664, show_level_lock, store_level_lock);
 static DEVICE_ATTR(lock_list, 0664, show_locklist, NULL);
 static DEVICE_ATTR(time_in_state, 0664, show_time_in_state, NULL);
@@ -463,6 +501,11 @@ static DEVICE_ATTR(dmc_max_threshold, 0664, show_dmc_max_threshold,
 static DEVICE_ATTR(load_history_size, 0664, show_load_history_size,
 					store_load_history_size);
 
+#if defined(CONFIG_SLP_BUSFREQ_ROUND_OFF)
+static DEVICE_ATTR(round_off, 0664, show_busfreq_round_off,
+					store_busfreq_round_off);
+#endif
+
 static struct attribute *busfreq_attributes[] = {
 	&dev_attr_curr_freq.attr,
 	&dev_attr_lock_list.attr,
@@ -475,7 +518,9 @@ static struct attribute *busfreq_attributes[] = {
 	&dev_attr_cpu_slope_size.attr,
 	&dev_attr_dmc_max_threshold.attr,
 	&dev_attr_load_history_size.attr,
-
+#if defined(CONFIG_SLP_BUSFREQ_ROUND_OFF)
+	&dev_attr_round_off.attr,
+#endif
 	NULL
 };
 

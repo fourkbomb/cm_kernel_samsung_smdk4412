@@ -43,23 +43,10 @@
 #endif
 #include "mdm_private.h"
 
-#ifdef CONFIG_MDM_HSIC_PM
-#include <linux/mdm_hsic_pm.h>
-static const char rmnet_pm_dev[] = "mdm_hsic_pm0";
-#endif
-
 #ifdef CONFIG_ARCH_EXYNOS
 #include <linux/interrupt.h>
 #include <plat/gpio-cfg.h>
 #include <mach/gpio.h>
-#endif
-
-#ifdef CONFIG_SIM_DETECT
-#include <linux/poll.h>
-#endif
-
-#ifdef CONFIG_FAST_BOOT
-#include <linux/reboot.h>
 #endif
 
 #define MDM_MODEM_TIMEOUT	6000
@@ -89,8 +76,10 @@ static void mdm_disable_irqs(void);
 DECLARE_COMPLETION(mdm_needs_reload);
 DECLARE_COMPLETION(mdm_boot);
 DECLARE_COMPLETION(mdm_ram_dumps);
+DECLARE_COMPLETION(mdm_error);
 
 static int first_boot = 1;
+static int dump_requested;
 
 #define RD_BUF_SIZE			100
 #define SFR_MAX_RETRIES		10
@@ -189,23 +178,6 @@ void mdm_set_chip_configuration(bool dload)
 	}
 }
 
-void print_mdm_gpio_state(void)
-{
-	pr_info("ap2mdm_status is %s\n",
-			gpio_get_value(mdm_drv->ap2mdm_status_gpio) ?
-				"high" : "low");
-	pr_info("ap2mdm_errfatal is %s\n",
-			gpio_get_value(mdm_drv->ap2mdm_errfatal_gpio) ?
-				"high" : "low");
-	pr_info("mdm2ap_status is %s\n",
-			gpio_get_value(mdm_drv->mdm2ap_status_gpio) ?
-				"high" : "low");
-	pr_info("mdm2ap_errfatal is %s\n",
-			gpio_get_value(mdm_drv->mdm2ap_errfatal_gpio) ?
-				"high" : "low");
-}
-EXPORT_SYMBOL(print_mdm_gpio_state);
-
 static void mdm2ap_status_check(struct work_struct *work)
 {
 	/*
@@ -216,36 +188,13 @@ static void mdm2ap_status_check(struct work_struct *work)
 		pr_err("%s: MDM2AP_STATUS gpio did not go high\n",
 			   __func__);
 		mdm_drv->mdm_ready = 0;
-		notify_modem_fatal();
-		subsystem_restart(EXTERNAL_MODEM);
+		/* subsystem_restart(EXTERNAL_MODEM); */
+		dump_requested = 1;
+		complete(&mdm_error);
 	}
 }
 
 static DECLARE_DELAYED_WORK(mdm2ap_status_check_work, mdm2ap_status_check);
-
-static void mdm_silent_reset(void)
-{
-	pr_info("mdm: silent reset!!\n");
-
-
-	set_shutdown();
-	mdm_drv->mdm_ready = 0;
-	mdm_drv->boot_type = CHARM_NORMAL_BOOT;
-	complete(&mdm_needs_reload);
-	if (!wait_for_completion_timeout(&mdm_boot,
-			msecs_to_jiffies(MDM_BOOT_TIMEOUT))) {
-		mdm_drv->mdm_boot_status = -ETIMEDOUT;
-		pr_info("%s: mdm modem restart timed out.\n", __func__);
-		panic("%s[%p]: Failed to powerup!", __func__, current);
-	} else {
-		pr_info("%s: mdm modem has been restarted\n", __func__);
-
-		/* Log the reason for the restart */
-		if (mdm_drv->pdata->sfr_query)
-			queue_work(mdm_sfr_queue, &sfr_reason_work);
-	}
-	INIT_COMPLETION(mdm_boot);
-}
 
 long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 				unsigned long arg)
@@ -261,9 +210,6 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 	switch (cmd) {
 	case WAKE_CHARM:
 		pr_info("%s: Powering on mdm\n", __func__);
-#ifdef CONFIG_MDM_HSIC_PM
-		request_boot_lock_set(rmnet_pm_dev);
-#endif
 		mdm_drv->ops->power_on_mdm_cb(mdm_drv);
 		break;
 	case CHECK_FOR_BOOT:
@@ -307,21 +253,25 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 		else {
 			pr_info("%s: ramdump collection completed\n", __func__);
 			mdm_drv->mdm_ram_dump_status = 0;
+			panic("CP Crash %s", mdm_read_err_report());
 		}
 		complete(&mdm_ram_dumps);
 		break;
 
 	case WAIT_FOR_ERROR:
 		pr_debug("%s: wait for mdm error\n", __func__);
-		#if 0
 		ret = wait_for_completion_interruptible(&mdm_error);
 		INIT_COMPLETION(mdm_error);
-		#endif
 		break;
 
 	case WAIT_FOR_RESTART:
 		pr_info("%s: wait for mdm to need images reloaded\n",
 				__func__);
+		if (dump_requested) {
+			dump_requested = 0;
+			notify_modem_fatal();
+			subsystem_restart(EXTERNAL_MODEM);
+		}
 		ret = wait_for_completion_interruptible(&mdm_needs_reload);
 		if (!ret)
 			put_user(mdm_drv->boot_type,
@@ -348,20 +298,9 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 		return mdm_drv->proto_is_dload;
 
 	case GET_FORCE_RAMDUMP:
-		get_user(status, (unsigned long __user *) arg);
 		pr_info("%s: mdm get dump mode = %d\n", __func__, force_dump);
-		if (status)
-			mdm_force_fatal();
-		else
-			mdm_silent_reset();
-		break;
+		return force_dump;
 
-#ifdef CONFIG_SIM_DETECT
-	case GET_SIM_DETECT:
-		pr_info("%s: mdm get sim detect = %d\n", __func__,
-						mdm_drv->sim_state);
-		return mdm_drv->sim_state;
-#endif
 	default:
 		pr_err("%s: invalid ioctl cmd = %d\n", __func__, _IOC_NR(cmd));
 		ret = -EINVAL;
@@ -371,46 +310,6 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 	return ret;
 }
 
-static void mdm_fatal_fn(struct work_struct *work)
-{
-	pr_info("%s: Reseting the mdm due to an errfatal\n", __func__);
-	notify_modem_fatal();
-	subsystem_restart(EXTERNAL_MODEM);
-}
-
-static DECLARE_WORK(mdm_fatal_work, mdm_fatal_fn);
-
-static void mdm_reconnect_fn(struct work_struct *work)
-{
-	pr_info("mdm: check 2nd enumeration\n");
-
-	if (mdm_check_main_connect(rmnet_pm_dev))
-		return;
-
-	mdm_silent_reset();
-}
-
-static DECLARE_DELAYED_WORK(mdm_reconnect_work, mdm_reconnect_fn);
-
-static void mdm_status_fn(struct work_struct *work)
-{
-	int value = gpio_get_value(mdm_drv->mdm2ap_status_gpio);
-
-	pr_debug("%s: status:%d\n", __func__, value);
-	if (mdm_drv->mdm_ready && mdm_drv->ops->status_cb)
-		mdm_drv->ops->status_cb(mdm_drv, value);
-#ifdef CONFIG_MDM_HSIC_PM
-	if (value) {
-		request_boot_lock_release(rmnet_pm_dev);
-		request_active_lock_set(rmnet_pm_dev);
-		queue_delayed_work(mdm_queue, &mdm_reconnect_work,
-							msecs_to_jiffies(3000));
-	}
-#endif
-}
-
-static DECLARE_WORK(mdm_status_work, mdm_status_fn);
-
 /* temporary implemented, it should be removed at mass production */
 /* simply declare this function as extern at test point, and call it */
 void mdm_force_fatal(void)
@@ -419,14 +318,33 @@ void mdm_force_fatal(void)
 
 	force_dump = 1;
 
-	if (in_irq())
-		queue_work(mdm_queue, &mdm_fatal_work);
-	else {
-		notify_modem_fatal();
-		subsystem_restart(EXTERNAL_MODEM);
-	}
+	mdm_disable_irqs();
+	gpio_set_value(mdm_drv->ap2mdm_errfatal_gpio, 1);
+	subsystem_restart(EXTERNAL_MODEM);
 }
 EXPORT_SYMBOL(mdm_force_fatal);
+
+static void mdm_fatal_fn(struct work_struct *work)
+{
+	pr_info("%s: Reseting the mdm due to an errfatal\n", __func__);
+	/* notify_modem_fatal(); */
+	/* subsystem_restart(EXTERNAL_MODEM); */
+	dump_requested = 1;
+	complete(&mdm_error);
+}
+
+static DECLARE_WORK(mdm_fatal_work, mdm_fatal_fn);
+
+static void mdm_status_fn(struct work_struct *work)
+{
+	int value = gpio_get_value(mdm_drv->mdm2ap_status_gpio);
+
+	pr_debug("%s: status:%d\n", __func__, value);
+	if (mdm_drv->mdm_ready && mdm_drv->ops->status_cb)
+		mdm_drv->ops->status_cb(mdm_drv, value);
+}
+
+static DECLARE_WORK(mdm_status_work, mdm_status_fn);
 
 static void mdm_disable_irqs(void)
 {
@@ -446,73 +364,6 @@ static irqreturn_t mdm_errfatal(int irq, void *dev_id)
 	}
 	return IRQ_HANDLED;
 }
-
-#ifdef CONFIG_SIM_DETECT
-
-/*
- * SIM state gpio shows level when SIM inserted
- *
- * sim_polarity == 1
-   HIGH: attach
-   sim_polarity == 0
- * LOW : attach
- */
-void get_sim_state_at_boot(void)
-{
-	if (mdm_drv) {
-		mdm_drv->sim_state =
-			mdm_drv->pdata->sim_polarity ==
-				gpio_get_value(mdm_drv->sim_detect_gpio);
-		mdm_drv->sim_changed = 0;
-		pr_info("%s: sim state = %s\n", __func__,
-				mdm_drv->sim_state == 1 ? "Attach" : "Detach");
-	}
-}
-
-static void sim_status_check(struct work_struct *work)
-{
-	int cur_sim_state;
-
-	if (!mdm_drv->mdm_ready)
-		return;
-
-	cur_sim_state =
-		mdm_drv->pdata->sim_polarity ==
-			gpio_get_value(mdm_drv->sim_detect_gpio);
-
-	if (cur_sim_state != mdm_drv->sim_state) {
-		mdm_drv->sim_state = cur_sim_state;
-		mdm_drv->sim_changed = 1;
-		pr_info("sim state = %s\n",
-			mdm_drv->sim_state == 1 ? "Attach" : "Detach");
-#ifdef CONFIG_FAST_BOOT
-		if (fake_shut_down)
-			mdm_drv->sim_shutdown_req = true;
-#endif
-		wake_up_interruptible(&mdm_drv->wq);
-	} else
-		mdm_drv->sim_changed = 0;
-
-	mdm_drv->sim_irq = false;
-}
-
-static DECLARE_DELAYED_WORK(sim_status_check_work, sim_status_check);
-
-#define SIM_DEBOUNCE_TIME_MS	1000
-static irqreturn_t sim_detect_irq_handler(int irq, void *dev_id)
-{
-	if (mdm_drv->mdm_ready) {
-		pr_info("%s: sim gpio level = %d\n", __func__,
-				gpio_get_value(mdm_drv->sim_detect_gpio));
-
-		mdm_drv->sim_irq = true;
-		schedule_delayed_work(&sim_status_check_work,
-					msecs_to_jiffies(SIM_DEBOUNCE_TIME_MS));
-	}
-
-	return IRQ_HANDLED;
-}
-#endif
 
 static unsigned char *mdm_read_err_report(void)
 {
@@ -535,20 +386,6 @@ static unsigned char *mdm_read_err_report(void)
 	return (unsigned char *) buf;
 }
 
-#ifdef CONFIG_SIM_DETECT
-static unsigned int mdm_modem_poll(struct file *file, poll_table *wait)
-{
-	int mask = 0;
-	poll_wait(file, &mdm_drv->wq, wait);
-	if (mdm_drv->sim_changed == 1) {
-		mdm_drv->sim_changed = 0;
-		mask = POLLHUP;
-	}
-
-	return mask;
-}
-#endif
-
 static int mdm_modem_open(struct inode *inode, struct file *file)
 {
 	return 0;
@@ -558,9 +395,6 @@ static const struct file_operations mdm_modem_fops = {
 	.owner		= THIS_MODULE,
 	.open		= mdm_modem_open,
 	.unlocked_ioctl	= mdm_modem_ioctl,
-#ifdef CONFIG_SIM_DETECT
-	.poll = mdm_modem_poll,
-#endif
 };
 
 
@@ -605,16 +439,13 @@ static int mdm_reboot_notifier(struct notifier_block *this,
 {
 	int soft_reset_direction =
 		mdm_drv->pdata->soft_reset_inverted ? 1 : 0;
-	mdm_drv->mdm_ready = 0;
 	mdm_disable_irqs();
 	notify_modem_fatal();
 	gpio_direction_output(mdm_drv->ap2mdm_soft_reset_gpio,
 							soft_reset_direction);
 	if (mdm_drv->ap2mdm_pmic_pwr_en_gpio > 0)
 		gpio_direction_output(mdm_drv->ap2mdm_pmic_pwr_en_gpio, 0);
-
-	/* give modem PMIC debounce time, spec is ~3.5 but 1s will be enough */
-	msleep(1500);
+	mdm_peripheral_disconnect(mdm_drv);
 
 	return NOTIFY_DONE;
 }
@@ -633,8 +464,9 @@ static irqreturn_t mdm_status_change(int irq, void *dev_id)
 		pr_info("%s: unexpected reset external modem\n", __func__);
 		mdm_drv->mdm_unexpected_reset_occurred = 1;
 		mdm_drv->mdm_ready = 0;
-		notify_modem_fatal();
-		subsystem_restart(EXTERNAL_MODEM);
+		/* subsystem_restart(EXTERNAL_MODEM); */
+		dump_requested = 1;
+		complete(&mdm_error);
 	} else if (value == 1) {
 		cancel_delayed_work(&mdm2ap_status_check_work);
 		pr_info("%s: status = 1: mdm is now ready\n", __func__);
@@ -662,17 +494,11 @@ static int mdm_subsys_shutdown(const struct subsys_data *crashed_subsys)
 		 */
 		msleep(mdm_drv->pdata->ramdump_delay_ms);
 	}
-
-	/* close silent log */
-	silent_log_panic_handler();
-
-	#if 0
 	if (!mdm_drv->mdm_unexpected_reset_occurred)
 		mdm_drv->ops->reset_mdm_cb(mdm_drv);
 	else
 		mdm_drv->mdm_unexpected_reset_occurred = 0;
 
-	#endif
 	return 0;
 }
 
@@ -707,7 +533,6 @@ static int mdm_subsys_ramdumps(int want_dumps,
 	if (want_dumps) {
 		mdm_drv->boot_type = CHARM_RAM_DUMPS;
 		complete(&mdm_needs_reload);
-		pr_info("%s: waiting ramdump ...\n", __func__);
 		if (!wait_for_completion_timeout(&mdm_ram_dumps,
 				msecs_to_jiffies(dump_timeout_ms))) {
 			mdm_drv->mdm_ram_dump_status = -ETIMEDOUT;
@@ -762,18 +587,6 @@ static int mdm_debugfs_init(void)
 	debugfs_create_file("debug_on", 0644, dent, NULL,
 			&mdm_debug_on_fops);
 	return 0;
-}
-#endif
-
-#ifdef CONFIG_FAST_BOOT
-static void sim_detect_complete(struct device *dev)
-{
-	if (!mdm_drv->sim_irq && mdm_drv->sim_shutdown_req) {
-		pr_info("fake shutdown sim changed shutdown\n");
-		kernel_power_off();
-		/*kernel_restart(NULL);*/
-		mdm_drv->sim_shutdown_req = false;
-	}
 }
 #endif
 
@@ -841,17 +654,6 @@ static void mdm_modem_initialize_data(struct platform_device  *pdev,
 							"MDM2AP_PBLRDY");
 	if (pres)
 		mdm_drv->mdm2ap_pblrdy = pres->start;
-#ifdef CONFIG_SIM_DETECT
-	/* SIM_DETECT */
-	pres = platform_get_resource_byname(pdev, IORESOURCE_IO,
-							"SIM_DETECT");
-	if (pres)
-		mdm_drv->sim_detect_gpio = pres->start;
-	else
-		pr_err("%s: fail to get resource\n", __func__);
-
-#endif
-	mdm_drv->sim_irq = false;
 
 	mdm_drv->boot_type                  = CHARM_NORMAL_BOOT;
 
@@ -859,10 +661,6 @@ static void mdm_modem_initialize_data(struct platform_device  *pdev,
 	mdm_drv->pdata    = pdev->dev.platform_data;
 	dump_timeout_ms = mdm_drv->pdata->ramdump_timeout_ms > 0 ?
 		mdm_drv->pdata->ramdump_timeout_ms : MDM_RDUMP_TIMEOUT;
-#ifdef CONFIG_FAST_BOOT
-	mdm_drv->pdata->modem_complete = sim_detect_complete;
-	mdm_drv->sim_shutdown_req = false;
-#endif
 }
 
 int mdm_common_create(struct platform_device  *pdev,
@@ -887,9 +685,6 @@ int mdm_common_create(struct platform_device  *pdev,
 		gpio_request(mdm_drv->ap2mdm_kpdpwr_n_gpio, "AP2MDM_KPDPWR_N");
 	gpio_request(mdm_drv->mdm2ap_status_gpio, "MDM2AP_STATUS");
 	gpio_request(mdm_drv->mdm2ap_errfatal_gpio, "MDM2AP_ERRFATAL");
-#ifdef CONFIG_SIM_DETECT
-	gpio_request(mdm_drv->sim_detect_gpio, "SIM_DETECT");
-#endif
 	if (mdm_drv->mdm2ap_pblrdy > 0)
 		gpio_request(mdm_drv->mdm2ap_pblrdy, "MDM2AP_PBLRDY");
 
@@ -938,10 +733,6 @@ int mdm_common_create(struct platform_device  *pdev,
 
 	gpio_direction_input(mdm_drv->mdm2ap_status_gpio);
 	gpio_direction_input(mdm_drv->mdm2ap_errfatal_gpio);
-#ifdef CONFIG_SIM_DETECT
-	gpio_direction_input(mdm_drv->sim_detect_gpio);
-	init_waitqueue_head(&mdm_drv->wq);
-#endif
 
 	mdm_queue = create_singlethread_workqueue("mdm_queue");
 	if (!mdm_queue) {
@@ -1030,38 +821,6 @@ errfatal_err:
 	enable_irq_wake(irq);
 
 status_err:
-#ifdef CONFIG_SIM_DETECT
-	/* sim detect irq */
-#ifdef CONFIG_ARCH_EXYNOS
-	s3c_gpio_cfgpin(mdm_drv->sim_detect_gpio, S3C_GPIO_SFN(0xf));
-	s3c_gpio_setpull(mdm_drv->sim_detect_gpio, S3C_GPIO_PULL_NONE);
-	irq = gpio_to_irq(mdm_drv->sim_detect_gpio);
-#else
-	irq = MSM_GPIO_TO_INT(mdm_drv->sim_detect_gpio);
-#endif
-	if (irq < 0) {
-		pr_err("%s: could not get SIM DETECT IRQ resource. "
-			"error=%d No IRQ will be generated on status change.",
-			__func__, irq);
-		goto simdetect_err;
-	}
-
-	ret = request_threaded_irq(irq, NULL, sim_detect_irq_handler,
-		IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_SHARED,
-		"sim detect", mdm_drv);
-
-	if (ret < 0) {
-		pr_err("%s: SIM_DETECT IRQ#%d request failed with error=%d"
-			". No IRQ will be generated on status change.",
-			__func__, irq, ret);
-		goto simdetect_err;
-	}
-
-	mdm_drv->mdm_status_irq = irq;
-	enable_irq_wake(irq);
-simdetect_err:
-#endif
-
 	if (mdm_drv->mdm2ap_pblrdy > 0) {
 #ifdef CONFIG_ARCH_EXYNOS
 		s3c_gpio_cfgpin(mdm_drv->mdm2ap_pblrdy, S3C_GPIO_SFN(0xf));
@@ -1116,9 +875,6 @@ fatal_err:
 		gpio_free(mdm_drv->ap2mdm_pmic_pwr_en_gpio);
 	gpio_free(mdm_drv->mdm2ap_status_gpio);
 	gpio_free(mdm_drv->mdm2ap_errfatal_gpio);
-#ifdef CONFIG_MACH_SIM_DETECT
-	gpio_free(mdm_drv->sim_detect_gpio);
-#endif
 	if (mdm_drv->ap2mdm_soft_reset_gpio > 0)
 		gpio_free(mdm_drv->ap2mdm_soft_reset_gpio);
 
@@ -1144,9 +900,6 @@ int mdm_common_modem_remove(struct platform_device *pdev)
 		gpio_free(mdm_drv->ap2mdm_pmic_pwr_en_gpio);
 	gpio_free(mdm_drv->mdm2ap_status_gpio);
 	gpio_free(mdm_drv->mdm2ap_errfatal_gpio);
-#ifdef CONFIG_SIM_DETECT
-	gpio_free(mdm_drv->sim_detect_gpio);
-#endif
 	if (mdm_drv->ap2mdm_soft_reset_gpio > 0)
 		gpio_free(mdm_drv->ap2mdm_soft_reset_gpio);
 

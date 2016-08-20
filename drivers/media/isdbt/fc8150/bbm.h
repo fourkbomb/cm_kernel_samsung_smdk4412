@@ -11,7 +11,7 @@
 
 #include "fci_types.h"
 
-#define DRIVER_VER	"VER 2.20.1"
+#define DRIVER_VER	"VER 2.16.1"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,20 +36,20 @@ extern int BBM_I2C_INIT(HANDLE hDevice, u32 type);
 extern int BBM_I2C_DEINIT(HANDLE hDevice);
 extern int BBM_TUNER_SELECT(HANDLE hDevice, u32 product, u32 band);
 extern int BBM_TUNER_DESELECT(HANDLE hDevice);
-extern int BBM_TUNER_READ(HANDLE hDevice, u8 addr
-	, u8 alen, u8 *buffer, u8 len);
-extern int BBM_TUNER_WRITE(HANDLE hDevice, u8 addr
-	, u8 alen, u8 *buffer, u8 len);
+extern int BBM_TUNER_READ(HANDLE hDevice, u8 addr, u8 alen, u8 *buffer,
+	u8 len);
+extern int BBM_TUNER_WRITE(HANDLE hDevice, u8 addr, u8 alen, u8 *buffer,
+	u8 len);
 extern int BBM_TUNER_SET_FREQ(HANDLE hDevice, u32 freq);
 extern int BBM_TUNER_GET_RSSI(HANDLE hDevice, s32 *rssi);
 extern int BBM_SCAN_STATUS(HANDLE hDevice);
 extern int BBM_HOSTIF_SELECT(HANDLE hDevice, u8 hostif);
 extern int BBM_HOSTIF_DESELECT(HANDLE hDevice);
-extern int BBM_TS_CALLBACK_REGISTER(u32 userdata
-	, int (*callback)(u32 userdata, u8 *data, int length));
+extern int BBM_TS_CALLBACK_REGISTER(u32 userdata,
+	int (*callback)(u32 userdata, u8 *data, int length));
 extern int BBM_TS_CALLBACK_DEREGISTER(void);
-extern int BBM_AC_CALLBACK_REGISTER(u32 userData
-	, int (*callback)(u32 userdata, u8 *data, int length));
+extern int BBM_AC_CALLBACK_REGISTER(u32 userData,
+	int (*callback)(u32 userdata, u8 *data, int length));
 extern int BBM_AC_CALLBACK_DEREGISTER(void);
 extern void BBM_ISR(HANDLE hDevice);
 

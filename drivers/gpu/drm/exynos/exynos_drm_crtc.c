@@ -66,7 +66,6 @@ struct exynos_drm_crtc {
 
 static void exynos_drm_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
-	struct drm_device *dev = crtc->dev;
 	struct exynos_drm_crtc *exynos_crtc = to_exynos_crtc(crtc);
 
 	DRM_DEBUG_KMS("crtc[%d] mode[%d]\n", crtc->base.id, mode);
@@ -76,12 +75,8 @@ static void exynos_drm_crtc_dpms(struct drm_crtc *crtc, int mode)
 		return;
 	}
 
-	mutex_lock(&dev->struct_mutex);
-
 	exynos_drm_fn_encoder(crtc, &mode, exynos_drm_encoder_crtc_dpms);
 	exynos_crtc->dpms = mode;
-
-	mutex_unlock(&dev->struct_mutex);
 }
 
 static void exynos_drm_crtc_prepare(struct drm_crtc *crtc)
@@ -97,8 +92,12 @@ static void exynos_drm_crtc_commit(struct drm_crtc *crtc)
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	exynos_plane_commit(exynos_crtc->plane);
-	exynos_plane_dpms(exynos_crtc->plane, DRM_MODE_DPMS_ON);
+	exynos_drm_crtc_dpms(crtc, DRM_MODE_DPMS_ON);
+
+	if (exynos_crtc->mode == CRTC_MODE_NORMAL) {
+		exynos_plane_commit(exynos_crtc->plane);
+		exynos_plane_dpms(exynos_crtc->plane, DRM_MODE_DPMS_ON);
+	}
 }
 
 static bool
@@ -125,8 +124,6 @@ exynos_drm_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode,
 	int ret;
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
-
-	exynos_drm_crtc_dpms(crtc, DRM_MODE_DPMS_ON);
 
 	/*
 	 * copy the mode data adjusted by mode_fixup() into crtc->mode
@@ -225,7 +222,6 @@ static int exynos_drm_crtc_page_flip(struct drm_crtc *crtc,
 		ret = drm_vblank_get(dev, exynos_crtc->pipe);
 		if (ret) {
 			DRM_DEBUG("failed to acquire vblank counter\n");
-			list_del(&event->base.link);
 
 			goto out;
 		}
@@ -346,7 +342,7 @@ int exynos_drm_crtc_create(struct drm_device *dev, unsigned int nr)
 	}
 
 	exynos_crtc->pipe = nr;
-	exynos_crtc->dpms = DRM_MODE_DPMS_ON;
+	exynos_crtc->dpms = DRM_MODE_DPMS_OFF;
 	exynos_crtc->plane = exynos_plane_init(dev, 1 << nr, true);
 	if (!exynos_crtc->plane) {
 		kfree(exynos_crtc);

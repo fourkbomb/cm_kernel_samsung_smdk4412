@@ -138,9 +138,6 @@ int register_buf_to_priv_mgr(struct exynos_drm_gem_obj *obj,
 
 struct page **exynos_gem_get_pages(struct drm_gem_object *obj, gfp_t gfpmask);
 
-int exynos_drm_gem_user_limit_ioctl(struct drm_device *dev, void *data,
-				      struct drm_file *filp);
-
 /* destroy a buffer with gem object */
 void exynos_drm_gem_destroy(struct exynos_drm_gem_obj *exynos_gem_obj);
 
@@ -242,9 +239,11 @@ int exynos_drm_gem_cache_op_ioctl(struct drm_device *drm_dev, void *data,
 		struct drm_file *file_priv);
 
 /* temporary functions. */
+#ifndef CONFIG_SLP_DMABUF
 /* get physical address from a gem. */
 int exynos_drm_gem_get_phy_ioctl(struct drm_device *drm_dev, void *data,
 		struct drm_file *file_priv);
+#endif
 /* import physical memory to a gem. */
 int exynos_drm_gem_phy_imp_ioctl(struct drm_device *drm_dev, void *data,
 		struct drm_file *file_priv);

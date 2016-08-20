@@ -373,7 +373,7 @@ int fimc_is_s_power(struct v4l2_subdev *sd, int on)
 		}
 #if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 		/* lock bus frequency */
-		dev_lock(is_dev->bus_dev, dev, BUS_LOCK_FREQ_L1);
+		dev_lock(is_dev->bus_dev, dev, BUS_LOCK_FREQ_L0);
 #endif
 		fimc_is_hw_set_low_poweroff(is_dev, false);
 		ret = pm_runtime_get_sync(dev);
@@ -618,7 +618,7 @@ static int fimc_is_reset(struct v4l2_subdev *sd, u32 val)
 	/* Restart */
 #if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	/* lock bus frequency */
-	dev_lock(is_dev->bus_dev, dev, BUS_LOCK_FREQ_L1);
+	dev_lock(is_dev->bus_dev, dev, BUS_LOCK_FREQ_L0);
 #endif
 	fimc_is_hw_set_low_poweroff(is_dev, false);
 	ret = pm_runtime_get_sync(dev);
@@ -817,13 +817,8 @@ static int fimc_is_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		ctrl->value = dev->mem.base + FIMC_IS_DEBUG_REGION_ADDR;
 		break;
 #if defined(CONFIG_SLP)
-#define FRONT_CAM_STANDARD_REVISION	0x0b
 	case V4L2_CID_PHYSICAL_ROTATION:
-		if (system_rev > FRONT_CAM_STANDARD_REVISION || \
-			system_rev == 0x04 || system_rev == 0x06)
-			ctrl->value = IS_ROTATION_270;
-		else
-			ctrl->value = IS_ROTATION_90;
+		ctrl->value = dev->pdata->phy_rotate;
 		break;
 #endif
 	default:
@@ -3834,6 +3829,9 @@ static int fimc_is_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		ret = fimc_is_v4l2_isp_sharpness(dev, ctrl->value);
 		break;
 	case V4L2_CID_IS_CAMERA_EXPOSURE:
+#ifdef CONFIG_SLP
+	case V4L2_CID_EXPOSURE:
+#endif
 		ret = fimc_is_v4l2_isp_exposure(dev, ctrl->value);
 		break;
 	case V4L2_CID_CAMERA_BRIGHTNESS:

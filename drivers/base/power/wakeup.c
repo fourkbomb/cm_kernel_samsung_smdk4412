@@ -13,6 +13,9 @@
 #include <linux/suspend.h>
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+#include <linux/irq.h>
+#endif
 
 #include "power.h"
 
@@ -101,12 +104,32 @@ EXPORT_SYMBOL_GPL(wakeup_source_destroy);
  */
 void wakeup_source_add(struct wakeup_source *ws)
 {
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	struct wakeup_source *wsrc;
+#endif
 	if (WARN_ON(!ws))
 		return;
 
 	setup_timer(&ws->timer, pm_wakeup_timer_fn, (unsigned long)ws);
 	ws->active = false;
-
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	/* for dynamic modules hit count maintainence */
+	rcu_read_lock();
+	list_for_each_entry_rcu(wsrc, &wakeup_sources, entry) {
+		if (strcmp(ws->name, wsrc->name) == 0) {
+			raw_spin_lock(&irq_to_desc(wsrc->irq)->lock);
+			wsrc->wakeup_hits = irq_to_desc(wsrc->irq)->
+				hit_in_sleep;
+			irq_to_desc(wsrc->irq)->hit_in_sleep = 0;
+			raw_spin_unlock(&irq_to_desc(wsrc->irq)->lock);
+			wsrc->irq = 0;
+			/* as list_add_rcu is based on LIFO, */
+			/* break on first match */
+			break;
+		}
+	}
+	rcu_read_unlock();
+#endif
 	spin_lock_irq(&events_lock);
 	list_add_rcu(&ws->entry, &wakeup_sources);
 	spin_unlock_irq(&events_lock);
@@ -129,6 +152,33 @@ void wakeup_source_remove(struct wakeup_source *ws)
 }
 EXPORT_SYMBOL_GPL(wakeup_source_remove);
 
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+struct string_map {
+	char *name;
+	char *desc;
+};
+struct string_map strmap[] = {
+	{"link_pm", "modem interrupt"},
+	{"wm8994-codec", "ear jack"},
+	{"12-0036", "fuelgauge"},
+	{"rtc1", "rtc alarm"},
+	{"gpio-keys.0", "power key"},
+	{"18-0066", "max77693 soc"},
+	{"s3c-sdhci.2", "sdhci controller"},
+	{"7-0009", "max77686 regulator"},
+	{"1-0019", "accelerometer"},
+	{"5-002b", "NFC"},
+	{"proximity_sensor", "proximity sensor"},
+	{"gp2a-opt", "proximity_int"},
+	{"bcm4334_bluetooth", "Bluetooth"},
+	{"mmc2:0001:2", "bcmsdh sdmmc WLAN"},
+	{"modem_if", "phone active"},
+	{"s5pv210-uart.3", "uart port 3"},
+	{"s5pv210-uart.2", "uart port 2"},
+	{"s5pv210-uart.1", "uart port 1"},
+	{"s5pv210-uart.0", "uart port 0"},
+};
+#endif
 /**
  * wakeup_source_register - Create wakeup source and add it to the list.
  * @name: Name of the wakeup source to register.
@@ -292,7 +342,52 @@ int device_init_wakeup(struct device *dev, bool enable)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(device_init_wakeup);
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+/**
+ * device_init_wakeup_setirq - Device wakeup initialization and irq no. setup.
+ * @dev: Device to handle.
+ * @irq: The wakeup irq no. for this device
+ *
+ * By default, most devices should leave wakeup disabled.  The exceptions are
+ * devices that everyone expects to be wakeup sources: keyboards, power buttons,
+ * possibly network interfaces, etc.
+ */
+int device_init_wakeup_setirq(struct device *dev, int irq)
+{
+	int i;
+	int ret = 0;
+	int count_val;
+	struct wakeup_source *ws;
 
+	if (!irq)
+		return -EINVAL;
+
+	ret = device_init_wakeup(dev, 1);
+	if (ret)
+		return ret;
+
+	rcu_read_lock();
+	count_val = sizeof(strmap)/sizeof(struct string_map);
+	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
+		if (strcmp(dev_name(dev), ws->name) == 0) {
+			ws->irq = irq;
+			for (i = 0; i < count_val; i++)
+				if (!strcmp(ws->name, strmap[i].name))
+					ws->wakeup_desc = strmap[i].desc;
+
+			if (!ws->wakeup_desc)
+				ws->wakeup_desc = "wakeup-interrupt";
+
+			/* as list_add_rcu is based on LIFO, */
+			/* break on first match */
+			break;
+		}
+	}
+	rcu_read_unlock();
+	return ret;
+}
+EXPORT_SYMBOL_GPL(device_init_wakeup_setirq);
+#endif
 /**
  * device_set_wakeup_enable - Enable or disable a device to wake up the system.
  * @dev: Device to handle.
@@ -598,7 +693,11 @@ bool pm_wakeup_pending(void)
 		unsigned int cnt, inpr;
 
 		split_counters(&cnt, &inpr);
+#if 0 /* temp code by kjk */
 		ret = (cnt != saved_count || inpr > 0);
+#else
+		ret = (inpr > 0);
+#endif
 		events_check_enabled = !ret;
 	}
 	spin_unlock_irqrestore(&events_lock, flags);
@@ -624,8 +723,12 @@ bool pm_get_wakeup_count(unsigned int *count)
 
 	for (;;) {
 		split_counters(&cnt, &inpr);
-		if (inpr == 0 || signal_pending(current))
+#if 0 /* temp code by kjk */
+			if (inpr == 0 || signal_pending(current))
+				break;
+#else
 			break;
+#endif
 		pm_wakeup_update_hit_counts();
 		schedule_timeout_interruptible(msecs_to_jiffies(TIMEOUT));
 	}
@@ -693,11 +796,20 @@ static int print_wakeup_source_stats(struct seq_file *m,
 		active_time = ktime_set(0, 0);
 	}
 
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	ret = seq_printf(m, "%-16s\t%lu\t\t%lu\t\t%lu\t\t"
+			"%lld\t\t%lld\t\t%lld\t\t%lld\t\t%lu\t\t%-12s\n",
+			ws->name, active_count, ws->event_count, ws->hit_count,
+			ktime_to_ms(active_time), ktime_to_ms(total_time),
+			ktime_to_ms(max_time), ktime_to_ms(ws->last_time),
+			ws->wakeup_hits, ws->wakeup_desc);
+#else
 	ret = seq_printf(m, "%-12s\t%lu\t\t%lu\t\t%lu\t\t"
 			"%lld\t\t%lld\t\t%lld\t\t%lld\n",
 			ws->name, active_count, ws->event_count, ws->hit_count,
 			ktime_to_ms(active_time), ktime_to_ms(total_time),
 			ktime_to_ms(max_time), ktime_to_ms(ws->last_time));
+#endif
 
 	spin_unlock_irqrestore(&ws->lock, flags);
 
@@ -712,12 +824,27 @@ static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 {
 	struct wakeup_source *ws;
 
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	seq_puts(m, "name\t\t\tactive_count\tevent_count\thit_count\t"
+		"active_since\ttotal_time\tmax_time\tlast_change\thit_in_sleep\tDescription\n");
+#else
 	seq_puts(m, "name\t\tactive_count\tevent_count\thit_count\t"
 		"active_since\ttotal_time\tmax_time\tlast_change\n");
-
+#endif
 	rcu_read_lock();
-	list_for_each_entry_rcu(ws, &wakeup_sources, entry)
+	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+		if (ws->irq) {	/* update hit_in_sleep */
+			raw_spin_lock(&irq_to_desc(ws->irq)->lock);
+			ws->wakeup_hits = irq_to_desc(ws->irq)->hit_in_sleep;
+			raw_spin_unlock(&irq_to_desc(ws->irq)->lock);
+		}
+#endif
 		print_wakeup_source_stats(m, ws);
+	}
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	seq_printf(m, "\nTotal wakeup count\t%lu\n", wakeup_counter);
+#endif
 	rcu_read_unlock();
 
 	return 0;

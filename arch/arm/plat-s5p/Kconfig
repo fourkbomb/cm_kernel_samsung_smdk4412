@@ -147,7 +147,7 @@ config S5P_DEV_DP
 	  Compile in platform device definitions for DP controller
 
 config S5P_DEV_TVOUT
-	bool "enable S5P_DEV_TVOUT"
+	bool
 	depends on VIDEO_TVOUT
 	default y
 	help

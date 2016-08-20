@@ -21,10 +21,10 @@
 #include "exynos_hdmi.h"
 
 
-static int hdmiphy_probe(struct i2c_client *client,
+static int exynos_hdmi_phy_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
-	hdmi_attach_hdmiphy_client(client);
+	exynos_hdmi_attach_hdmiphy_client(client);
 
 	dev_info(&client->adapter->dev, "attached s5p_hdmiphy "
 		"into i2c adapter successfully\n");
@@ -32,7 +32,7 @@ static int hdmiphy_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int hdmiphy_remove(struct i2c_client *client)
+static int exynos_hdmi_phy_remove(struct i2c_client *client)
 {
 	dev_info(&client->adapter->dev, "detached s5p_hdmiphy "
 		"from i2c adapter successfully\n");
@@ -40,19 +40,18 @@ static int hdmiphy_remove(struct i2c_client *client)
 	return 0;
 }
 
-static const struct i2c_device_id hdmiphy_id[] = {
+static const struct i2c_device_id hdmi_phy_idtable[] = {
 	{ "s5p_hdmiphy", 0 },
 	{ },
 };
 
-struct i2c_driver hdmiphy_driver = {
+struct i2c_driver hdmi_phy_driver = {
 	.driver = {
 		.name	= "s5p-hdmiphy",
 		.owner	= THIS_MODULE,
 	},
-	.id_table = hdmiphy_id,
-	.probe		= hdmiphy_probe,
-	.remove		= __devexit_p(hdmiphy_remove),
+	.id_table = hdmi_phy_idtable,
+	.probe		= exynos_hdmi_phy_probe,
+	.remove		= __devexit_p(exynos_hdmi_phy_remove),
 	.command		= NULL,
 };
-EXPORT_SYMBOL(hdmiphy_driver);

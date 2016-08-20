@@ -55,6 +55,9 @@
 #if defined(CONFIG_S5P_MEM_CMA)
 #include <linux/cma.h>
 #endif
+#ifdef CONFIG_ANDROID_PMEM
+#include <linux/android_pmem.h>
+#endif
 
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
@@ -195,7 +198,7 @@
 static struct wacom_g5_callbacks *wacom_callbacks;
 #endif /* CONFIG_EPEN_WACOM_G5SP */
 
-#if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH) || defined(CONFIG_KEYBOARD_CYPRESS_TOUCH_BLN)
+#ifdef CONFIG_KEYBOARD_CYPRESS_TOUCH
 #include <linux/i2c/touchkey_i2c.h>
 #endif
 
@@ -277,22 +280,6 @@ static struct s3c2410_uartcfg smdkc210_uartcfgs[] __initdata = {
  */
 
 #ifdef CONFIG_VIDEO_M5MO
-
-struct class *camera_class;
-
-static int __init camera_class_init(void)
-{
-	camera_class = class_create(THIS_MODULE, "camera");
-	if (IS_ERR(camera_class)) {
-		pr_err("Failed to create class(camera)!\n");
-		return PTR_ERR(camera_class);
-	}
-
-	return 0;
-}
-
-subsys_initcall(camera_class_init);
-
 #define CAM_CHECK_ERR_RET(x, msg)					\
 	if (unlikely((x) < 0)) {					\
 		printk(KERN_ERR "\nfail to %s: err = %d\n", msg, x);	\
@@ -318,7 +305,7 @@ static int m5mo_power_on(void)
 	struct regulator *regulator;
 	int ret = 0;
 
-	printk(KERN_DEBUG "%s: in. hw=0x%X\n", __func__, system_rev);
+	printk(KERN_DEBUG "%s: in\n", __func__);
 
 	ret = gpio_request(GPIO_CAM_VGA_nSTBY, "GPL2");
 	if (ret) {
@@ -392,9 +379,6 @@ static int m5mo_power_on(void)
 
 	/* VT_CORE_1.5V */
 	ret = gpio_direction_output(GPIO_VT_CAM_15V, 1);
-#ifdef CONFIG_TARGET_LOCALE_NA
-	s3c_gpio_setpull(GPIO_VT_CAM_15V, S3C_GPIO_PULL_NONE);
-#endif /* CONFIG_TARGET_LOCALE_NA */
 	CAM_CHECK_ERR_RET(ret, "output VT_CAM_1.5V");
 	udelay(20);
 
@@ -836,26 +820,12 @@ static int m5mo_power(int enable)
 
 	printk(KERN_DEBUG "%s %s\n", __func__, enable ? "on" : "down");
 	if (enable) {
-#if defined(CONFIG_TARGET_LOCALE_NA)
-		exynos_cpufreq_lock(DVFS_LOCK_ID_CAM, 1);
 		ret = m5mo_power_on();
-		exynos_cpufreq_lock_free(DVFS_LOCK_ID_CAM);
-#else
-
-		ret = m5mo_power_on();
-#endif
 		if (unlikely(ret))
 			goto error_out;
-	} else {
-#if defined(CONFIG_TARGET_LOCALE_NA)
-		exynos_cpufreq_lock(DVFS_LOCK_ID_CAM, 1);
+	} else
 		ret = m5mo_power_down();
-		exynos_cpufreq_lock_free(DVFS_LOCK_ID_CAM);
-#else
 
-		ret = m5mo_power_down();
-#endif
-	}
 	ret = s3c_csis_power(enable);
 	m5mo_flash_power(enable);
 
@@ -1184,9 +1154,6 @@ static struct s5k5bafx_platform_data s5k5bafx_plat = {
 	.pixelformat = V4L2_PIX_FMT_UYVY,
 	.freq = 24000000,
 	.is_mipi = 1,
-	.streamoff_delay = S5K5BAFX_STREAMOFF_DELAY,
-	.init_streamoff = true,
-	.dbg_level = CAMDBG_LEVEL_DEFAULT,
 };
 
 static struct i2c_board_info s5k5bafx_i2c_info = {
@@ -3092,11 +3059,7 @@ REGULATOR_INIT(ldo17, "VTF_2.8V", 2800000, 2800000, 0,
 REGULATOR_INIT(ldo18, "TOUCH_LED_3.3V", 3300000, 3300000, 0,
 		REGULATOR_CHANGE_STATUS, 1);
 #else
-#if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH_BLN) && defined(CONFIG_TOUCHKEY_BLN)
-REGULATOR_INIT(ldo18, "TOUCH_LED_3.3V", 2500000, 3300000, 0,
-#else
 REGULATOR_INIT(ldo18, "TOUCH_LED_3.3V", 3000000, 3300000, 0,
-#endif
 	REGULATOR_CHANGE_STATUS | REGULATOR_CHANGE_VOLTAGE, 1);
 #endif
 REGULATOR_INIT(ldo21, "VDDQ_M1M2_1.2V", 1200000, 1200000, 1,
@@ -3368,63 +3331,7 @@ static struct max8997_motor_data max8997_motor = {
 #endif
 #endif
 
-#if defined(CONFIG_TARGET_LOCALE_NA)
-#define USB_PATH_AP	0
-#define USB_PATH_CP	       1
-#define USB_PATH_ALL	2
-extern int u1_get_usb_hub_path(void);
-static int max8997_muic_set_safeout(int path)
-{
-	struct regulator *regulator;
-	int hub_usb_path = u1_get_usb_hub_path();
-
-	if (hub_usb_path == USB_PATH_CP) {
-		regulator = regulator_get(NULL, "safeout1");
-		if (IS_ERR(regulator))
-			return -ENODEV;
-		if (regulator_is_enabled(regulator))
-			regulator_force_disable(regulator);
-		regulator_put(regulator);
-
-		regulator = regulator_get(NULL, "safeout2");
-		if (IS_ERR(regulator))
-			return -ENODEV;
-		if (!regulator_is_enabled(regulator))
-			regulator_enable(regulator);
-		regulator_put(regulator);
-	} else if (hub_usb_path == USB_PATH_AP) {
-		regulator = regulator_get(NULL, "safeout1");
-		if (IS_ERR(regulator))
-			return -ENODEV;
-		if (!regulator_is_enabled(regulator))
-			regulator_enable(regulator);
-		regulator_put(regulator);
-
-		regulator = regulator_get(NULL, "safeout2");
-		if (IS_ERR(regulator))
-			return -ENODEV;
-		if (regulator_is_enabled(regulator))
-			regulator_force_disable(regulator);
-		regulator_put(regulator);
-	} else if (hub_usb_path == USB_PATH_ALL) {
-		regulator = regulator_get(NULL, "safeout1");
-		if (IS_ERR(regulator))
-			return -ENODEV;
-		if (!regulator_is_enabled(regulator))
-			regulator_enable(regulator);
-		regulator_put(regulator);
-
-		regulator = regulator_get(NULL, "safeout2");
-		if (IS_ERR(regulator))
-			return -ENODEV;
-		if (!regulator_is_enabled(regulator))
-			regulator_enable(regulator);
-		regulator_put(regulator);
-	}
-
-	return 0;
-}
-#elif defined(CONFIG_MACH_U1_KOR_LGT)
+#ifdef CONFIG_MACH_U1_KOR_LGT
 static int max8997_muic_set_safeout(int path)
 {
 	static int safeout2_enabled;
@@ -3961,10 +3868,6 @@ static void u1_sound_init(void)
 		return;
 	}
 	gpio_direction_output(GPIO_MIC_BIAS_EN, 1);
-#ifdef CONFIG_TARGET_LOCALE_NA
-	s3c_gpio_setpull(GPIO_MIC_BIAS_EN, S3C_GPIO_PULL_NONE);
-#endif /* CONFIG_TARGET_LOCALE_NA */
-
 	gpio_set_value(GPIO_MIC_BIAS_EN, 0);
 	gpio_free(GPIO_MIC_BIAS_EN);
 
@@ -3974,10 +3877,6 @@ static void u1_sound_init(void)
 		return;
 	}
 	gpio_direction_output(GPIO_EAR_MIC_BIAS_EN, 1);
-#ifdef CONFIG_TARGET_LOCALE_NA
-	s3c_gpio_setpull(GPIO_EAR_MIC_BIAS_EN, S3C_GPIO_PULL_NONE);
-#endif /* CONFIG_TARGET_LOCALE_NA */
-
 	gpio_set_value(GPIO_EAR_MIC_BIAS_EN, 0);
 	gpio_free(GPIO_EAR_MIC_BIAS_EN);
 
@@ -3999,10 +3898,6 @@ static void u1_sound_init(void)
 			return;
 		}
 		gpio_direction_output(GPIO_SUB_MIC_BIAS_EN, 0);
-#ifdef CONFIG_TARGET_LOCALE_NA
-		s3c_gpio_setpull(GPIO_SUB_MIC_BIAS_EN, S3C_GPIO_PULL_NONE);
-#endif /* CONFIG_TARGET_LOCALE_NA */
-
 		gpio_free(GPIO_SUB_MIC_BIAS_EN);
 	}
 #endif /* #if defined(CONFIG_MACH_Q1_BD) */
@@ -4605,94 +4500,6 @@ static struct sec_bat_adc_table_data temper_table_ADC7[] =  {
 	{ 1669,	 -60 },
 	{ 1688,	 -70 },
 };
-#endif
-/* temperature table for ADC 7 */
-#ifdef CONFIG_TARGET_LOCALE_NA
-static struct sec_bat_adc_table_data  temper_table_ADC7[] =  {
-	{  145,  670 },
-	{  165,  660 },
-	{  185,  650 },
-	{  205,  640 },
-	{  225,  630 },
-	{  245,  620 },
-	{  265,  610 },
-	{  285,  600 },
-	{  305,  590 },
-	{  325,  580 },
-	{  345,  570 },
-	{  365,  560 },
-	{  385,  550 },
-	{  405,  540 },
-	{  425,  530 },
-	{  445,  520 },
-	{  465,  510 },
-	{  485,  500 },
-	{  505,  490 },
-	{  525,  480 },
-	{  545,  470 },
-	{  565,  460 },
-	{  585,  450 },
-	{  605,  440 },
-	{  625,  430 },
-	{  645,  420 },
-	{  665,  410 },
-	{  685,  400 },
-	{  705,  390 },
-	{  725,  380 },
-	{  745,  370 },
-	{  765,  360 },
-	{  785,  350 },
-	{  805,  340 },
-	{  825,  330 },
-	{  845,  320 },
-	{  865,  310 },
-	{  885,  300 },
-	{  905,  290 },
-	{  925,  280 },
-	{  945,  270 },
-	{  965,  260 },
-	{  995,  250 },
-	{ 1015,  240 },
-	{ 1045,  230 },
-	{ 1065,  220 },
-	{ 1085,  210 },
-	{ 1105,  200 },
-	{ 1125,  190 },
-	{ 1145,  180 },
-	{ 1165,  170 },
-	{ 1185,  160 },
-	{ 1205,  150 },
-	{ 1225,  140 },
-	{ 1245,  130 },
-	{ 1265,  120 },
-	{ 1285,  110 },
-	{ 1305,  100 },
-	{ 1335,   90 },
-	{ 1365,   80 },
-	{ 1395,   70 },
-	{ 1425,   60 },
-	{ 1455,   50 },
-	{ 1475,   40 },
-	{ 1495,   30 },
-	{ 1515,   20 },
-	{ 1535,   10 },
-	{ 1545,    0 },
-	{ 1555,  -10 },
-	{ 1565,  -20 },
-	{ 1575,  -30 },
-	{ 1585,  -40 },
-	{ 1595,  -50 },
-	{ 1605,  -60 },
-	{ 1615,  -70 },
-	{ 1625,  -80 },
-	{ 1635,  -90 },
-	{ 1645,  -100 },
-	{ 1655,  -110 },
-	{ 1665,  -120 },
-	{ 1675,  -130 },
-	{ 1685,  -140 },
-};
-
 #else
 /* temperature table for ADC 7 */
 static struct sec_bat_adc_table_data temper_table_ADC7[] = {
@@ -5213,7 +5020,7 @@ struct gpio_keys_button u1_buttons[] = {
 		.isr_hook = sec_debug_check_crash_key,
 		.debounce_interval = 10,
 	},			/* power key */
-#if !defined(CONFIG_MACH_U1_NA_SPR) && !defined(CONFIG_MACH_U1_NA_USCC) && !defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
+#if !defined(CONFIG_MACH_U1_NA_SPR) && !defined(CONFIG_MACH_U1_NA_USCC)
 	{
 		.code = KEY_HOME,
 		.gpio = GPIO_OK_KEY,
@@ -5304,7 +5111,7 @@ static struct sec_jack_buttons_zone sec_jack_buttons_zones[] = {
 		/* 0 <= adc <=170, stable zone */
 		.code = KEY_MEDIA,
 		.adc_low = 0,
-#if defined(CONFIG_TARGET_LOCALE_NTT) || defined(CONFIG_TARGET_LOCALE_NA)
+#if defined(CONFIG_TARGET_LOCALE_NTT)
 		.adc_high = 150,
 #else
 		.adc_high = 170,
@@ -5313,7 +5120,7 @@ static struct sec_jack_buttons_zone sec_jack_buttons_zones[] = {
 	{
 		/* 171 <= adc <= 370, stable zone */
 		.code = KEY_VOLUMEUP,
-#if defined(CONFIG_TARGET_LOCALE_NTT) || defined(CONFIG_TARGET_LOCALE_NA)
+#if defined(CONFIG_TARGET_LOCALE_NTT)
 		.adc_low = 151,
 #else
 		.adc_low = 171,
@@ -5568,21 +5375,16 @@ static const u8 *mxt224_config[] = {
 #define MXT224E_BLEN_BATT		32
 #define MXT224E_T48_BLEN_BATT		0
 #define MXT224E_BLEN_CHRG		0
-#define MXT224E_T48_BLEN_CHRG		0
 #define MXT224E_MOVFILTER_BATT		14
 #define MXT224E_MOVFILTER_CHRG		46
 #define MXT224E_ACTVSYNCSPERX_NORMAL		29
 #define MXT224E_NEXTTCHDI_NORMAL		0
 #define MXT224E_NEXTTCHDI_CHRG		1
 #else
-#define MXT224E_THRESHOLD_BATT		40
+#define MXT224E_THRESHOLD_BATT		50
 #define MXT224E_T48_THRESHOLD_BATT		28
-#define MXT224E_THRESHOLD_CHRG		37
-#if defined(CONFIG_MACH_U1_NA_SPR)
-#define MXT224E_CALCFG_BATT		0x72
-#else
+#define MXT224E_THRESHOLD_CHRG		40
 #define MXT224E_CALCFG_BATT		0x42
-#endif
 #define MXT224E_CALCFG_CHRG		0x52
 #if defined(CONFIG_TARGET_LOCALE_NA)
 #define MXT224E_ATCHFRCCALTHR_NORMAL		45
@@ -6195,7 +5997,7 @@ static void p6_wacom_register_callbacks(struct wacom_g5_callbacks *cb)
 #ifdef CONFIG_S3C_DEV_I2C8_EMUL
 static struct i2c_board_info i2c_devs8_emul[];
 #endif
-#if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH) || defined(CONFIG_KEYBOARD_CYPRESS_TOUCH_BLN)
+#ifdef CONFIG_KEYBOARD_CYPRESS_TOUCH
 static void touchkey_init_hw(void)
 {
 	gpio_request(GPIO_3_TOUCH_INT, "3_TOUCH_INT");
@@ -6296,7 +6098,7 @@ static struct touchkey_platform_data touchkey_pdata = {
 	.power_on = touchkey_power_on,
 	.led_power_on = touchkey_led_power_on,
 };
-#endif /*(CONFIG_KEYBOARD_CYPRESS_TOUCH) || (CONFIG_KEYBOARD_CYPRESS_TOUCH_BLN)*/
+#endif /*CONFIG_KEYBOARD_CYPRESS_TOUCH*/
 
 
 
@@ -6449,7 +6251,7 @@ struct platform_device s3c_device_i2c8 = {
 
 /* I2C8 */
 static struct i2c_board_info i2c_devs8_emul[] = {
-#if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH) || defined(CONFIG_KEYBOARD_CYPRESS_TOUCH_BLN)
+#ifdef CONFIG_KEYBOARD_CYPRESS_TOUCH
 	{
 		I2C_BOARD_INFO("sec_touchkey", 0x20),
 		.platform_data = &touchkey_pdata,
@@ -6837,7 +6639,6 @@ static struct i2c_board_info i2c_devs16[] __initdata = {
 
 
 #ifdef CONFIG_S3C_DEV_I2C17_EMUL
-#ifdef CONFIG_USBHUB_USB3803
 /* I2C17_EMUL */
 static struct i2c_gpio_platform_data i2c17_platdata = {
 	.sda_pin = GPIO_USB_I2C_SDA,
@@ -6850,7 +6651,7 @@ struct platform_device s3c_device_i2c17 = {
 	.dev.platform_data = &i2c17_platdata,
 };
 
-#endif
+
 #endif /* CONFIG_S3C_DEV_I2C17_EMUL */
 
 #ifdef CONFIG_USBHUB_USB3803
@@ -7129,6 +6930,53 @@ static void __init mipi_fb_init(void)
 }
 #endif
 
+#ifdef CONFIG_ANDROID_PMEM
+static struct android_pmem_platform_data pmem_pdata = {
+	.name = "pmem",
+	.no_allocator = 1,
+	.cached = 0,
+	.start = 0,
+	.size = 0
+};
+
+static struct android_pmem_platform_data pmem_gpu1_pdata = {
+	.name = "pmem_gpu1",
+	.no_allocator = 1,
+	.cached = 0,
+	.start = 0,
+	.size = 0,
+};
+
+static struct platform_device pmem_device = {
+	.name = "android_pmem",
+	.id = 0,
+	.dev = {
+		.platform_data = &pmem_pdata},
+};
+
+static struct platform_device pmem_gpu1_device = {
+	.name = "android_pmem",
+	.id = 1,
+	.dev = {
+		.platform_data = &pmem_gpu1_pdata},
+};
+
+static void __init android_pmem_set_platdata(void)
+{
+#if defined(CONFIG_S5P_MEM_CMA)
+	pmem_pdata.size = CONFIG_ANDROID_PMEM_MEMSIZE_PMEM * SZ_1K;
+	pmem_gpu1_pdata.size = CONFIG_ANDROID_PMEM_MEMSIZE_PMEM_GPU1 * SZ_1K;
+#else
+	pmem_pdata.start = (u32) s5p_get_media_memory_bank(S5P_MDEV_PMEM, 0);
+	pmem_pdata.size = (u32) s5p_get_media_memsize_bank(S5P_MDEV_PMEM, 0);
+	pmem_gpu1_pdata.start =
+		(u32) s5p_get_media_memory_bank(S5P_MDEV_PMEM_GPU1, 0);
+	pmem_gpu1_pdata.size =
+		(u32) s5p_get_media_memsize_bank(S5P_MDEV_PMEM_GPU1, 0);
+#endif
+}
+#endif
+
 /* USB EHCI */
 #ifdef CONFIG_USB_EHCI_S5P
 static struct s5p_ehci_platdata smdkc210_ehci_pdata;
@@ -7242,9 +7090,8 @@ static struct platform_device *smdkc210_devices[] __initdata = {
 	&exynos4_device_pd[PD_LCD1],
 	&exynos4_device_pd[PD_CAM],
 	&exynos4_device_pd[PD_TV],
-#ifndef CONFIG_TARGET_LOCALE_NA
 	&exynos4_device_pd[PD_GPS],
-#endif /* CONFIG_TARGET_LOCALE_NA */
+
 #if defined(CONFIG_WIMAX_CMC)
 	&s3c_device_cmc732,
 #endif
@@ -7252,7 +7099,6 @@ static struct platform_device *smdkc210_devices[] __initdata = {
 #ifdef CONFIG_BATTERY_SAMSUNG
 	&samsung_device_battery,
 #endif
-
 #ifdef CONFIG_FB_S5P
 	&s3c_device_fb,
 #endif
@@ -7310,10 +7156,8 @@ static struct platform_device *smdkc210_devices[] __initdata = {
 #if defined(CONFIG_SMB136_CHARGER_Q1) || defined(CONFIG_SMB328_CHARGER)
 	&s3c_device_i2c19,	/* SMB136, SMB328 */
 #endif
-#if defined(CONFIG_USBHUB_USB3803)
 #if defined(CONFIG_S3C_DEV_I2C17_EMUL)
 	&s3c_device_i2c17,	/* USB HUB */
-#endif
 #endif
 #endif
 
@@ -7432,6 +7276,10 @@ static struct platform_device *smdkc210_devices[] __initdata = {
 	&s5p_device_tvout,
 	&s5p_device_cec,
 	&s5p_device_hpd,
+#endif
+#ifdef CONFIG_ANDROID_PMEM
+	&pmem_device,
+	&pmem_gpu1_device,
 #endif
 #ifdef CONFIG_VIDEO_FIMC
 	&s3c_device_fimc0,
@@ -7595,6 +7443,20 @@ static void __init exynos4_cma_region_reserve(struct cma_region *regions_normal,
 static void __init exynos4_reserve_mem(void)
 {
 	static struct cma_region regions[] = {
+#ifdef CONFIG_ANDROID_PMEM_MEMSIZE_PMEM
+		{
+			.name = "pmem",
+			.size = CONFIG_ANDROID_PMEM_MEMSIZE_PMEM * SZ_1K,
+			.start = 0,
+		},
+#endif
+#ifdef CONFIG_ANDROID_PMEM_MEMSIZE_PMEM_GPU1
+		{
+			.name = "pmem_gpu1",
+			.size = CONFIG_ANDROID_PMEM_MEMSIZE_PMEM_GPU1 * SZ_1K,
+			.start = 0,
+		},
+#endif
 #ifdef CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMD
 		{
 			.name = "fimd",
@@ -7702,10 +7564,11 @@ static void __init exynos4_reserve_mem(void)
 	};
 
 	static const char map[] __initconst =
-		"s3cfb.0=fimd;exynos4-fb.0=fimd;samsung-pd.1=fimd;"
-		"s3c-fimc.0=fimc0;s3c-fimc.1=fimc1;s3c-fimc.2=fimc2;s3c-fimc.3=fimc3;"
+		"android_pmem.0=pmem;android_pmem.1=pmem_gpu1;"
+		"s3cfb.0=fimd;exynos4-fb.0=fimd;"
+		"s3c-fimc.0=fimc0;s3c-fimc.1=fimc1;s3c-fimc.2=fimc2;"
 		"exynos4210-fimc.0=fimc0;exynos4210-fimc.1=fimc1;"
-		"exynos4210-fimc.2=fimc2;exynos4210-fimc.3=fimc3;"
+		"exynos4210-fimc.2=fimc2;exynos4210-fimc3=fimc3;"
 #ifdef CONFIG_ION_EXYNOS
 		"ion-exynos=ion;"
 #endif
@@ -7918,7 +7781,7 @@ static void __init smdkc210_machine_init(void)
 			ARRAY_SIZE(tuna_i2c15_boardinfo));
 #endif
 #ifdef CONFIG_S3C_DEV_I2C8_EMUL
-#if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH) || defined(CONFIG_KEYBOARD_CYPRESS_TOUCH_BLN)
+#ifdef CONFIG_KEYBOARD_CYPRESS_TOUCH
 	touchkey_init_hw();
 #endif
 	i2c_register_board_info(8, i2c_devs8_emul, ARRAY_SIZE(i2c_devs8_emul));
@@ -7955,10 +7818,8 @@ static void __init smdkc210_machine_init(void)
 						ARRAY_SIZE(i2c_devs19_emul));
 #endif
 #ifdef CONFIG_S3C_DEV_I2C17_EMUL
-#ifdef CONFIG_USBHUB_USB3803
 	i2c_register_board_info(17, i2c_devs17_emul,
 						ARRAY_SIZE(i2c_devs17_emul));
-#endif
 #endif
 #endif
 
@@ -8029,6 +7890,9 @@ static void __init smdkc210_machine_init(void)
 #ifdef CONFIG_S3C_DEV_ADC1
 	s3c24xx_ts1_set_platdata(&s3c_ts_platform);
 #endif
+#endif
+#ifdef CONFIG_ANDROID_PMEM
+	android_pmem_set_platdata();
 #endif
 #ifdef CONFIG_VIDEO_FIMC
 	/* fimc */

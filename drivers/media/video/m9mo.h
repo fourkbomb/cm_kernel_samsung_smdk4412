@@ -332,9 +332,7 @@ struct m9mo_state {
 	bool stream_on_part2;
 
 	int widget_mode_level;
-	int gamma_rgb_mon;
 	int gamma_rgb_cap;
-	int gamma_tbl_rgb_mon;
 	int gamma_tbl_rgb_cap;
 	int color_effect;
 
@@ -526,8 +524,6 @@ struct m9mo_state {
 #define M9MO_LENS_ZOOM_SET_INFO		0x22
 #define M9MO_LENS_ZOOM_SPEED		0x25
 #define M9MO_LENS_ZOOM_STATUS		0x26
-#define M9MO_LENS_LENS_STATUS		0x28
-#define M9MO_LENS_ZOOM_LENS_STATUS	0x2A
 #define M9MO_LENS_AF_TOUCH_POSX		0x30
 #define M9MO_LENS_AF_TOUCH_POSY		0x32
 #define M9MO_LENS_AF_VERSION		0x60

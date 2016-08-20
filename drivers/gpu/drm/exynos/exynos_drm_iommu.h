@@ -31,6 +31,7 @@ struct exynos_iommu_gem_data {
 	void		*gem_obj_out;
 };
 
+#ifdef CONFIG_DRM_EXYNOS_IOMMU
 /* get all pages to gem object and map them to iommu table. */
 dma_addr_t exynos_drm_iommu_map_gem(struct drm_device *drm_dev,
 					struct drm_gem_object *obj);
@@ -54,5 +55,49 @@ void exynos_drm_iommu_deactivate(void *in_vmm, struct device *dev);
 
 /* clean up allocated device address space for device iommu. */
 void exynos_drm_iommu_cleanup(void *in_vmm);
+#else
+static inline dma_addr_t exynos_drm_iommu_map_gem(struct drm_device *drm_dev,
+						struct drm_gem_object *obj)
+{
+	return -ENOSYS;
+}
+
+static inline void exynos_drm_iommu_unmap_gem(struct drm_gem_object *obj)
+{
+	return;
+}
+
+static inline dma_addr_t exynos_drm_iommu_map(void *in_vmm, dma_addr_t paddr,
+								size_t size)
+{
+	return -ENOSYS;
+}
+
+static inline void exynos_drm_iommu_unmap(void *in_vmm, dma_addr_t dev_addr)
+{
+	return;
+}
+
+static inline void *exynos_drm_iommu_setup(unsigned long s_iova,
+							unsigned long size)
+{
+	return NULL;
+}
+
+static inline int exynos_drm_iommu_activate(void *in_vmm, struct device *dev)
+{
+	return -ENOSYS;
+}
+
+static inline void exynos_drm_iommu_deactivate(void *in_vmm, struct device *dev)
+{
+	return;
+}
+
+static inline void exynos_drm_iommu_cleanup(void *in_vmm)
+{
+	return;
+}
+#endif
 
 #endif

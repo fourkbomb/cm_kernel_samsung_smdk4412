@@ -1,0 +1,35 @@
+menuconfig MALI400
+	tristate "Mali-400 support"
+	default n
+	depends on ARM
+	select DMA_SHARED_BUFFER
+	---help---
+	  This enables support for the ARM Mali-400 GPUs.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called mali.
+
+choice
+depends on MALI400
+prompt "Select MALI VER"
+default MALI_VER_R3P2_REL0
+
+config MALI_VER_R3P2_REL0
+	bool "Mali400 Version R3P2-REL0"
+	help
+	  Choose this option to select Mali400 DDK R3P2-REL0 version.
+
+if MALI_VER_R3P2_REL0
+source "drivers/gpu/arm/mali400/mali/Kconfig"
+endif
+
+config MALI_VER_R4P0_REL0
+	bool "Mali400 Version R4P0-REL0"
+	help
+	  Choose this option to select Mali400 DDK R4P0-REL0 version.
+
+if MALI_VER_R4P0_REL0
+source "drivers/gpu/arm/mali400/r4p0_rel0/Kconfig"
+endif
+
+endchoice

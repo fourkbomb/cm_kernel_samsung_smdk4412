@@ -19,7 +19,7 @@
 
 #define MELFAS_TS_NAME "melfas_ts"
 #define MELFAS_DEV_ADDR 0x48
-
+#define IC_VENDOR_ID "ME"
 extern struct class *sec_class;
 
 struct melfas_mms_platform_data {
@@ -32,6 +32,7 @@ struct melfas_mms_platform_data {
 	int gpio_int;
 	int gpio_sda;
 	int gpio_scl;
+	bool auto_update;
 	int (*power) (int on);
 	int (*mux_fw_flash) (bool to_gpios);
 	int (*is_vdd_on) (void);
@@ -39,7 +40,7 @@ struct melfas_mms_platform_data {
 	void (*register_cb) (void *);
 };
 
-enum eISCRet_t {
+enum {
 	ISC_NONE = -1,
 	ISC_SUCCESS = 0,
 	ISC_FILE_OPEN_ERROR,
@@ -60,12 +61,24 @@ enum eISCRet_t {
 	ISC_LIMIT
 };
 
-enum eSectionType_t {
+enum {
+	EC_NONE = -1,
+	EC_DEPRECATED = 0,
+	EC_BOOTLOADER_RUNNING = 1,
+	EC_BOOT_ON_SUCCEEDED = 2,
+	EC_ERASE_END_MARKER_ON_SLAVE_FINISHED = 3,
+	EC_SLAVE_DOWNLOAD_STARTS = 4,
+	EC_SLAVE_DOWNLOAD_FINISHED = 5,
+	EC_2CHIP_HANDSHAKE_FAILED = 0x0E,
+	EC_ESD_PATTERN_CHECKED = 0x0F,
+	EC_LIMIT
+};
+
+enum {
 	SEC_NONE = -1,
 	SEC_BOOTLOADER = 0,
 	SEC_CORE,
-	SEC_PRIVATE_CONFIG,
-	SEC_PUBLIC_CONFIG,
+	SEC_CONFIG,
 	SEC_LIMIT
 };
 

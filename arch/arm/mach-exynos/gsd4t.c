@@ -31,7 +31,9 @@ struct gsd4t_data {
 	struct rfkill			*rfk;
 	bool				in_use;
 	/* No need below if constraints is always_on */
+#ifndef CONFIG_MACH_TRATS
 	struct regulator		*vdd_18;
+#endif
 	struct regulator		*rtc_xi;
 };
 
@@ -46,7 +48,9 @@ static int gsd4t_set_block(void *data, bool blocked)
 
 		pr_info("gsd4t on\n");
 
+#ifndef CONFIG_MACH_TRATS
 		regulator_enable(bd->vdd_18);
+#endif
 		regulator_enable(bd->rtc_xi);
 
 		/*
@@ -81,7 +85,9 @@ static int gsd4t_set_block(void *data, bool blocked)
 
 		gpio_set_value(pdata->nrst, 0);
 
+#ifndef CONFIG_MACH_TRATS
 		regulator_disable(bd->vdd_18);
+#endif
 		regulator_disable(bd->rtc_xi);
 
 		bd->in_use = false;
@@ -170,12 +176,14 @@ static int __devinit gsd4t_probe(struct platform_device *dev)
 		goto err_regulator_1;
 	}
 
+#ifndef CONFIG_MACH_TRATS
 	bd->vdd_18 = regulator_get(&dev->dev, "v_gps_1.8v");
 	if (IS_ERR_OR_NULL(bd->vdd_18)) {
 		dev_err(&dev->dev, "vdd_18 regulator_get error\n");
 		ret = -EINVAL;
 		goto err_regulator_2;
 	}
+#endif
 
 	/*
 	 * Actually, we don't need rfkill becasue most of power sequences to be
@@ -210,7 +218,9 @@ static int __devinit gsd4t_probe(struct platform_device *dev)
 err_rfkill:
 	rfkill_destroy(bd->rfk);
 err_rfk_alloc:
+#ifndef CONFIG_MACH_TRATS
 	regulator_put(bd->vdd_18);
+#endif
 err_regulator_2:
 	regulator_put(bd->rtc_xi);
 err_regulator_1:
@@ -239,7 +249,9 @@ static int __devexit gsd4t_remove(struct platform_device *dev)
 	gpio_free(pdata->onoff);
 	gpio_free(pdata->nrst);
 
+#ifndef CONFIG_MACH_TRATS
 	regulator_put(bd->vdd_18);
+#endif
 	regulator_put(bd->rtc_xi);
 
 	kfree(bd);

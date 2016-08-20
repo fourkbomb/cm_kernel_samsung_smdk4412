@@ -14,5 +14,8 @@ obj-$(CONFIG_EARLYSUSPEND)	+= earlysuspend.o
 obj-$(CONFIG_CONSOLE_EARLYSUSPEND)	+= consoleearlysuspend.o
 obj-$(CONFIG_FB_EARLYSUSPEND)	+= fbearlysuspend.o
 obj-$(CONFIG_SUSPEND_TIME)	+= suspend_time.o
+#ifdef CONFIG_PARTIALSUSPEND_SLP
+obj-$(CONFIG_PARTIALSUSPEND_SLP)  += partialsuspend_slp.o
+#endif
 
 obj-$(CONFIG_MAGIC_SYSRQ)	+= poweroff.o

@@ -293,9 +293,6 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 	int try_loading_module = 0;
 	int err;
 
-	if (protocol < 0 || protocol >= IPPROTO_MAX)
-		return -EINVAL;
-
 	if (!current_has_network())
 		return -EACCES;
 
@@ -1568,7 +1565,7 @@ static const struct net_protocol udp_protocol = {
 
 static const struct net_protocol icmp_protocol = {
 	.handler =	icmp_rcv,
-	.err_handler =	ping_v4_err,
+	.err_handler =	ping_err,
 	.no_policy =	1,
 	.netns_ok =	1,
 };

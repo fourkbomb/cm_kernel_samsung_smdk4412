@@ -26,8 +26,6 @@
  2012/06/20
  2012/07/04
  2012/07/09
- 2012/07/10
- 2012/07/15
 *******************************************************************************/
 
 #include "fci_types.h"
@@ -36,7 +34,7 @@
 #include "fc8150_regs.h"
 #include "fci_hal.h"
 
-#define  FC8150_FREQ_XTAL  BBM_XTAL_FREQ  /* 32MHZ */
+#define  FC8150_FREQ_XTAL  BBM_XTAL_FREQ  /*32MHZ*/
 
 static int fc8150_write(HANDLE hDevice, u8 addr, u8 data)
 {
@@ -67,16 +65,14 @@ static int fc8150_bb_read(HANDLE hDevice, u16 addr, u8 *data)
 	return res;
 }
 
-#if 0
 static int fc8150_bb_write(HANDLE hDevice, u16 addr, u8 data)
 {
 	int res;
 
 	res = bbm_write(hDevice, addr, data);
 
-	return res;
+	return BBM_OK;
 }
-#endif
 
 static int fc8150_set_filter(HANDLE hDevice)
 {
@@ -151,9 +147,9 @@ static int fc8150_set_filter(HANDLE hDevice)
 
 int fc8150_tuner_init(HANDLE hDevice, u32 band)
 {
-	int i;
+	int n_adc_count, n_MIXPD_REF_count, i;
 	int n_RFAGC_PD1_AVG, n_RFAGC_PD2_AVG;
-	u8  RFPD_REF;
+	u8  RFPD_REF, MIXPD_REF, LDO_OUTV, n_LDO_OUTV;
 	u8  RFAGC_PD2[6], RFAGC_PD2_AVG, RFAGC_PD2_MAX, RFAGC_PD2_MIN;
 	u8  RFAGC_PD1[6], RFAGC_PD1_AVG, RFAGC_PD1_MAX, RFAGC_PD1_MIN;
 
@@ -165,9 +161,8 @@ int fc8150_tuner_init(HANDLE hDevice, u32 band)
 	fc8150_write(hDevice, 0x02, 0x81);
 
 	fc8150_write(hDevice, 0x15, 0x02);
-	fc8150_write(hDevice, 0x20, 0x33);
 	fc8150_write(hDevice, 0x28, 0x62);
-	fc8150_write(hDevice, 0x35, 0xAA);
+	fc8150_write(hDevice, 0x35, 0xA8);
 	fc8150_write(hDevice, 0x38, 0x28);
 
 	fc8150_write(hDevice, 0x3B, 0x01);
@@ -189,6 +184,22 @@ int fc8150_tuner_init(HANDLE hDevice, u32 band)
 
 	fc8150_write(hDevice, 0xA5, 0x65);
 
+	res = fc8150_bb_read(hDevice, 0x00B6, &n_LDO_OUTV);
+	for (n_adc_count = 0; n_adc_count < n_LDO_OUTV; n_adc_count++) {
+
+		for (n_MIXPD_REF_count  = 0 ; n_MIXPD_REF_count < 10 ; \
+			n_MIXPD_REF_count++) {
+			res = fc8150_read(hDevice, 0xD8, &MIXPD_REF);
+			if (MIXPD_REF < 128)
+				break;
+		}
+		if (MIXPD_REF < 128) {
+			res = fc8150_bb_read(hDevice, 0x00B6, &LDO_OUTV);
+			LDO_OUTV = LDO_OUTV - 1;
+			fc8150_bb_write(hDevice, 0x00B6, LDO_OUTV);
+		}
+	}
+
 	RFAGC_PD1[0]	=	0;
 	RFAGC_PD1[1]	=	0;
 	RFAGC_PD1[2]	=	0;
@@ -198,17 +209,17 @@ int fc8150_tuner_init(HANDLE hDevice, u32 band)
 	RFAGC_PD1_MAX	=	0;
 	RFAGC_PD1_MIN	=	255;
 
-	for (i = 0; i < 6 ; i++) {
+	for (i = 0 ; i < 6 ; i++) {
 		fc8150_read(hDevice, 0xD8 , &RFAGC_PD1[i]);
 
-		if (RFAGC_PD1[i] >= RFAGC_PD1_MAX)
+		if (RFAGC_PD1[i] >= RFAGC_PD1_MAX)	\
 			RFAGC_PD1_MAX = RFAGC_PD1[i];
-		if (RFAGC_PD1[i] <= RFAGC_PD1_MIN)
+		if (RFAGC_PD1[i] <= RFAGC_PD1_MIN)	\
 			RFAGC_PD1_MIN = RFAGC_PD1[i];
 	}
-	n_RFAGC_PD1_AVG	= (RFAGC_PD1[0] + RFAGC_PD1[1] + RFAGC_PD1[2]
-		+ RFAGC_PD1[3] + RFAGC_PD1[4] + RFAGC_PD1[5]
-		- RFAGC_PD1_MAX - RFAGC_PD1_MIN) / 4;
+	n_RFAGC_PD1_AVG	= (RFAGC_PD1[0] + RFAGC_PD1[1] + RFAGC_PD1[2] + \
+		RFAGC_PD1[3] + RFAGC_PD1[4] + RFAGC_PD1[5] - RFAGC_PD1_MAX - \
+		RFAGC_PD1_MIN) / 4;
 	RFAGC_PD1_AVG =	(unsigned char) n_RFAGC_PD1_AVG;
 
 	fc8150_write(hDevice, 0x7F , RFAGC_PD1_AVG);
@@ -223,17 +234,17 @@ int fc8150_tuner_init(HANDLE hDevice, u32 band)
 	RFAGC_PD2_MAX	=	0;
 	RFAGC_PD2_MIN	=	255;
 
-	for (i = 0; i < 6; i++) {
-		fc8150_read(hDevice, 0xD6, &RFAGC_PD2[i]);
+	for (i = 0 ; i < 6 ; i++) {
+		fc8150_read(hDevice, 0xD6 , &RFAGC_PD2[i]);
 
-		if (RFAGC_PD2[i] >= RFAGC_PD2_MAX)
+		if (RFAGC_PD2[i] >= RFAGC_PD2_MAX)	\
 			RFAGC_PD2_MAX = RFAGC_PD2[i];
-		if (RFAGC_PD2[i] <= RFAGC_PD2_MIN)
+		if (RFAGC_PD2[i] <= RFAGC_PD2_MIN)	\
 			RFAGC_PD2_MIN = RFAGC_PD2[i];
 	}
-	n_RFAGC_PD2_AVG	=	(RFAGC_PD2[0] + RFAGC_PD2[1] + RFAGC_PD2[2]
-		+ RFAGC_PD2[3] + RFAGC_PD2[4] + RFAGC_PD2[5]
-		- RFAGC_PD2_MAX - RFAGC_PD2_MIN) / 4;
+	n_RFAGC_PD2_AVG	= (RFAGC_PD2[0] + RFAGC_PD2[1] + RFAGC_PD2[2] + \
+		RFAGC_PD2[3] + RFAGC_PD2[4] + RFAGC_PD2[5] - RFAGC_PD2_MAX - \
+		RFAGC_PD2_MIN) / 4;
 	RFAGC_PD2_AVG =	(unsigned char) n_RFAGC_PD2_AVG;
 
 	fc8150_write(hDevice, 0x7E , RFAGC_PD2_AVG);
@@ -249,7 +260,7 @@ int fc8150_tuner_init(HANDLE hDevice, u32 band)
 	fc8150_write(hDevice, 0x7A, 0x2C);
 	fc8150_write(hDevice, 0x7C, 0x10);
 	fc8150_write(hDevice, 0x7D, 0x0C);
-	fc8150_write(hDevice, 0x81, 0x0A);
+
 	fc8150_write(hDevice, 0x84, 0x00);
 
 	fc8150_write(hDevice, 0x02, 0x81);
@@ -258,7 +269,7 @@ int fc8150_tuner_init(HANDLE hDevice, u32 band)
 }
 
 
-int fc8150_set_freq(HANDLE hDevice, enum band_type band, u32 rf_kHz)
+int fc8150_set_freq(HANDLE hDevice, band_type band, u32 rf_kHz)
 {
 	unsigned long f_diff, f_diff_shifted, n_val, k_val;
 	unsigned long f_vco, f_comp;
@@ -284,39 +295,48 @@ int fc8150_set_freq(HANDLE hDevice, enum band_type band, u32 rf_kHz)
 	if (470000 < rf_kHz && rf_kHz <= 473143) {
 		fc8150_write(hDevice, 0x1E, 0x04);
 		fc8150_write(hDevice, 0x1F, 0x36);
-		fc8150_write(hDevice, 0x14, 0x84);
+		fc8150_write(hDevice, 0x20, 0x31);
+		fc8150_write(hDevice, 0x14, 0x86);
 	} else if (473143 < rf_kHz && rf_kHz <= 485143) {
 		fc8150_write(hDevice, 0x1E, 0x03);
 		fc8150_write(hDevice, 0x1F, 0x3E);
-		fc8150_write(hDevice, 0x14, 0x84);
+		fc8150_write(hDevice, 0x20, 0x71);
+		fc8150_write(hDevice, 0x14, 0x86);
 	} else if (485143 < rf_kHz && rf_kHz <= 551143) {
 		fc8150_write(hDevice, 0x1E, 0x04);
 		fc8150_write(hDevice, 0x1F, 0x36);
-		fc8150_write(hDevice, 0x14, 0x84);
+		fc8150_write(hDevice, 0x20, 0x31);
+		fc8150_write(hDevice, 0x14, 0x86);
 	} else if (551143 < rf_kHz && rf_kHz <= 563143) {
 		fc8150_write(hDevice, 0x1E, 0x03);
 		fc8150_write(hDevice, 0x1F, 0x3E);
-		fc8150_write(hDevice, 0x14, 0xC4);
+		fc8150_write(hDevice, 0x20, 0x71);
+		fc8150_write(hDevice, 0x14, 0xC6);
 	} else if (563143 < rf_kHz && rf_kHz <= 593143) {
 		fc8150_write(hDevice, 0x1E, 0x02);
 		fc8150_write(hDevice, 0x1F, 0x3E);
-		fc8150_write(hDevice, 0x14, 0xC4);
+		fc8150_write(hDevice, 0x20, 0x71);
+		fc8150_write(hDevice, 0x14, 0xC6);
 	} else if (593143 < rf_kHz && rf_kHz <= 659143) {
 		fc8150_write(hDevice, 0x1E, 0x02);
 		fc8150_write(hDevice, 0x1F, 0x36);
-		fc8150_write(hDevice, 0x14, 0x84);
+		fc8150_write(hDevice, 0x20, 0x31);
+		fc8150_write(hDevice, 0x14, 0x86);
 	} else if (659143 < rf_kHz && rf_kHz <= 767143) {
 		fc8150_write(hDevice, 0x1E, 0x01);
 		fc8150_write(hDevice, 0x1F, 0x36);
-		fc8150_write(hDevice, 0x14, 0x84);
+		fc8150_write(hDevice, 0x20, 0x31);
+		fc8150_write(hDevice, 0x14, 0x86);
 	} else if (767143 < rf_kHz) {
 		fc8150_write(hDevice, 0x1E, 0x00);
 		fc8150_write(hDevice, 0x1F, 0x36);
-		fc8150_write(hDevice, 0x14, 0x84);
-	} else {
+		fc8150_write(hDevice, 0x20, 0x31);
+		fc8150_write(hDevice, 0x14, 0x86);
+	} else{
 		fc8150_write(hDevice, 0x1E, 0x05);
 		fc8150_write(hDevice, 0x1F, 0x36);
-		fc8150_write(hDevice, 0x14, 0x84);
+		fc8150_write(hDevice, 0x20, 0x31);
+		fc8150_write(hDevice, 0x14, 0x86);
 	}
 
 	data_0x56 = ((r_val == 1) ? 0 : 0x10) + (unsigned char)(k_val>>16);
@@ -333,6 +353,7 @@ int fc8150_set_freq(HANDLE hDevice, enum band_type band, u32 rf_kHz)
 		fc8150_write(hDevice, 0x55, 0x08);
 	else if (700000 < rf_kHz)
 		fc8150_write(hDevice, 0x55, 0x06);
+
 
 	if (rf_kHz <= 491143) {
 		fc8150_write(hDevice, 0x79, 0x28);
@@ -375,14 +396,14 @@ int fc8150_get_rssi(HANDLE hDevice, int *rssi)
 		return res;
 
 	if (127 < PREAMP_PGA)
-		PGA = -1 * ((256 - PREAMP_PGA) + 1);
+		PGA = -1*((256-PREAMP_PGA)+1);
 	else if (PREAMP_PGA <= 127)
 		PGA = PREAMP_PGA;
 
-	/* *rssi = (LNA & 0x07) * 6 + (RFVGA & 0x1F)
-	+ ((CSF & 0x03)+((CSF & 0x70) >> 4) ) * 6 - PGA * 0.25f + K ; */
-	*rssi = (LNA & 0x07) * 6 + (RFVGA & 0x1F)
-		+ ((CSF & 0x03) + ((CSF & 0x70) >> 4)) * 6 - PGA / 4 + K;
+	/*rssi = (LNA & 0x07) * 6 + (RFVGA & 0x1F) + ((CSF & 0x03)+ \
+	((CSF & 0x70) >> 4) )*6 - PGA * 0.25f + K ;*/
+	*rssi = (LNA & 0x07) * 6 + (RFVGA & 0x1F) + ((CSF & 0x03)+ \
+	((CSF & 0x70) >> 4))*6 - PGA / 4 + K;
 
 	return BBM_OK;
 }

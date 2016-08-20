@@ -1714,6 +1714,18 @@ struct super_operations {
 
 #define I_DIRTY (I_DIRTY_SYNC | I_DIRTY_DATASYNC | I_DIRTY_PAGES)
 
+#define INODE_DIRTY_FLAGS \
+	{ I_DIRTY_SYNC,		"DIRTY-SYNC" }, \
+	{ I_DIRTY_DATASYNC,	"DIRTY-DATASYNC" }, \
+	{ I_DIRTY_PAGES,	"DIRTY-PAGES" }, \
+	{ I_NEW,		"NEW" }, \
+	{ I_WILL_FREE,		"WILL-FREE" }, \
+	{ I_FREEING,		"FREEING" }, \
+	{ I_CLEAR,		"CLEAR" }, \
+	{ I_SYNC,		"SYNC" }, \
+	{ I_REFERENCED,		"REFERENCED" }
+
+
 extern void __mark_inode_dirty(struct inode *, int);
 static inline void mark_inode_dirty(struct inode *inode)
 {
@@ -1723,19 +1735,6 @@ static inline void mark_inode_dirty(struct inode *inode)
 static inline void mark_inode_dirty_sync(struct inode *inode)
 {
 	__mark_inode_dirty(inode, I_DIRTY_SYNC);
-}
-
-/**
- * set_nlink - directly set an inode's link count
- * @inode: inode
- * @nlink: new nlink (should be non-zero)
- *
- * This is a low-level filesystem helper to replace any
- * direct filesystem manipulation of i_nlink.
- */
-static inline void set_nlink(struct inode *inode, unsigned int nlink)
-{
-	inode->i_nlink = nlink;
 }
 
 /**
@@ -1837,8 +1836,6 @@ struct file_system_type {
 	struct lock_class_key i_alloc_sem_key;
 };
 
-#define MODULE_ALIAS_FS(NAME) MODULE_ALIAS("fs-" NAME)
-
 extern struct dentry *mount_ns(struct file_system_type *fs_type, int flags,
 	void *data, int (*fill_super)(struct super_block *, void *, int));
 extern struct dentry *mount_bdev(struct file_system_type *fs_type,
@@ -1889,6 +1886,7 @@ extern int register_filesystem(struct file_system_type *);
 extern int unregister_filesystem(struct file_system_type *);
 extern struct vfsmount *kern_mount_data(struct file_system_type *, void *data);
 #define kern_mount(type) kern_mount_data(type, NULL)
+extern void kern_unmount(struct vfsmount *mnt);
 extern int may_umount_tree(struct vfsmount *);
 extern int may_umount(struct vfsmount *);
 extern long do_mount(char *, char *, char *, unsigned long, void *);
@@ -2218,11 +2216,6 @@ static inline bool execute_ok(struct inode *inode)
 	return (inode->i_mode & S_IXUGO) || S_ISDIR(inode->i_mode);
 }
 
-static inline struct inode *file_inode(struct file *f)
-{
-	return f->f_path.dentry->d_inode;
-}
-
 extern int get_write_access(struct inode *);
 extern int deny_write_access(struct file *);
 static inline void put_write_access(struct inode * inode)
@@ -2232,7 +2225,7 @@ static inline void put_write_access(struct inode * inode)
 static inline void allow_write_access(struct file *file)
 {
 	if (file)
-		atomic_inc(&file_inode(file)->i_writecount);
+		atomic_inc(&file->f_path.dentry->d_inode->i_writecount);
 }
 #ifdef CONFIG_IMA
 static inline void i_readcount_dec(struct inode *inode)
@@ -2467,6 +2460,7 @@ extern int dcache_readdir(struct file *, void *, filldir_t);
 extern int simple_setattr(struct dentry *, struct iattr *);
 extern int simple_getattr(struct vfsmount *, struct dentry *, struct kstat *);
 extern int simple_statfs(struct dentry *, struct kstatfs *);
+extern int simple_open(struct inode *inode, struct file *file);
 extern int simple_link(struct dentry *, struct inode *, struct dentry *);
 extern int simple_unlink(struct inode *, struct dentry *);
 extern int simple_rmdir(struct inode *, struct dentry *);

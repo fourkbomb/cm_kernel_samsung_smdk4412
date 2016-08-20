@@ -4,7 +4,6 @@ config ARM
 	select HAVE_AOUT
 	select HAVE_DMA_API_DEBUG
 	select HAVE_IDE
-	select HAVE_DMA_CONTIGUOUS if (CPU_V6 || CPU_V6K || CPU_V7)
 	select HAVE_MEMBLOCK
 	select RTC_LIB
 	select SYS_SUPPORTS_APM_EMULATION
@@ -30,7 +29,6 @@ config ARM
 	select HAVE_GENERIC_HARDIRQS
 	select HAVE_SPARSE_IRQ
 	select GENERIC_IRQ_SHOW
-	select CPU_PM if (SUSPEND || CPU_IDLE)
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
@@ -38,9 +36,6 @@ config ARM
 	  manufactured, but legacy ARM-based PC hardware remains popular in
 	  Europe.  There is an ARM Linux project with a web page at
 	  <http://www.arm.linux.org.uk/>.
-
-config ARM_HAS_SG_CHAIN
-	bool
 
 config HAVE_PWM
 	bool
@@ -1776,6 +1771,8 @@ config ARM_FLUSH_CONSOLE_ON_RESTART
 	  console drivers. This option forces the console lock to be
 	  released if it failed to be acquired, which will cause all the
 	  pending messages to be flushed.
+
+source "arch/arm/mvp/Kconfig"
 
 endmenu
 

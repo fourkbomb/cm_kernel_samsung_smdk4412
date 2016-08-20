@@ -68,6 +68,8 @@ struct sched_log {
 
 #ifdef CONFIG_SEC_DEBUG_AUXILIARY_LOG
 #define AUX_LOG_CPU_CLOCK_MAX 64
+#define AUX_LOG_LOGBUF_LOCK_MAX 64
+#define AUX_LOG_DVFS_LOCK_MAX 64
 #define AUX_LOG_LENGTH 128
 
 struct auxiliary_info {
@@ -79,6 +81,8 @@ struct auxiliary_info {
 /* This structure will be modified if some other items added for log */
 struct auxiliary_log {
 	struct auxiliary_info CpuClockLog[AUX_LOG_CPU_CLOCK_MAX];
+	struct auxiliary_info LogBufLockLog[AUX_LOG_LOGBUF_LOCK_MAX];
+	struct auxiliary_info DVFSLockLog[AUX_LOG_DVFS_LOCK_MAX];
 };
 
 #else
@@ -250,6 +254,8 @@ static unsigned long long gExcpIrqExitTime[NR_CPUS];
 static struct auxiliary_log gExcpAuxLog	__cacheline_aligned;
 static struct auxiliary_log *gExcpAuxLogPtr;
 static atomic_t gExcpAuxCpuClockLogIdx = ATOMIC_INIT(-1);
+static atomic_t gExcpAuxLogBufLockLogIdx = ATOMIC_INIT(-1);
+static atomic_t gExcpAuxDVFSLockLogIdx = ATOMIC_INIT(-1);
 #endif
 
 static int checksum_sched_log(void)
@@ -962,6 +968,22 @@ void sec_debug_aux_log(int idx, char *fmt, ...)
 		(*gExcpAuxLogPtr).CpuClockLog[i].time = cpu_clock(cpu);
 		(*gExcpAuxLogPtr).CpuClockLog[i].cpu = cpu;
 		strncpy((*gExcpAuxLogPtr).CpuClockLog[i].log,
+			buf, AUX_LOG_LENGTH);
+		break;
+	case SEC_DEBUG_AUXLOG_LOGBUF_LOCK_CHANGE:
+		i = atomic_inc_return(&gExcpAuxLogBufLockLogIdx)
+			& (AUX_LOG_LOGBUF_LOCK_MAX - 1);
+		(*gExcpAuxLogPtr).LogBufLockLog[i].time = cpu_clock(cpu);
+		(*gExcpAuxLogPtr).LogBufLockLog[i].cpu = cpu;
+		strncpy((*gExcpAuxLogPtr).LogBufLockLog[i].log,
+			buf, AUX_LOG_LENGTH);
+		break;
+	case SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE:
+		i = atomic_inc_return(&gExcpAuxDVFSLockLogIdx)
+			& (AUX_LOG_DVFS_LOCK_MAX - 1);
+		(*gExcpAuxLogPtr).DVFSLockLog[i].time = cpu_clock(cpu);
+		(*gExcpAuxLogPtr).DVFSLockLog[i].cpu = cpu;
+		strncpy((*gExcpAuxLogPtr).DVFSLockLog[i].log,
 			buf, AUX_LOG_LENGTH);
 		break;
 	default:

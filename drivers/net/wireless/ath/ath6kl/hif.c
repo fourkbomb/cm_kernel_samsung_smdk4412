@@ -118,9 +118,7 @@ static int ath6kl_hif_proc_dbg_intr(struct ath6kl_device *dev)
 {
 	u32 dummy;
 	int ret;
-	struct ath6kl_vif *vif;
 
-	vif = ath6kl_vif_first(dev->ar);
 
 	ath6kl_warn("firmware crashed\n");
 
@@ -135,8 +133,6 @@ static int ath6kl_hif_proc_dbg_intr(struct ath6kl_device *dev)
 
 	ath6kl_hif_dump_fw_crash(dev->ar);
 	ath6kl_read_fwlogs(dev->ar);
-
-	cfg80211_priv_event(vif->ndev, "HANG", GFP_ATOMIC);
 
 	return ret;
 }
@@ -398,9 +394,18 @@ static int proc_pending_irqs(struct ath6kl_device *dev, bool *done)
 	u8 host_int_status = 0;
 	u32 lk_ahd = 0;
 	u8 htc_mbox = 1 << HTC_MAILBOX;
-	struct ath6kl_vif *vif;
-	vif = ath6kl_vif_first(dev->ar);
-	ath6kl_dbg(ATH6KL_DBG_IRQ, "proc_pending_irqs: (dev: 0x%p)\n", dev);
+	struct ath6kl_vif *vif = NULL;
+	if (dev != NULL && dev->ar != NULL) {
+		ath6kl_dbg(ATH6KL_DBG_IRQ, "proc_pending_irqs: (dev: 0x%p)\n", dev);
+		vif = ath6kl_vif_first(dev->ar);
+		if (vif == NULL) {
+			*done = true;
+			goto out;
+		}
+	} else {
+		*done = true;
+		goto out;
+	}
 
 	/*
 	 * NOTE: HIF implementation guarantees that the context of this

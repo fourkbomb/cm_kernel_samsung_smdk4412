@@ -2368,10 +2368,8 @@ static void s5p_hdmi_ctrl_internal_stop(void)
 #ifdef CONFIG_HDMI_HPD
 	s5p_hpd_set_eint();
 #endif
-	if (ctrl->hdcp_en) {
+	if (ctrl->hdcp_en)
 		s5p_hdcp_stop();
-		s5p_hdcp_flush_work();
-	}
 
 	s5p_hdmi_reg_enable(false);
 
@@ -2682,6 +2680,7 @@ static void s5p_tvif_ctrl_init_private(struct platform_device *pdev)
  */
 static int s5p_tvif_ctrl_internal_stop(void)
 {
+	printk(KERN_INFO "%s()\n", __func__);
 	tvout_dbg("status(%d)\n", s5p_tvif_ctrl_private.curr_if);
 	s5p_mixer_ctrl_stop();
 
@@ -2936,6 +2935,8 @@ cannot_change:
 
 void s5p_tvif_ctrl_stop(void)
 {
+	printk(KERN_INFO "%s()\n", __func__);
+
 	if (s5p_tvif_ctrl_private.running) {
 		s5p_tvif_ctrl_internal_stop();
 

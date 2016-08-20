@@ -19,7 +19,7 @@ void PRINTF(HANDLE hDevice, char *fmt, ...)
 	va_start(ap, fmt);
 	vsprintf(str, fmt, ap);
 
-	printk(KERN_DEBUG"%s", str);
+	printk("%s", str);
 
 	va_end(ap);
 }
@@ -31,12 +31,12 @@ void msWait(int ms)
 
 void OAL_CREATE_SEMAPHORE(void)
 {
-
+	/* called in driver initialization */
 }
 
 void OAL_DELETE_SEMAPHORE(void)
 {
-
+	/* called in driver deinitializaton */
 }
 
 void OAL_OBTAIN_SEMAPHORE(void)

@@ -90,6 +90,8 @@ extern void s3cfb_switch_dual_lcd(int lcd_sel);
 #endif
 extern void samsung_switching_tsp(int flip);
 extern void samsung_switching_tkey(int flip);
+extern void samsung_disable_tspInput(void);
+
 /////////////////////////////////////////////////////////////////////
 
 static int flip_status;
@@ -98,7 +100,7 @@ static int flip_status_before;
 /* 0 : open, 1: close */
 int Is_folder_state(void)
 {
-	printk("%s: flip_status = %d\n", __func__,flip_status); 
+	/* printk("%s: flip_status = %d\n", __func__,flip_status); */
 	return !flip_status;
 }
 EXPORT_SYMBOL(Is_folder_state);
@@ -183,6 +185,8 @@ static irqreturn_t sec_flip_irq_handler(int irq, void *_flip)
 
 	wake_lock_timeout(&flip->wlock, 1 * HZ);
 */
+	samsung_disable_tspInput(); /* do not accept tsp irq before folder open/close complete */
+
 	if (flip->timer_debounce)
 		mod_timer(&flip->flip_timer,
 			jiffies + msecs_to_jiffies(flip->timer_debounce));

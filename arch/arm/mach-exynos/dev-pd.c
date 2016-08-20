@@ -61,11 +61,36 @@ int exynos_pd_enable(struct device *dev)
 		if (timeout == 0) {
 			printk(KERN_ERR "Power domain %s enable failed.\n",
 			       dev_name(dev));
+#if defined(CONFIG_MACH_TRATS)
+			break;
+#else
 			return -ETIMEDOUT;
+#endif
 		}
 		timeout--;
 		udelay(1);
 	}
+
+#if defined(CONFIG_MACH_TRATS)
+	if (timeout == 0) {
+		timeout = 1000;
+		/* uses counter to measure power on/off */
+		__raw_writel(0x1, pdata->base + 0x8);
+		__raw_writel(S5P_INT_LOCAL_PWR_EN, pdata->base);
+		while ((__raw_readl(pdata->base + 0x4) & S5P_INT_LOCAL_PWR_EN)
+			!= S5P_INT_LOCAL_PWR_EN) {
+			if (timeout == 0) {
+				printk(KERN_ERR "Power domain %s enable failed 2nd.\n",
+					dev_name(dev));
+				BUG();
+				return -ETIMEDOUT;
+			}
+			timeout--;
+			udelay(1);
+		}
+		__raw_writel(0x2, pdata->base + 0x8);
+	}
+#endif
 
 	if (data->read_base)
 		/* dummy read to check the completion of power-on sequence */
@@ -154,11 +179,35 @@ int exynos_pd_disable(struct device *dev)
 		if (timeout == 0) {
 			printk(KERN_ERR "Power domain %s disable failed.\n",
 			       dev_name(dev));
+#if defined(CONFIG_MACH_TRATS)
+			break;
+#else
 			return -ETIMEDOUT;
+#endif
 		}
 		timeout--;
 		udelay(1);
 	}
+
+#if defined(CONFIG_MACH_TRATS)
+	if (timeout == 0) {
+		timeout = 1000;
+		/* uses counter to measure power on/off */
+		__raw_writel(0x1, pdata->base + 0x8);
+		__raw_writel(0, pdata->base);
+		while (__raw_readl(pdata->base + 0x4) & S5P_INT_LOCAL_PWR_EN) {
+			if (timeout == 0) {
+				printk(KERN_ERR "Power domain %s disable failed 2nd.\n",
+					dev_name(dev));
+				BUG();
+				return -ETIMEDOUT;
+			}
+			timeout--;
+			udelay(1);
+		}
+		__raw_writel(0x2, pdata->base + 0x8);
+	}
+#endif
 
 	/* restore clock source register */
 	if (data->clksrc_base)

@@ -658,7 +658,9 @@ static int __devinit max8997_rtc_probe(struct platform_device *pdev)
 	}
 
 	max8997_rtc_enable_wtsr(info, true);
+#ifndef CONFIG_MACH_TRATS
 	max8997_rtc_enable_smpl(info, true);
+#endif
 
 	device_init_wakeup(&pdev->dev, 1);
 

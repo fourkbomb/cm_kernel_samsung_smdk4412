@@ -23,4 +23,4 @@ extern int fc8151_tuner_deinit(HANDLE hDevice);
 }
 #endif
 
-#endif
+#endif /* __FC8151_TUN__ */

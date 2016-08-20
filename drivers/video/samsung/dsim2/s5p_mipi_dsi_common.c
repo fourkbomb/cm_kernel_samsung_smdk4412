@@ -171,9 +171,6 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		return -EINVAL;
 	}
 
-	/* FIXME!!! why does it need this delay? */
-	msleep(20);
-
 	mutex_lock(&dsim->lock);
 
 	switch (data_id) {
@@ -329,6 +326,24 @@ static unsigned int s5p_mipi_dsi_respense_size(unsigned int req_size)
 	return response;
 }
 
+static unsigned int s5p_mipi_dsi_dcs_respense_size(unsigned int req_size)
+{
+	u8 response;
+	switch (req_size) {
+	case 1:
+		response = MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_1BYTE;
+		break;
+	case 2:
+		response = MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_2BYTE;
+		break;
+	default:
+		response = MIPI_DSI_RX_DCS_LONG_READ_RESPONSE;
+		break;
+	}
+
+	return response;
+}
+
 int s5p_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 	unsigned int data0, unsigned int req_size, u8 *rx_buf)
 {
@@ -350,16 +365,18 @@ int s5p_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 	s5p_mipi_dsi_rd_tx_header(dsim,
 		MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE, req_size);
 
-	response = s5p_mipi_dsi_respense_size(req_size);
-
 	switch (data_id) {
 	case MIPI_DSI_GENERIC_READ_REQUEST_0_PARAM:
 	case MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM:
 	case MIPI_DSI_GENERIC_READ_REQUEST_2_PARAM:
-	case MIPI_DSI_DCS_READ:
+		response = s5p_mipi_dsi_respense_size(req_size);
 		s5p_mipi_dsi_rd_tx_header(dsim,
 			data_id, data0);
-		/* process response func should be implemented. */
+		break;
+	case MIPI_DSI_DCS_READ:
+		response = s5p_mipi_dsi_dcs_respense_size(req_size);
+		s5p_mipi_dsi_rd_tx_header(dsim,
+			data_id, data0);
 		break;
 	default:
 		dev_warn(dsim->dev,

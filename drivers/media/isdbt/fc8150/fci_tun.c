@@ -15,46 +15,45 @@
 #include "fc8150_regs.h"
 #include "fc8150_bb.h"
 #include "fc8150_tun.h"
-
+/*#include "fc8151_tun.h" */
 
 #define FC8150_TUNER_ADDR	0x5b
 
 static u8        tuner_addr = FC8150_TUNER_ADDR;
-static enum band_type tuner_band = ISDBT_1_SEG_TYPE;
-static enum i2c_type  tuner_i2c  = FCI_I2C_TYPE;
+static band_type tuner_band = ISDBT_1_SEG_TYPE;
+static i2c_type  tuner_i2c  = FCI_I2C_TYPE;
 
-struct I2C_DRV {
+typedef struct {
 	int		(*init)(HANDLE hDevice, int speed, int slaveaddr);
-	int		(*read)(HANDLE hDevice, u8 chip, u8 addr
-		, u8 alen, u8 *data, u8 len);
-	int		(*write)(HANDLE hDevice, u8 chip, u8 addr
-		, u8 alen, u8 *data, u8 len);
+	int		(*read)(HANDLE hDevice, u8 chip, u8 addr, u8 alen, \
+		u8 *data, u8 len);
+	int		(*write)(HANDLE hDevice, u8 chip, u8 addr, u8 alen, \
+		u8 *data, u8 len);
 	int		(*deinit)(HANDLE hDevice);
-};
+} I2C_DRV;
 
-static struct I2C_DRV fcii2c = {
+static I2C_DRV fcii2c = {
 	&fci_i2c_init,
 	&fci_i2c_read,
 	&fci_i2c_write,
 	&fci_i2c_deinit
 };
 
-static struct I2C_DRV fcibypass = {
+static I2C_DRV fcibypass = {
 	&fci_bypass_init,
 	&fci_bypass_read,
 	&fci_bypass_write,
 	&fci_bypass_deinit
 };
 
-struct TUNER_DRV {
-	int		(*init)(HANDLE hDevice, enum band_type band);
-	int		(*set_freq)(HANDLE hDevice
-		, enum band_type band, u32 rf_Khz);
+typedef struct {
+	int		(*init)(HANDLE hDevice, band_type band);
+	int		(*set_freq)(HANDLE hDevice, band_type band, u32 rf_Khz);
 	int		(*get_rssi)(HANDLE hDevice, int *rssi);
 	int		(*deinit)(HANDLE hDevice);
-};
+} TUNER_DRV;
 
-static struct TUNER_DRV fc8150_tuner = {
+static TUNER_DRV fc8150_tuner = {
 	&fc8150_tuner_init,
 	&fc8150_set_freq,
 	&fc8150_get_rssi,
@@ -70,10 +69,10 @@ static TUNER_DRV fc8151_tuner = {
 };
 #endif
 
-static struct I2C_DRV *tuner_ctrl = &fcii2c;
-static struct TUNER_DRV *tuner = &fc8150_tuner;
+static I2C_DRV *tuner_ctrl = &fcii2c;
+static TUNER_DRV *tuner = &fc8150_tuner;
 
-int tuner_ctrl_select(HANDLE hDevice, enum i2c_type type)
+int tuner_ctrl_select(HANDLE hDevice, i2c_type type)
 {
 	switch (type) {
 	case FCI_I2C_TYPE:

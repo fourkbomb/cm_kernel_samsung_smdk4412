@@ -49,7 +49,6 @@
 #define TEST_CODE1	49
 #define TEST_CODE2	50
 #define FW_VER_ADDR	0x80
-#define BEAM_STATUS_ADDR	0xFE
 #define BARCODE_EMUL_MAX_FW_PATH	255
 #define BARCODE_EMUL_FW_FILENAME		"i2c_top_bitmap.bin"
 
@@ -57,9 +56,6 @@ struct barcode_emul_data {
 	struct i2c_client		*client;
 };
 
-static struct workqueue_struct *barcode_init_wq;
-static void barcode_init_workfunc(struct work_struct *work);
-static DECLARE_WORK(barcode_init_work, barcode_init_workfunc);
 /*
  * Send barcode emulator firmware data thougth spi communication
  */
@@ -92,7 +88,7 @@ static int barcode_send_firmware_data(unsigned char *data)
 	}
 
 	i = 0;
-	while (i < 200) {
+	while (i<100) {
 		gpio_set_value(GPIO_FPGA_SPI_CLK,GPIO_LEVEL_LOW);
 		i = i+1;
 		gpio_set_value(GPIO_FPGA_SPI_CLK,GPIO_LEVEL_HIGH);
@@ -124,10 +120,10 @@ static int barcode_fpga_fimrware_update_start(unsigned char *data)
 	gpio_request_one(GPIO_FPGA_RST_N, GPIOF_OUT_INIT_LOW, "FPGA_RST_N");
 
 	gpio_set_value(GPIO_FPGA_CRESET_B, GPIO_LEVEL_LOW);
-	udelay(30);
+	udelay(10);
 	    
 	gpio_set_value(GPIO_FPGA_CRESET_B, GPIO_LEVEL_HIGH);
-	udelay(1000);
+	udelay(400);
 
 	check_fpga_cdone();
 
@@ -303,7 +299,7 @@ static ssize_t barcode_emul_test_store(struct device *dev, struct device_attribu
 		unsigned char BSR_data[6] =\
 			{0xC8, 0x00, 0x32, 0x01, 0x00, 0x32};
 
-		pr_barcode("barcode test code start\n");
+		pr_barcode("barcode test code send 01\n");
 
 		/* send NH */
 		i2c_block_transfer.addr = 0x80;
@@ -406,18 +402,6 @@ static ssize_t barcode_emul_test_store(struct device *dev, struct device_attribu
 		}
 
 	} else if (buf[0] == TEST_CODE2) {
-		pr_barcode("barcode test code stop\n");
-
-		i2c_block_transfer.addr = 0xFF;
-		i2c_block_transfer.data[0] = 0x00;
-		ret = i2c_master_send(client, (unsigned char *) &i2c_block_transfer, 2);
-		if (ret < 0) {
-			pr_err("%s: err1 %d\n", __func__, ret);
-			ret = i2c_master_send(client, (unsigned char *) &i2c_block_transfer, 2);
-			if (ret < 0)
-				pr_err("%s: err2 %d\n", __func__, ret);
-		}
-		/*
 		pr_barcode("barcode test code send 02\n");
 
 		i2c_block_transfer.addr = 0x00;
@@ -461,7 +445,6 @@ static ssize_t barcode_emul_test_store(struct device *dev, struct device_attribu
 			if (ret < 0)
 				pr_err("%s: err2 %d\n", __func__, ret);
 		}
-		*/
 	}
 	return size;
 }
@@ -481,23 +464,10 @@ static ssize_t barcode_ver_check_show(struct device *dev, struct device_attribut
 
 	barcode_emul_read(data->client, FW_VER_ADDR, 1, &fw_ver);
 	fw_ver = (fw_ver >> 5) & 0x7;
-	return sprintf(buf, "%d\n", fw_ver+14);
+	return sprintf(buf, "FW_VER : %d\n", fw_ver+14);
 
 }
 static DEVICE_ATTR(barcode_ver_check, 0664, barcode_ver_check_show, NULL);
-
-static ssize_t barcode_led_status_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct barcode_emul_data *data = dev_get_drvdata(dev);
-	u8 status;
-
-	barcode_emul_read(data->client, BEAM_STATUS_ADDR, 1, &status);
-	status = status & 0x1;
-	return sprintf(buf, "%d\n", status);
-
-}
-static DEVICE_ATTR(barcode_led_status, 0664, barcode_led_status_show, NULL);
 
 static int __devinit barcode_emul_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -543,10 +513,6 @@ static int __devinit barcode_emul_probe(struct i2c_client *client,
 	if (device_create_file(barcode_emul_dev, &dev_attr_barcode_ver_check) < 0)
 		pr_err("Failed to create device file(%s)!\n",
 				dev_attr_barcode_ver_check.attr.name);
-	if (device_create_file(barcode_emul_dev, &dev_attr_barcode_led_status) < 0)
-		pr_err("Failed to create device file(%s)!\n",
-				dev_attr_barcode_led_status.attr.name);
-
 	return 0;
 
 err_free_mem:
@@ -600,25 +566,15 @@ static struct i2c_driver ice4_i2c_driver = {
 	.id_table = ice4_id,
 };
 
-static void barcode_init_workfunc(struct work_struct *work)
-{
-	barcode_fpga_firmware_update();
-	i2c_add_driver(&ice4_i2c_driver);
-}
-
 static int __init barcode_emul_init(void)
 {
-	barcode_init_wq = create_singlethread_workqueue("barcode_init");
-	queue_work(barcode_init_wq, &barcode_init_work);
-
-	return 0;
+	return i2c_add_driver(&ice4_i2c_driver);
 }
-late_initcall(barcode_emul_init);
+module_init(barcode_emul_init);
 
 static void __exit barcode_emul_exit(void)
 {
 	i2c_del_driver(&ice4_i2c_driver);
-	destroy_workqueue(barcode_init_wq);
 }
 module_exit(barcode_emul_exit);
 

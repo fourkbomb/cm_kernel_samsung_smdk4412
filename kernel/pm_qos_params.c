@@ -113,16 +113,6 @@ static struct pm_qos_object bus_dma_throughput_pm_qos = {
 	.type = PM_QOS_MAX,
 };
 
-static BLOCKING_NOTIFIER_HEAD(display_frequency_notifier);
-static struct pm_qos_object display_frequency_pm_qos = {
-	.requests = PLIST_HEAD_INIT(display_frequency_pm_qos.requests),
-	.notifiers = &display_frequency_notifier,
-	.name = "display_frequency",
-	.target_value = PM_QOS_DISPLAY_FREQUENCY_DEFAULT_VALUE,
-	.default_value = PM_QOS_DISPLAY_FREQUENCY_DEFAULT_VALUE,
-	.type = PM_QOS_MAX,
-};
-
 static BLOCKING_NOTIFIER_HEAD(bus_qos_notifier);
 static struct pm_qos_object bus_qos_pm_qos = {
 	.requests = PLIST_HEAD_INIT(bus_qos_pm_qos.requests),
@@ -149,7 +139,6 @@ static struct pm_qos_object *pm_qos_array[] = {
 	&network_lat_pm_qos,
 	&network_throughput_pm_qos,
 	&bus_dma_throughput_pm_qos,
-	&display_frequency_pm_qos,
 	&bus_qos_pm_qos,
 	&dvfs_res_lat_pm_qos,
 };
@@ -521,11 +510,6 @@ static int __init pm_qos_power_init(void)
 	if (ret < 0)
 		printk(KERN_ERR
 			"pm_qos_param: bus_dma_throughput setup failed\n");
-
-	ret = register_pm_qos_misc(&display_frequency_pm_qos);
-	if (ret < 0)
-		printk(KERN_ERR
-			"pm_qos_param: display_frequency setup failed\n");
 
 	ret = register_pm_qos_misc(&dvfs_res_lat_pm_qos);
 	if (ret < 0)

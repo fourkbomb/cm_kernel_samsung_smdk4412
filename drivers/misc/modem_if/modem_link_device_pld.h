@@ -18,149 +18,67 @@
 
 #define PLD_ADDR_MASK(x)	(0x00003FFF & (unsigned long)(x))
 
-enum pld_init_status {
-	PLD_INIT_STATE_NONE,
-	PLD_INIT_STATE_READY,
-};
-
-#if 1
-#define MAX_RXBQ_SIZE	256
-
-struct mif_rxb {
-	u8 *buff;
-	unsigned size;
-
-	u8 *data;
-	unsigned len;
-};
-
-struct mif_rxb_queue {
-	int size;
-	int in;
-	int out;
-	struct mif_rxb *rxb;
-};
-
 /*
-** RXB (DPRAM RX buffer) functions
-*/
-static inline struct mif_rxb *rxbq_create_pool(unsigned size, int count)
-{
-	struct mif_rxb *rxb;
-	u8 *buff;
-	int i;
+	mbx_ap2cp +			0x0
+	magic_code +
+	access_enable +
+	padding +
+	mbx_cp2ap +			0x1000
+	magic_code +
+	access_enable +
+	padding +
+	fmt_tx_head + fmt_tx_tail + fmt_tx_buff +		0x2000
+	raw_tx_head + raw_tx_tail + raw_tx_buff +
+	fmt_rx_head + fmt_rx_tail + fmt_rx_buff +		0x3000
+	raw_rx_head + raw_rx_tail + raw_rx_buff +
+  =	2 +
+	4094 +
+	2 +
+	4094 +
+	2 +
+	2 +
+	2 + 2 + 1020 +
+	2 + 2 + 3064 +
+	2 + 2 + 1020 +
+	2 + 2 + 3064
+ */
 
-	rxb = kzalloc(sizeof(struct mif_rxb) * count, GFP_KERNEL);
-	if (!rxb) {
-		mif_info("ERR! kzalloc rxb fail\n");
-		return NULL;
-	}
+#define PLD_FMT_TX_BUFF_SZ	1024
+#define PLD_RAW_TX_BUFF_SZ	3072
+#define PLD_FMT_RX_BUFF_SZ	1024
+#define PLD_RAW_RX_BUFF_SZ	3072
 
-	buff = kzalloc((size * count), GFP_KERNEL|GFP_DMA);
-	if (!buff) {
-		mif_info("ERR! kzalloc buff fail\n");
-		kfree(rxb);
-		return NULL;
-	}
+#define MAX_MSM_EDPRAM_IPC_DEV	2	/* FMT, RAW */
 
-	for (i = 0; i < count; i++) {
-		rxb[i].buff = buff;
-		rxb[i].size = size;
-		buff += size;
-	}
+struct pld_ipc_map {
+	u16 mbx_ap2cp;
+	u16 magic_ap2cp;
+	u16 access_ap2cp;
+	u16 fmt_tx_head;
+	u16 raw_tx_head;
+	u16 fmt_rx_tail;
+	u16 raw_rx_tail;
+	u16 temp1;
+	u8 padding1[4080];
 
-	return rxb;
-}
+	u16 mbx_cp2ap;
+	u16 magic_cp2ap;
+	u16 access_cp2ap;
+	u16 fmt_tx_tail;
+	u16 raw_tx_tail;
+	u16 fmt_rx_head;
+	u16 raw_rx_head;
+	u16 temp2;
+	u8 padding2[4080];
 
-static inline unsigned rxbq_get_page_size(unsigned len)
-{
-	return ((len + PAGE_SIZE - 1) >> PAGE_SHIFT) << PAGE_SHIFT;
-}
+	u8 fmt_tx_buff[PLD_FMT_TX_BUFF_SZ];
+	u8 raw_tx_buff[PLD_RAW_TX_BUFF_SZ];
+	u8 fmt_rx_buff[PLD_RAW_TX_BUFF_SZ];
+	u8 raw_rx_buff[PLD_RAW_RX_BUFF_SZ];
 
-static inline bool rxbq_empty(struct mif_rxb_queue *rxbq)
-{
-	return (rxbq->in == rxbq->out) ? true : false;
-}
+	u8 padding3[16384];
 
-static inline int rxbq_free_size(struct mif_rxb_queue *rxbq)
-{
-	int in = rxbq->in;
-	int out = rxbq->out;
-	int qsize = rxbq->size;
-	return (in < out) ? (out - in - 1) : (qsize + out - in - 1);
-}
-
-static inline struct mif_rxb *rxbq_get_free_rxb(struct mif_rxb_queue *rxbq)
-{
-	struct mif_rxb *rxb = NULL;
-
-	if (likely(rxbq_free_size(rxbq) > 0)) {
-		rxb = &rxbq->rxb[rxbq->in];
-		rxbq->in++;
-		if (rxbq->in >= rxbq->size)
-			rxbq->in -= rxbq->size;
-		rxb->data = rxb->buff;
-	}
-
-	return rxb;
-}
-
-static inline int rxbq_size(struct mif_rxb_queue *rxbq)
-{
-	int in = rxbq->in;
-	int out = rxbq->out;
-	int qsize = rxbq->size;
-	return (in >= out) ? (in - out) : (qsize - out + in);
-}
-
-static inline struct mif_rxb *rxbq_get_data_rxb(struct mif_rxb_queue *rxbq)
-{
-	struct mif_rxb *rxb = NULL;
-
-	if (likely(!rxbq_empty(rxbq))) {
-		rxb = &rxbq->rxb[rxbq->out];
-		rxbq->out++;
-		if (rxbq->out >= rxbq->size)
-			rxbq->out -= rxbq->size;
-	}
-
-	return rxb;
-}
-
-static inline u8 *rxb_put(struct mif_rxb *rxb, unsigned len)
-{
-	rxb->len = len;
-	return rxb->data;
-}
-
-static inline void rxb_clear(struct mif_rxb *rxb)
-{
-	rxb->data = NULL;
-	rxb->len = 0;
-}
-#endif
-
-struct qc_dpram_boot_map {
-	u8 __iomem *buff;
-	u16 __iomem *frame_size;
-	u16 __iomem *tag;
-	u16 __iomem *count;
-};
-
-struct qc_dpram_udl_param {
-	unsigned char *addr;
-	unsigned int size;
-	unsigned int count;
-	unsigned int tag;
-};
-
-struct qc_dpram_udl_check {
-	unsigned int total_size;
-	unsigned int rest_size;
-	unsigned int send_size;
-	unsigned int copy_start;
-	unsigned int copy_complete;
-	unsigned int boot_complete;
+	u16 address_buffer;
 };
 
 struct pld_ext_op;
@@ -174,7 +92,7 @@ struct pld_link_device {
 	u32 size;		/* DPRAM size			*/
 
 	/* DPRAM IRQ GPIO# */
-	unsigned gpio_ipc_int2ap;
+	unsigned gpio_dpram_int;
 
 	/* DPRAM IRQ from CP */
 	int irq;
@@ -182,19 +100,19 @@ struct pld_link_device {
 	char irq_name[MIF_MAX_NAME_LEN];
 
 	/* Link to DPRAM control functions dependent on each platform */
-	struct modemlink_dpram_data *dpram;
+	struct modemlink_dpram_control *dpctl;
 
 	/* Physical configuration -> logical configuration */
 	union {
-	struct memif_boot_map bt_map;
+		struct dpram_boot_map bt_map;
 		struct qc_dpram_boot_map qc_bt_map;
 	};
 
-	struct memif_dload_map dl_map;
-	struct memif_uload_map ul_map;
+	struct dpram_dload_map dl_map;
+	struct dpram_uload_map ul_map;
 
 	/* IPC device map */
-	struct pld_ipc_map ipc_map;
+	struct dpram_ipc_map ipc_map;
 
 	/* Pointers (aliases) to IPC device map */
 	u16 __iomem *magic_ap2cp;
@@ -217,16 +135,19 @@ struct pld_link_device {
 	struct completion modem_pif_init_done;
 
 	/* For UDL */
+	struct tasklet_struct ul_tsk;
 	struct tasklet_struct dl_tsk;
 	struct completion udl_start_complete;
 	struct completion udl_cmd_complete;
-	struct qc_dpram_udl_check qc_udl_check;
-	struct qc_dpram_udl_param qc_udl_param;
+	struct dpram_udl_check udl_check;
+	struct dpram_udl_param udl_param;
 
 	/* For CP crash dump */
 	struct timer_list crash_ack_timer;
 	struct completion crash_start_complete;
 	struct completion crash_recv_done;
+	struct timer_list crash_timer;
+	int crash_rcvd;		/* Count of CP crash dump packets received */
 
 	/* For locking TX process */
 	spinlock_t tx_rx_lock;

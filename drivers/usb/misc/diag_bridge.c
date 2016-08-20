@@ -23,11 +23,6 @@
 #include <linux/debugfs.h>
 #include <mach/diag_bridge.h>
 
-#ifdef CONFIG_MDM_HSIC_PM
-#include <linux/mdm_hsic_pm.h>
-static const char rmnet_pm_dev[] = "mdm_hsic_pm0";
-#endif
-
 #define DRIVER_DESC	"USB host diag bridge driver"
 #define DRIVER_VERSION	"1.0"
 /* zero_pky.patch */
@@ -66,11 +61,9 @@ int diag_bridge_open(struct diag_bridge_ops *ops)
 
 	dev->ops = ops;
 	dev->err = 0;
-	usb_kill_anchored_urbs(&dev->submitted);
 
 	return 0;
 }
-EXPORT_SYMBOL(diag_bridge_open);
 
 /* zero_pky.patch */
 /* Even when no driver is using the diag bridge
@@ -116,21 +109,20 @@ static void read_hsic(void)
 
         usb_free_urb(urb);
 }
-
 static void read_hsic_cb(struct urb *urb)
 {
-	struct diag_bridge	*dev = urb->context;
-	struct diag_bridge_ops	*cbs = dev->ops;
+        struct diag_bridge      *dev = urb->context;
 
-	pr_info("%s: status:%d actual:%d\n", __func__,
-					urb->status, urb->actual_length);
-
+        printk(KERN_INFO"%s: status:%d actual:%d\n", __func__,
+                        urb->status, urb->actual_length);
 	/* Drop the packet */
-	if (urb->status == -EPROTO) {
-		pr_err("%s: drop packet from protocol error\n", __func__);
-		return;
-	}
+        if (urb->status == -EPROTO) {
+                return;
+        }
 }
+
+
+EXPORT_SYMBOL(diag_bridge_open);
 
 void diag_bridge_close(void)
 {
@@ -148,6 +140,9 @@ static void diag_bridge_read_cb(struct urb *urb)
 {
 	struct diag_bridge	*dev = urb->context;
 	struct diag_bridge_ops	*cbs = dev->ops;
+
+	dev_dbg(&dev->udev->dev, "%s: status:%d actual:%d\n", __func__,
+			urb->status, urb->actual_length);
 
 	if (urb->status == -EPROTO) {
 		dev_err(&dev->udev->dev, "%s: proto error\n", __func__);
@@ -172,10 +167,11 @@ int diag_bridge_read(char *data, int size)
 	unsigned int		pipe;
 	struct diag_bridge	*dev = __dev;
 	int			ret;
-	int			spin = 50;
 
 	if (!dev || !dev->udev)
 		return -ENODEV;
+
+	dev_dbg(&dev->udev->dev, "%s:\n", __func__);
 
 	if (!size) {
 		dev_err(&dev->udev->dev, "invalid size:%d\n", size);
@@ -190,16 +186,6 @@ int diag_bridge_read(char *data, int size)
 	/* if there was a previous unrecoverable error, just quit */
 	if (dev->err)
 		return -ESHUTDOWN;
-
-	while (check_request_blocked(rmnet_pm_dev) && spin--) {
-		pr_debug("%s: wake up wait loop\n", __func__);
-		msleep(20);
-	}
-
-	if (check_request_blocked(rmnet_pm_dev)) {
-		pr_err("%s: in lpa wakeup, return EAGAIN\n", __func__);
-		return -EAGAIN;
-	}
 
 	urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!urb) {
@@ -242,6 +228,8 @@ static void diag_bridge_write_cb(struct urb *urb)
 	struct diag_bridge	*dev = urb->context;
 	struct diag_bridge_ops	*cbs = dev->ops;
 
+	dev_dbg(&dev->udev->dev, "%s:\n", __func__);
+
 	usb_autopm_put_interface_async(dev->ifc);
 
 	if (urb->status == -EPROTO) {
@@ -274,6 +262,8 @@ int diag_bridge_write(char *data, int size)
 	if (!dev || !dev->udev)
 		return -ENODEV;
 
+	dev_dbg(&dev->udev->dev, "%s:\n", __func__);
+
 	if (!size) {
 		dev_err(&dev->udev->dev, "invalid size:%d\n", size);
 		return -EINVAL;
@@ -287,17 +277,6 @@ int diag_bridge_write(char *data, int size)
 	/* if there was a previous unrecoverable error, just quit */
 	if (dev->err)
 		return -ESHUTDOWN;
-
-	spin = 50;
-	while (check_request_blocked(rmnet_pm_dev) && spin--) {
-		pr_info("%s: wake up wait loop\n", __func__);
-		msleep(20);
-	}
-
-	if (check_request_blocked(rmnet_pm_dev)) {
-		pr_err("%s: in lpa wakeup, return EAGAIN\n", __func__);
-		return -EAGAIN;
-	}
 
 	urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!urb) {

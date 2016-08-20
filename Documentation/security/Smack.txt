@@ -200,11 +200,11 @@ netlabel
 	label. The format accepted on write is:
 		"%d.%d.%d.%d label" or "%d.%d.%d.%d/%d label".
 onlycap
-	This contains the label processes must have for CAP_MAC_ADMIN
+	This contains labels processes must have for CAP_MAC_ADMIN
 	and CAP_MAC_OVERRIDE to be effective. If this file is empty
 	these capabilities are effective at for processes with any
-	label. The value is set by writing the desired label to the
-	file or cleared by writing "-" to the file.
+	label. The values are set by writing the desired labels, separated
+	by spaces, to the file or cleared by writing "-" to the file.
 revoke-subject
 	Writing a Smack label here sets the access to '-' for all access
 	rules with that subject label.

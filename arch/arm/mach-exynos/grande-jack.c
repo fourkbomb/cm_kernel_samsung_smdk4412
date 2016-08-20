@@ -14,7 +14,6 @@
  * GNU General Public License for more details.
  */
 
-#include <mach/gpio-midas.h>
 #include <linux/input.h>
 #include <linux/platform_device.h>
 #include <linux/sec_jack.h>

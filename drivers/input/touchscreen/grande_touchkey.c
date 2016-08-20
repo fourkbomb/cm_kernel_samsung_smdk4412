@@ -30,7 +30,6 @@
 #include <asm/io.h>
 #include <mach/gpio.h>
 #include <mach/irqs.h>
-#include <mach/gpio-midas.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
@@ -43,7 +42,7 @@
 Melfas touchkey register
 */
 #define KEYCODE_REG 0x00
-#define FIRMWARE_VERSION 0x01
+#define FIRMWARE_VERSION 0x02
 #define TOUCHKEY_MODULE_VERSION 0x03
 #define TOUCHKEY_ADDRESS	0x20
 
@@ -57,7 +56,13 @@ Melfas touchkey register
 #define INT_PEND_BASE	0xE0200A54
 
 #define MCS5080_CHIP		0x03
-#define MCS5080_last_ver	0x01  /*w999 v19*/
+
+#ifdef CONFIG_MACH_GRANDE
+#define MCS5080_last_ver	0x03  /*w999 v19*/
+#endif
+#ifdef CONFIG_MACH_IRON
+#define MCS5080_last_ver	0x01  /*B9388 v11*/
+#endif
 
 // if you want to see log, set this definition to NULL or KERN_WARNING
 #define TCHKEY_KERN_DEBUG      KERN_DEBUG
@@ -88,6 +93,7 @@ static u8 back_sensitivity = 0;
 static u8 home_sensitivity = 0;
 
 static int touchkey_enable = 0;
+static int led_onoff = 1;
 
 static u8 version_info[3];
 static void	__iomem	*gpio_pend_mask_mem;
@@ -300,9 +306,10 @@ static void melfas_touchkey_switch_early_suspend(int FILP_STATE){
 	gpio_direction_output(_3_GPIO_TOUCH_EN, 0);
 	gpio_direction_output(_3_TOUCH_SDA_28V, 0);
 	gpio_direction_output(_3_TOUCH_SCL_28V, 0);
+	#if defined(CONFIG_MACH_GRANDE)
 	if (system_rev >= 14)
 		touchkey_pmic_control(0);
-
+	#endif
 	disable_irq(IRQ_TOUCH_INT);
 
 #ifdef USE_IRQ_FREE
@@ -315,7 +322,7 @@ static void melfas_touchkey_switch_early_resume(int FILP_STATE){
 	int err = 0;
 	u8 data[14];
 	int retry =5;
-	u8 data1 = 0x01;
+	unsigned char data1 = 0x01;
 	if (touchkey_driver == NULL)
        return;
 
@@ -324,10 +331,20 @@ static void melfas_touchkey_switch_early_resume(int FILP_STATE){
 
 	printk(KERN_ERR "%d\n", FILP_STATE);
 
-	i2c_touchkey_write(&data1, 1);
+	gpio_set_value(_3_GPIO_TOUCH_EN, 1);
+	msleep(50);
+	gpio_set_value(_3_TOUCH_SDA_28V, 1);
+	gpio_set_value(_3_TOUCH_SCL_28V, 1);
 	
-	init_hw();
+	#if defined(CONFIG_MACH_GRANDE)
+	if (system_rev >= 14)
+		touchkey_pmic_control(1);
+	#endif
 
+	msleep(100);
+	if (led_onoff)
+		i2c_touchkey_write(&data1, 1);
+	printk(KERN_DEBUG "melfas_touchkey_switch_early_resume\n");
 #ifdef USE_IRQ_FREE
 	msleep(50);
 
@@ -355,18 +372,17 @@ static void melfas_touchkey_switch_early_resume(int FILP_STATE){
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void melfas_touchkey_early_suspend(struct early_suspend *h)
 {
+	unsigned char data = 0x02;
     pr_info("melfas_touchkey_early_suspend +++\n");
 	touchkey_enable = 0;
 	is_suspending = 1;
 	if(user_press_on==1)
 	{
 		input_report_key(touchkey_driver->input_dev, TOUCHKEY_KEYCODE_MENU, 0);
-//		printk(TCHKEY_KERN_DEBUG "%s release menu key\n",__func__);
 	}
 	else if(user_press_on==2)
 	{
 		input_report_key(touchkey_driver->input_dev, TOUCHKEY_KEYCODE_BACK, 0);
-//		printk(TCHKEY_KERN_DEBUG "%s release back key\n",__func__);
 	}
 	user_press_on = 0;
 
@@ -375,18 +391,23 @@ static void melfas_touchkey_early_suspend(struct early_suspend *h)
 		printk(KERN_ERR "touchkey died after ESD");
 		return;
 	}
-
+	i2c_touchkey_write(&data, 1);	/*Key LED force off*/
 	disable_irq(IRQ_TOUCH_INT);
-	gpio_direction_output(_3_GPIO_TOUCH_EN, 0);
-	gpio_direction_output(_3_TOUCH_SDA_28V, 0);
-	gpio_direction_output(_3_TOUCH_SCL_28V, 0);
+	gpio_set_value(_3_GPIO_TOUCH_EN, 0);
+	gpio_set_value(_3_TOUCH_SDA_28V, 0);
+	gpio_set_value(_3_TOUCH_SCL_28V, 0);
+
+	#if defined(CONFIG_MACH_GRANDE)
 	if (system_rev >= 14)
 		touchkey_pmic_control(0);
+	#endif
+
     pr_info("melfas_touchkey_early_suspend ---\n");
 }
 
 static void melfas_touchkey_early_resume(struct early_suspend *h)
 {
+	unsigned char data1 = 0x01;
     pr_info("melfas_touchkey_early_resume +++\n");
 	touchkey_enable = 1;
 	if(touchkey_dead)
@@ -395,7 +416,14 @@ static void melfas_touchkey_early_resume(struct early_suspend *h)
 		return;
 	}
 
-	init_hw();
+	gpio_set_value(_3_GPIO_TOUCH_EN, 1);
+	msleep(50);
+	gpio_set_value(_3_TOUCH_SDA_28V, 1);
+	gpio_set_value(_3_TOUCH_SCL_28V, 1);
+	#if defined(CONFIG_MACH_GRANDE)
+	if (system_rev >= 14)
+		touchkey_pmic_control(1);
+	#endif
 #if 0
 	//clear interrupt
 	if(readl(gpio_pend_mask_mem)&(0x1<<1))
@@ -403,7 +431,9 @@ static void melfas_touchkey_early_resume(struct early_suspend *h)
 #endif
 	enable_irq(IRQ_TOUCH_INT);
 	is_suspending = 0;
-
+	msleep(100);
+	if (led_onoff)
+		i2c_touchkey_write(&data1, 1);
     pr_info("melfas_touchkey_early_resume ---\n");
 }
 #endif	// End of CONFIG_HAS_EARLYSUSPEND
@@ -479,26 +509,31 @@ static int i2c_touchkey_probe(struct i2c_client *client, const struct i2c_device
 static int touchkey_pmic_control(int onoff)
 {
 	struct regulator *regulator;
-	regulator = regulator_get(NULL, "TOUCH_PULL_UP");
+	regulator = regulator_get(NULL, "tsppullup");
 
 	if (onoff) {
-		regulator_enable(regulator);
-		printk(KERN_INFO "[touchkey]touchkey_pmic_control on\n");
+		if (!regulator_is_enabled(regulator)) {
+			regulator_enable(regulator);
+			printk(KERN_INFO "[touchkey]touchkey_pmic_control on\n");
 		}
+	}
 	else {
-		regulator_disable(regulator);
-		printk(KERN_INFO "[touchkey]touchkey_pmic_control off\n");
+		if (regulator_is_enabled(regulator)) {
+			regulator_disable(regulator);
+			printk(KERN_INFO "[touchkey]touchkey_pmic_control off\n");
 		}
+	}
 	regulator_put(regulator);
 	return 0;
 }
 static void init_hw(void)
 {
+#if defined(CONFIG_MACH_GRANDE)
 	if (system_rev >= 14)
 		touchkey_pmic_control(1);
-
+#endif
 	gpio_set_value(_3_GPIO_TOUCH_EN, 1);
-	msleep(100);
+	msleep(20);
 	s3c_gpio_setpull(_3_GPIO_TOUCH_INT, S3C_GPIO_PULL_UP);
 	irq_set_irq_type(IRQ_TOUCH_INT, IRQF_TRIGGER_FALLING);
 	s3c_gpio_cfgpin(_3_GPIO_TOUCH_INT, S3C_GPIO_SFN(0xf));
@@ -538,7 +573,7 @@ static ssize_t touchkey_version_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
 	printk(TCHKEY_KERN_DEBUG "called %s\n", __func__);
-	return sprintf(buf,"%02x\n",version_info[1]);
+	return sprintf(buf, "0x%02x\n", version_info[1]);
 }
 
 static ssize_t touchkey_recommend_show(struct device *dev,
@@ -551,58 +586,58 @@ static ssize_t touchkey_recommend_show(struct device *dev,
 	else
 		recommended_ver = version_info[1];
 
-	return sprintf(buf,"%02x\n",recommended_ver);
+	return sprintf(buf, "0x%02x\n", recommended_ver);
 }
 
 static ssize_t touchkey_firmup_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
 	printk(TCHKEY_KERN_DEBUG "Touchkey firm-up start!\n");
-
-	if (version_info[2] == MCS5080_CHIP)
+	if (version_info[1] != MCS5080_last_ver)
 		mcsdl_download_binary_data(MCS5080_CHIP);
 	else
-		printk(KERN_ERR "Touchkey IC module is old, can't update!");
+		printk(KERN_ERR "Touchkey IC module is new, can't update!");
 
 	get_touchkey_data(version_info, 3);
 	printk(TCHKEY_KERN_DEBUG "Updated F/W version: 0x%x, Module version:0x%x\n", version_info[1], version_info[2]);
-	return sprintf(buf,"%02x\n",version_info[1]);
+	return sprintf(buf, "0x%02x\n", version_info[1]);
 }
 
 static ssize_t touchkey_init_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
-	printk(TCHKEY_KERN_DEBUG "called %s \n", __func__);
-	return sprintf(buf, "%d\n",touchkey_dead);
+	printk(TCHKEY_KERN_DEBUG"called %s \n", __func__);
+	return sprintf(buf, "%d\n", touchkey_dead);
 }
 
 static ssize_t touchkey_menu_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
 	printk(TCHKEY_KERN_DEBUG "called %s \n", __func__);
-	return sprintf(buf, "%d\n",menu_sensitivity);
+	return sprintf(buf, "%d\n", menu_sensitivity);
 }
 static ssize_t touchkey_home_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
 	printk(TCHKEY_KERN_DEBUG "called %s \n", __func__);
-	return sprintf(buf, "%d\n",home_sensitivity);
+	return sprintf(buf, "%d\n", home_sensitivity);
 }
 
 static ssize_t touchkey_back_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
 	printk(TCHKEY_KERN_DEBUG "called %s \n", __func__);
-	return sprintf(buf, "%d\n",back_sensitivity);
+	return sprintf(buf, "%d\n", back_sensitivity);
 }
 
 static ssize_t touch_led_control(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
 {
 	u8 data;
+	sscanf(buf, "%hhu", &data);
+	led_onoff = (data == 2) ? 0 : 1;
+
 	if (!touchkey_enable)
 		return -1;
-
-	sscanf(buf, "%hhu", &data);
 	i2c_touchkey_write(&data, 1);	// LED on(data=1) or off(data=2)
 	return size;
 }
@@ -699,6 +734,8 @@ static int __init touchkey_init(void)
 
 	init_hw();
 
+	msleep(100);
+
 	get_touchkey_data(version_info, 3);
 	printk(TCHKEY_KERN_DEBUG "%s F/W version: 0x%x, Module version:0x%x\n",__FUNCTION__, version_info[1], version_info[2]);
 
@@ -709,15 +746,12 @@ static int __init touchkey_init(void)
 		}
 		else
 		{
-			if (version_info[2] == MCS5080_CHIP)
-			{
 				if (version_info[1] != MCS5080_last_ver)
 				{
 					mcsdl_download_binary_data(MCS5080_CHIP);
 					updated = 1;
 				} else
-					printk(KERN_ERR"Touchkey IC module is old, can't update!");
-			}
+					printk(KERN_ERR"Touchkey IC module firm ware is last version");
 			if (updated)
 			{
 				get_touchkey_data(version_info, 3);

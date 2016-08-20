@@ -267,6 +267,7 @@
 #include <linux/time.h>
 #include <linux/slab.h>
 #include <linux/uid_stat.h>
+#include <linux/cgroup.h>
 
 #include <net/icmp.h>
 #include <net/tcp.h>
@@ -277,6 +278,8 @@
 #include <net/transp_v6.h>
 #include <net/netdma.h>
 #include <net/sock.h>
+#include <net/cls_cgroup.h>
+#include <net/kthook.h>
 
 #include <asm/uaccess.h>
 #include <asm/ioctls.h>
@@ -930,6 +933,10 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	flags = msg->msg_flags;
 	timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
 
+	if (kt_send_permitted(task_cls_classid(current))) {
+		err = -EIO;
+		goto out_err;
+	}
 	/* Wait for a connection to finish. */
 	if ((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT))
 		if ((err = sk_stream_wait_connect(sk, &timeo)) != 0)
@@ -1342,9 +1349,14 @@ int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
 	u32 seq = tp->copied_seq;
 	u32 offset;
 	int copied = 0;
+	int ifindex = 0;
 
 	if (sk->sk_state == TCP_LISTEN)
 		return -ENOTCONN;
+
+	if (kt_recv_permitted(task_cls_classid(current)))
+		return -EIO;
+
 	while ((skb = tcp_recv_skb(sk, seq, &offset)) != NULL) {
 		if (offset < skb->len) {
 			int used;
@@ -1384,6 +1396,7 @@ int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
 			++seq;
 			break;
 		}
+		ifindex = get_ifindex_from_skb(skb);
 		sk_eat_skb(sk, skb, 0);
 		if (!desc->count)
 			break;
@@ -1392,6 +1405,10 @@ int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
 	tp->copied_seq = seq;
 
 	tcp_rcv_space_adjust(sk);
+
+	if (copied)
+		kt_recv_hook(task_cls_classid(current),
+			copied, ifindex);
 
 	/* Clean up data we have read: This will do ACK frames. */
 	if (copied > 0) {
@@ -1426,12 +1443,18 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	int copied_early = 0;
 	struct sk_buff *skb;
 	u32 urg_hole = 0;
+	int ifindex = 0; /*keep ifindex*/
 
 	lock_sock(sk);
 
 	err = -ENOTCONN;
 	if (sk->sk_state == TCP_LISTEN)
 		goto out;
+
+	if (kt_recv_permitted(task_cls_classid(current))) {
+		err = -EIO;
+		goto out;
+	}
 
 	timeo = sock_rcvtimeo(sk, nonblock);
 
@@ -1734,6 +1757,7 @@ skip_copy:
 		if (tcp_hdr(skb)->fin)
 			goto found_fin_ok;
 		if (!(flags & MSG_PEEK)) {
+			ifindex = get_ifindex_from_skb(skb);
 			sk_eat_skb(sk, skb, copied_early);
 			copied_early = 0;
 		}
@@ -1743,6 +1767,7 @@ skip_copy:
 		/* Process the FIN. */
 		++*seq;
 		if (!(flags & MSG_PEEK)) {
+			ifindex = get_ifindex_from_skb(skb);
 			sk_eat_skb(sk, skb, copied_early);
 			copied_early = 0;
 		}
@@ -1777,7 +1802,9 @@ skip_copy:
 		tp->ucopy.pinned_list = NULL;
 	}
 #endif
-
+	if (copied)
+		kt_recv_hook(task_cls_classid(current), copied,
+			ifindex);
 	/* According to UNIX98, msg_name/msg_namelen are ignored
 	 * on connected socket. I was just happy when found this 8) --ANK
 	 */
@@ -3379,7 +3406,7 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 		return -EAFNOSUPPORT;
 	}
 
-	for (bucket = 0; bucket <= tcp_hashinfo.ehash_mask; bucket++) {
+	for (bucket = 0; bucket < tcp_hashinfo.ehash_mask; bucket++) {
 		struct hlist_nulls_node *node;
 		struct sock *sk;
 		spinlock_t *lock = inet_ehash_lockp(&tcp_hashinfo, bucket);

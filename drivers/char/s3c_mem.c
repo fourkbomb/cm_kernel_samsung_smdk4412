@@ -32,7 +32,6 @@
 #include <linux/slab.h>
 #include <linux/mman.h>
 #include <linux/dma-mapping.h>
-#include <linux/cma.h>
 
 #include <linux/unistd.h>
 #include <linux/version.h>
@@ -325,14 +324,6 @@ long s3c_mem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			mutex_unlock(&mem_share_alloc_lock);
 			return -EFAULT;
 		}
-
-		if (!cma_is_registered_region(param.phy_addr, param.size)) {
-			pr_err("%s: %#x@%#x is allowed to map\n",
-					__func__, param.size, param.phy_addr);
-			mutex_unlock(&mem_cacheable_share_alloc_lock);
-			return -EINVAL;
-		}
-
 		flag = MEM_ALLOC_SHARE;
 		physical_address = param.phy_addr;
 		DEBUG("param.phy_addr = %08x, %d\n",
@@ -370,14 +361,6 @@ long s3c_mem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			mutex_unlock(&mem_cacheable_share_alloc_lock);
 			return -EFAULT;
 		}
-
-		if (!cma_is_registered_region(param.phy_addr, param.size)) {
-			pr_err("%s: %#x@%#x is allowed to map\n",
-					__func__, param.size, param.phy_addr);
-			mutex_unlock(&mem_cacheable_share_alloc_lock);
-			return -EINVAL;
-		}
-
 		flag = MEM_ALLOC_CACHEABLE_SHARE;
 		physical_address = param.phy_addr;
 		DEBUG("param.phy_addr = %08x, %d\n",

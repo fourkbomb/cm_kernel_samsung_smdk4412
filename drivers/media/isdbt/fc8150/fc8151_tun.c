@@ -26,9 +26,11 @@
 #include "fc8150_regs.h"
 #include "fci_hal.h"
 
-#define  FC8150_FREQ_XTAL  BBM_XTAL_FREQ  /* 26MHZ */
+#define  FC8150_FREQ_XTAL  BBM_XTAL_FREQ  /*26MHZ*/
 
 static int high_crnt_mode	=	1;
+
+
 
 static int fc8151_write(HANDLE hDevice, u8 addr, u8 data)
 {
@@ -71,8 +73,8 @@ static int KbdFunc(HANDLE hDevice)
 
 	u8	CSF = 0x00;
 	int res = BBM_OK;
-	int crnt_mode[5] = {0, 0, 0, 0, 0};
-	int pre_crnt_mode = 0;
+	int crnt_mode[5]	= {0, 0, 0, 0, 0};
+	int pre_crnt_mode	=	0;
 
 	high_crnt_mode = 2;
 	fc8151_write(hDevice, 0x13, 0xF4);
@@ -83,30 +85,30 @@ static int KbdFunc(HANDLE hDevice)
 
 	while (1) {
 		while (1) {
-			for (i = 0; i < 5; i++) {
+			for (i = 0 ; i < 5; i++) {
 				msWait(100);
 				res = fc8151_read(hDevice, 0xA6, &CSF);
 				if (CSF < 4)
-					crnt_mode[i] = 2;
+					crnt_mode[i]	=	2;
 				if (CSF == 4)
-					crnt_mode[i] = 1;
+					crnt_mode[i]	=	1;
 				if (4 < CSF)
-					crnt_mode[i] = 0;
+					crnt_mode[i]	=	0;
 			}
 
 			pre_crnt_mode	=	high_crnt_mode;
 
-			if ((crnt_mode[0] + crnt_mode[1] + crnt_mode[2]
-				+ crnt_mode[3] + crnt_mode[4]) == 10)
+			if ((crnt_mode[0]+crnt_mode[1]+crnt_mode[2]+\
+				crnt_mode[3]+crnt_mode[4]) == 10)
 				high_crnt_mode = 2;
-			else if ((crnt_mode[0] + crnt_mode[1] + crnt_mode[2]
-				+ crnt_mode[3] + crnt_mode[4]) == 5)
+			else if ((crnt_mode[0]+crnt_mode[1]+crnt_mode[2]+\
+				crnt_mode[3]+crnt_mode[4]) == 5)
 				high_crnt_mode = 1;
-			else if ((crnt_mode[0] + crnt_mode[1] + crnt_mode[2]
-				+ crnt_mode[3] + crnt_mode[4]) == 0)
+			else if ((crnt_mode[0]+crnt_mode[1]+crnt_mode[2]+\
+				crnt_mode[3]+crnt_mode[4]) == 0)
 				high_crnt_mode = 0;
 			else
-				high_crnt_mode = pre_crnt_mode;
+				high_crnt_mode	=	pre_crnt_mode;
 
 			if (!(high_crnt_mode == pre_crnt_mode))
 				break;
@@ -131,11 +133,14 @@ static int KbdFunc(HANDLE hDevice)
 				fc8151_write(hDevice, 0x34, 0x48);
 				fc8151_write(hDevice, 0x35, 0x0C);
 		}
+
 	}
 
 	return res;
 
 }
+
+
 
 static int fc8151_set_filter(HANDLE hDevice)
 {
@@ -213,6 +218,7 @@ int fc8151_tuner_init(HANDLE hDevice, u32 band)
 	u8  RFPD_REF, MIXPD_REF;
 	int res = BBM_OK;
 
+
 	PRINTF(hDevice, "fc8151_init\n");
 
 	fc8151_write(hDevice, 0x00, 0x00);
@@ -237,6 +243,7 @@ int fc8151_tuner_init(HANDLE hDevice, u32 band)
 	fc8151_write(hDevice, 0x54, 0x00);
 	fc8151_write(hDevice, 0x5E, 0x00);
 	fc8151_write(hDevice, 0x63, 0x30);
+
 
 	fc8151_write(hDevice, 0x56, 0x0F);
 	fc8151_write(hDevice, 0x57, 0x1F);
@@ -291,7 +298,7 @@ int fc8151_tuner_init(HANDLE hDevice, u32 band)
 	fc8151_write(hDevice, 0xD2, 0x28);
 	fc8151_write(hDevice, 0xD4, 0x28);
 
-	/* _beginthread(KbdFunc,0,&x); */
+	/*_beginthread(KbdFunc,0,&x);*/
 
 	fc8151_write(hDevice, 0xA0, 0x17);
 	fc8151_write(hDevice, 0xD0, 0x00);
@@ -337,27 +344,30 @@ int fc8151_set_freq(HANDLE hDevice, band_type band, u32 rf_kHz)
 
 	f_diff_shifted = f_diff << (20 - pre_shift_bits);
 
-	k_val = (f_diff_shifted + (f_comp >> (pre_shift_bits+1)))
-		/ (f_comp >> pre_shift_bits);
+	k_val = (f_diff_shifted + \
+		(f_comp >> (pre_shift_bits+1))) / (f_comp >> pre_shift_bits);
 	k_val = (k_val | 1);
 
+
 	if (470000 < rf_kHz && rf_kHz <= 505000)
-		n_captune = 4;
+		n_captune	=	4;
 	else if (505000 < rf_kHz && rf_kHz <= 545000)
-		n_captune = 3;
+		n_captune	=	3;
 	else if (545000 < rf_kHz && rf_kHz <= 610000)
-		n_captune = 2;
+		n_captune	=	2;
 	else if (610000 < rf_kHz && rf_kHz <= 695000)
-		n_captune = 1;
+		n_captune	=	1;
 	else if (695000 < rf_kHz)
-		n_captune = 0;
+		n_captune	=	0;
 
 	fc8151_write(hDevice, 0x1E, (unsigned char)n_captune);
 
-	data_0x56 = ((r_val == 1) ? 0 : 0x10) + (unsigned char)(k_val >> 16);
+
+
+	data_0x56 = ((r_val == 1) ? 0 : 0x10) + (unsigned char)(k_val>>16);
 	fc8151_write(hDevice, 0x56, data_0x56);
-	fc8151_write(hDevice, 0x57, (unsigned char)((k_val >> 8) & 0xFF));
-	fc8151_write(hDevice, 0x58, (unsigned char)(((k_val) & 0xFF)));
+	fc8151_write(hDevice, 0x57, (unsigned char)((k_val>>8)&0xFF));
+	fc8151_write(hDevice, 0x58, (unsigned char)(((k_val)&0xFF)));
 	fc8151_write(hDevice, 0x59, (unsigned char) n_val);
 
 	if (rf_kHz <= 600000)
@@ -369,6 +379,7 @@ int fc8151_set_freq(HANDLE hDevice, band_type band, u32 rf_kHz)
 		fc8151_write(hDevice, 0x1F, 0x0E);
 	else
 		fc8151_write(hDevice, 0x1F, 0x06);
+
 
 	return res;
 }
@@ -390,19 +401,19 @@ int fc8151_get_rssi(HANDLE hDevice, int *rssi)
 		return res;
 
 	if (127 < PREAMP_PGA)
-		PGA = -1 * ((256 - PREAMP_PGA) + 1);
+		PGA = -1*((256-PREAMP_PGA)+1) ;
 	else if (PREAMP_PGA <= 127)
 		PGA = PREAMP_PGA;
 
 	if (high_crnt_mode == 2)
-		Gain_diff = 0;
+		Gain_diff	=	0;
 	else if (high_crnt_mode == 1)
-		Gain_diff = 0;
+		Gain_diff	=	0;
 	else if (high_crnt_mode == 0)
-		Gain_diff = -3.5;
+		Gain_diff	=	-3.5;
 
-	*rssi = (LNA & 0x07) * 6 + (RFVGA)
-		+ (CSF & 0x0F) * 6 - PGA * 0.25f + K - Gain_diff;
+	*rssi = (LNA & 0x07) * 6 + (RFVGA) + (CSF & 0x0F)*6 - \
+		PGA * 0.25f + K - Gain_diff;
 
 	return BBM_OK;
 }

@@ -242,7 +242,7 @@ struct mfc_enc_exe_arg {
 	unsigned int out_y_cookie;
 	unsigned int out_c_cookie;
 #endif
-#ifdef CONFIG_SLP_DMABUF
+#ifdef CONFIG_SLP
 	SSBSIP_MFC_MEMORY_TYPE memory_type;     /* [OUT] memory type */
 #endif
 };
@@ -315,15 +315,16 @@ struct mfc_dec_exe_arg {
 	unsigned int out_y_cookie;
 	unsigned int out_c_cookie;
 #endif
-#ifdef CONFIG_SLP_DMABUF
-	SSBSIP_MFC_MEMORY_TYPE memory_type;     /* [OUT] memory type */
-#endif
+
 	int out_img_width;	/* [OUT] width	of YUV420 frame */
 	int out_img_height;	/* [OUT] height of YUV420 frame */
 	int out_buf_width;	/* [OUT] width	of YUV420 frame */
 	int out_buf_height;	/* [OUT] height of YUV420 frame */
 
 	int out_disp_pic_frame_type;		 /* [OUT] display picture frame type information */
+#ifdef CONFIG_SLP
+	SSBSIP_MFC_MEMORY_TYPE memory_type;     /* [OUT] memory type */
+#endif
 };
 
 struct mfc_basic_config {
@@ -433,6 +434,9 @@ union mfc_args {
 	struct mfc_mem_alloc_arg mem_alloc;
 	struct mfc_mem_free_arg mem_free;
 	/* RMVME */
+#ifdef CONFIG_SLP
+	SSBSIP_MFC_MEMORY_TYPE memory_type;
+#endif
 };
 
 struct mfc_common_args {

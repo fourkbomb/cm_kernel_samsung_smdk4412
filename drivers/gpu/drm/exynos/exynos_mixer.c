@@ -64,12 +64,15 @@ struct hdmi_win_data {
 struct mixer_resources {
 	int			irq;
 	void __iomem		*mixer_regs;
+	void __iomem		*saved_mixer_regs;
 	void __iomem		*vp_regs;
+	void __iomem		*saved_vp_regs;
 	spinlock_t		reg_slock;
 	struct clk		*mixer;
 	struct clk		*vp;
 	struct clk		*sclk_mixer;
 	struct clk		*sclk_hdmi;
+	struct clk		*sclk_pixel;
 	struct clk		*sclk_dac;
 };
 
@@ -348,6 +351,18 @@ static void mixer_run(struct mixer_context *ctx)
 	mixer_regs_dump(ctx);
 }
 
+static void mixer_wait_for_vblank(void *ctx)
+{
+	struct mixer_context *mixer_ctx = ctx;
+	struct mixer_resources *res = &mixer_ctx->mixer_res;
+	int ret;
+
+	ret = wait_for((mixer_reg_read(res, MXR_INT_STATUS) &
+				MXR_INT_STATUS_VSYNC), 50);
+	if (ret < 0)
+		DRM_DEBUG_KMS("vblank wait timed out.\n");
+}
+
 static void vp_video_buffer(struct mixer_context *ctx, int win)
 {
 	struct mixer_resources *res = &ctx->mixer_res;
@@ -365,6 +380,7 @@ static void vp_video_buffer(struct mixer_context *ctx, int win)
 	switch (win_data->pixel_format) {
 	case DRM_FORMAT_NV12MT:
 		tiled_mode = true;
+	case DRM_FORMAT_NV12:
 	case DRM_FORMAT_NV12M:
 		crcb_mode = false;
 		buf_num = 2;
@@ -461,6 +477,8 @@ static void vp_video_buffer(struct mixer_context *ctx, int win)
 
 	mixer_vsync_set_update(ctx, true);
 	spin_unlock_irqrestore(&res->reg_slock, flags);
+
+	mixer_wait_for_vblank(ctx);
 
 	vp_regs_dump(ctx);
 }
@@ -642,6 +660,9 @@ static void mixer_poweron(struct mixer_context *ctx)
 	ctx->powered = true;
 	mutex_unlock(&ctx->mixer_mutex);
 
+	res->mixer_regs = res->saved_mixer_regs;
+	res->vp_regs = res->saved_vp_regs;
+
 	pm_runtime_get_sync(ctx->dev);
 
 	clk_enable(res->mixer);
@@ -652,9 +673,54 @@ static void mixer_poweron(struct mixer_context *ctx)
 	mixer_win_reset(ctx);
 }
 
+static void vp_cleanup(struct mixer_context *ctx)
+{
+	struct mixer_resources *res = &ctx->mixer_res;
+	int val, retries = 200;
+
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	vp_reg_writemask(res, VP_ENABLE, 0, VP_ENABLE_ON);
+
+	do {
+		val = vp_reg_read(res, VP_ENABLE);
+	} while (!(val & VP_ENABLE_OPERATING) && retries--);
+
+	if (!retries)
+		DRM_ERROR("vp disable failed.\n");
+
+	/* clean buffer address to vp */
+	vp_reg_write(res, VP_TOP_Y_PTR, 0);
+	vp_reg_write(res, VP_BOT_Y_PTR, 0);
+	vp_reg_write(res, VP_TOP_C_PTR, 0);
+	vp_reg_write(res, VP_BOT_C_PTR, 0);
+}
+
+static void mixer_cleanup(struct mixer_context *ctx)
+{
+	struct mixer_resources *res = &ctx->mixer_res;
+	int val, retries = 200;
+
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	/* disable vsync */
+	mixer_reg_writemask(res, MXR_INT_EN, 0, MXR_INT_EN_VSYNC);
+
+	/* stop MIXER */
+	mixer_reg_writemask(res, MXR_STATUS, 0, MXR_STATUS_REG_RUN);
+
+	do {
+		val = mixer_reg_read(res, MXR_STATUS);
+	} while (!(val & MXR_STATUS_IDLE_MODE) && retries--);
+
+	if (!retries)
+		DRM_ERROR("mixer disable failed.\n");
+}
+
 static void mixer_poweroff(struct mixer_context *ctx)
 {
 	struct mixer_resources *res = &ctx->mixer_res;
+	unsigned long flags;
 
 	DRM_DEBUG_KMS("[%d] %s\n", __LINE__, __func__);
 
@@ -663,11 +729,25 @@ static void mixer_poweroff(struct mixer_context *ctx)
 		goto out;
 	mutex_unlock(&ctx->mixer_mutex);
 
+	spin_lock_irqsave(&res->reg_slock, flags);
+
 	ctx->int_en = mixer_reg_read(res, MXR_INT_EN);
+	mixer_vsync_set_update(ctx, false);
+
+	vp_cleanup(ctx);
+	mixer_cleanup(ctx);
+
+	spin_unlock_irqrestore(&res->reg_slock, flags);
+
+	/* HDMI changed sclk_hdmi parent clock from pixel to hdmiphy */
+	clk_set_parent(res->sclk_hdmi, res->sclk_pixel);
 
 	clk_disable(res->mixer);
 	clk_disable(res->vp);
 	clk_disable(res->sclk_mixer);
+
+	res->mixer_regs = NULL;
+	res->vp_regs = NULL;
 
 	pm_runtime_put_sync(ctx->dev);
 
@@ -818,6 +898,7 @@ static struct exynos_mixer_ops mixer_ops = {
 	.dpms			= mixer_dpms,
 
 	/* overlay */
+	.wait_for_vblank	= mixer_wait_for_vblank,
 	.win_mode_set		= mixer_win_mode_set,
 	.win_commit		= mixer_win_commit,
 	.win_disable		= mixer_win_disable,
@@ -869,6 +950,11 @@ static irqreturn_t mixer_irq_handler(int irq, void *arg)
 	u32 val, base, shadow;
 
 	spin_lock(&res->reg_slock);
+
+	if (!ctx->powered) {
+		spin_unlock(&res->reg_slock);
+		return IRQ_HANDLED;
+	}
 
 	/* read interrupt status for handling and clearing flags for VSYNC */
 	val = mixer_reg_read(res, MXR_INT_STATUS);
@@ -941,6 +1027,11 @@ static int __devinit mixer_resources_init(struct exynos_drm_hdmi_context *ctx,
 		ret = -ENODEV;
 		goto fail;
 	}
+	mixer_res->sclk_pixel = clk_get(dev, "sclk_pixel");
+	if (IS_ERR_OR_NULL(mixer_res->sclk_pixel)) {
+		DRM_ERROR("failed to get clock 'sclk_pixel'\n");
+		goto fail;
+	}
 	mixer_res->sclk_dac = clk_get(dev, "sclk_dac");
 	if (IS_ERR_OR_NULL(mixer_res->sclk_dac)) {
 		dev_err(dev, "failed to get clock 'sclk_dac'\n");
@@ -962,6 +1053,7 @@ static int __devinit mixer_resources_init(struct exynos_drm_hdmi_context *ctx,
 		ret = -ENXIO;
 		goto fail;
 	}
+	mixer_res->saved_mixer_regs = mixer_res->mixer_regs;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "vp");
 	if (res == NULL) {
@@ -976,6 +1068,7 @@ static int __devinit mixer_resources_init(struct exynos_drm_hdmi_context *ctx,
 		ret = -ENXIO;
 		goto fail_mixer_regs;
 	}
+	mixer_res->saved_vp_regs = mixer_res->vp_regs;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "irq");
 	if (res == NULL) {
@@ -1004,6 +1097,8 @@ fail:
 		clk_put(mixer_res->sclk_dac);
 	if (!IS_ERR_OR_NULL(mixer_res->sclk_hdmi))
 		clk_put(mixer_res->sclk_hdmi);
+	if (!IS_ERR_OR_NULL(mixer_res->sclk_pixel))
+		clk_put(mixer_res->sclk_pixel);
 	if (!IS_ERR_OR_NULL(mixer_res->sclk_mixer))
 		clk_put(mixer_res->sclk_mixer);
 	if (!IS_ERR_OR_NULL(mixer_res->vp))
@@ -1018,6 +1113,19 @@ static void mixer_resources_cleanup(struct mixer_context *ctx)
 	struct mixer_resources *res = &ctx->mixer_res;
 
 	free_irq(res->irq, ctx);
+
+	if (!IS_ERR_OR_NULL(res->sclk_dac))
+		clk_put(res->sclk_dac);
+	if (!IS_ERR_OR_NULL(res->sclk_hdmi))
+		clk_put(res->sclk_hdmi);
+	if (!IS_ERR_OR_NULL(res->sclk_pixel))
+		clk_put(res->sclk_pixel);
+	if (!IS_ERR_OR_NULL(res->sclk_mixer))
+		clk_put(res->sclk_mixer);
+	if (!IS_ERR_OR_NULL(res->vp))
+		clk_put(res->vp);
+	if (!IS_ERR_OR_NULL(res->mixer))
+		clk_put(res->mixer);
 
 	iounmap(res->vp_regs);
 	iounmap(res->mixer_regs);

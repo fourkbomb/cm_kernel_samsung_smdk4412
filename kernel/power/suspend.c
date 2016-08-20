@@ -31,9 +31,14 @@
 const char *const pm_states[PM_SUSPEND_MAX] = {
 #ifdef CONFIG_EARLYSUSPEND
 	[PM_SUSPEND_ON]		= "on",
+#elif defined(CONFIG_PARTIALSUSPEND_SLP)
+	[PM_SUSPEND_ON]		= "post_resume",
 #endif
 	[PM_SUSPEND_STANDBY]	= "standby",
 	[PM_SUSPEND_MEM]	= "mem",
+#ifdef CONFIG_PARTIALSUSPEND_SLP
+	[PM_SUSPEND_PRE]	= "pre_suspend"
+#endif
 };
 
 static const struct platform_suspend_ops *suspend_ops;
@@ -69,6 +74,14 @@ int suspend_valid_only_mem(suspend_state_t state)
 {
 	return state == PM_SUSPEND_MEM;
 }
+
+#ifdef CONFIG_PARTIALSUSPEND_SLP
+int suspend_valid_partialsuspend(suspend_state_t state)
+{
+	return ((state == PM_SUSPEND_MEM) || (state == PM_SUSPEND_PRE)
+		|| (state == PM_SUSPEND_ON));
+}
+#endif
 
 static int suspend_test(int level)
 {

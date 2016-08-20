@@ -299,8 +299,7 @@ static int kvm_iommu_unmap_memslots(struct kvm *kvm)
 	slots = kvm_memslots(kvm);
 
 	for (i = 0; i < slots->nmemslots; i++)
-		kvm_iommu_unmap_pages(kvm, &slots->memslots[i]);
-
+		kvm_iommu_unmap_pages(kvm, memslot);
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	return 0;

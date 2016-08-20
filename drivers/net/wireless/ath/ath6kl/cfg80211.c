@@ -141,6 +141,9 @@ static struct ieee80211_supported_band ath6kl_band_5ghz = {
 
 #define CCKM_KRK_CIPHER_SUITE 0x004096ff /* use for KRK */
 
+#ifdef CONFIG_MACH_PX
+u8 g_nw_type = 0x01;
+#endif
 /* returns true if scheduled scan was stopped */
 static bool __ath6kl_cfg80211_sscan_stop(struct ath6kl_vif *vif)
 {
@@ -510,6 +513,10 @@ static int ath6kl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 	vif->ssid_len = sme->ssid_len;
 	memcpy(vif->ssid, sme->ssid, sme->ssid_len);
 
+#ifdef CONFIG_MACH_PX
+	if (sme->ssid_len != 0)
+		ar->connect_ctrl_flags |= CONNECT_IGNORE_BSSID_HINT;
+#endif
 	if (sme->channel)
 		vif->ch_hint = sme->channel->center_freq;
 
@@ -1941,8 +1948,10 @@ static int ath6kl_wow_ap(struct ath6kl *ar, struct ath6kl_vif *vif)
 static int ath6kl_wow_sta(struct ath6kl *ar, struct ath6kl_vif *vif)
 {
 	struct net_device *ndev = vif->ndev;
-	static const u8 discvr_pattern[] = { 0xe0, 0x00, 0x00, 0xf8 };
-	static const u8 discvr_mask[] = { 0xf0, 0x00, 0x00, 0xf8 };
+	static const u8 discvr_lmnr_pattern[] = { 0xe0, 0x00, 0x00, 0xf8 };
+	static const u8 discvr_lmnr_mask[] = { 0xff, 0xff, 0xff, 0xf8 };
+	static const u8 discvr_ssdp_pattern[] = { 0xef, 0xff, 0xff, 0xfa };
+	static const u8 discvr_ssdp_mask[] = { 0xff, 0xff, 0xff, 0xff };
 	u8 discvr_offset = 38;
 	u8 mac_mask[ETH_ALEN];
 	int ret;
@@ -1966,11 +1975,18 @@ static int ath6kl_wow_sta(struct ath6kl *ar, struct ath6kl_vif *vif)
 	    (ndev->flags & IFF_MULTICAST && netdev_mc_count(ndev) > 0)) {
 		ret = ath6kl_wmi_add_wow_pattern_cmd(ar->wmi,
 				vif->fw_vif_idx, WOW_LIST_ID,
-				sizeof(discvr_pattern), discvr_offset,
-				discvr_pattern, discvr_mask);
+				sizeof(discvr_lmnr_pattern), discvr_offset,
+				discvr_lmnr_pattern, discvr_lmnr_mask);
 		if (ret) {
-			ath6kl_err("failed to add WOW mDNS/SSDP/LLMNR "
-				   "pattern\n");
+			ath6kl_err("failed to add WOW mDNS/LMNR pattern\n");
+			return ret;
+		}
+		ret = ath6kl_wmi_add_wow_pattern_cmd(ar->wmi,
+				vif->fw_vif_idx, WOW_LIST_ID,
+				sizeof(discvr_ssdp_pattern), discvr_offset,
+				discvr_ssdp_pattern, discvr_ssdp_mask);
+		if (ret) {
+			ath6kl_err("failed to add WOW SSDP pattern\n");
 			return ret;
 		}
 	}
@@ -2125,6 +2141,10 @@ static int ath6kl_wow_suspend(struct ath6kl *ar, struct cfg80211_wowlan *wow)
 		return ret;
 	}
 
+	ar->wmi->saved_pwr_mode = ar->wmi->pwr_mode;
+	ret = ath6kl_wmi_powermode_cmd(ar->wmi, 0, REC_POWER);
+	if (ret)
+		return ret;
 skip_arp:
 	ret = ath6kl_wmi_set_wow_mode_cmd(ar->wmi, vif->fw_vif_idx,
 					  ATH6KL_WOW_MODE_ENABLE,
@@ -2158,8 +2178,14 @@ static int ath6kl_wow_resume(struct ath6kl *ar)
 	ar->state = ATH6KL_STATE_RESUMING;
 
 #ifdef CONFIG_HAS_WAKELOCK
-	wake_lock_timeout(&ar->wake_lock, 5 * HZ);
+	wake_lock_timeout(&ar->wake_lock, 1 * HZ);
 #endif
+	if (ar->wmi->pwr_mode != ar->wmi->saved_pwr_mode) {
+		ret = ath6kl_wmi_powermode_cmd(ar->wmi, 0,
+					       ar->wmi->saved_pwr_mode);
+		if (ret)
+			return ret;
+	}
 	ret = ath6kl_wmi_set_host_sleep_mode_cmd(ar->wmi, vif->fw_vif_idx,
 						 ATH6KL_HOST_MODE_AWAKE);
 	if (ret) {
@@ -2275,6 +2301,10 @@ int ath6kl_cfg80211_suspend(struct ath6kl *ar,
 	int ret;
 	struct ath6kl_vif *vif;
 
+	vif = ath6kl_vif_first(ar);
+	if (!vif)
+		return -EIO;
+	ath6kl_cfg80211_scan_complete_event(vif, true);
 	switch (mode) {
 	case ATH6KL_CFG_SUSPEND_WOW:
 
@@ -2283,9 +2313,6 @@ int ath6kl_cfg80211_suspend(struct ath6kl *ar,
 		/* Flush all non control pkts in TX path */
 		ath6kl_tx_data_cleanup(ar);
 
-		vif = ath6kl_vif_first(ar);
-		if (!vif)
-			return -EIO;
 
 		ret = ath6kl_wmi_mcast_filter_cmd(vif->ar->wmi, vif->fw_vif_idx,
 							false);
@@ -2301,8 +2328,8 @@ int ath6kl_cfg80211_suspend(struct ath6kl *ar,
 			GPIO_WLAN_nRST ? gpio_get_value(GPIO_WLAN_nRST) : 0xFF);
 		if (ret) {
 			ath6kl_err("wow suspend failed: %d\n", ret);
-			ret = ath6kl_wmi_mcast_filter_cmd(vif->ar->wmi,
-							vif->fw_vif_idx, true);
+			ret = ath6kl_wmi_mcast_filter_cmd(vif->ar->wmi, vif->fw_vif_idx,
+								true);
 			ar->state = prev_state;
 			return ret;
 		}
@@ -2780,6 +2807,9 @@ static int ath6kl_ap_beacon(struct wiphy *wiphy, struct net_device *dev,
 
 	p.nw_type = AP_NETWORK;
 	vif->nw_type = vif->next_mode;
+#ifdef CONFIG_MACH_PX
+	g_nw_type = AP_NETWORK;
+#endif
 
 	p.ssid_len = vif->ssid_len;
 	memcpy(p.ssid, vif->ssid, vif->ssid_len);
@@ -3555,6 +3585,11 @@ struct net_device *ath6kl_interface_add(struct ath6kl *ar, char *name,
 	vif->wdev.iftype = type;
 	vif->fw_vif_idx = fw_vif_idx;
 	vif->nw_type = vif->next_mode = nw_type;
+#ifdef CONFIG_MACH_PX
+	g_nw_type = nw_type;
+	ath6kl_dbg(ATH6KL_DBG_WLAN_CFG,
+			   "nw_type (STA:1, AP:16) %d\n", g_nw_type);
+#endif
 	vif->bg_scan_period = 0;
 	vif->scan_ctrl_flag = 0;
 	vif->listen_intvl_t = ATH6KL_DEFAULT_LISTEN_INTVAL;

@@ -919,8 +919,7 @@ restart:
 				bh = ext4_getblk(NULL, dir, b++, 0, &err);
 				bh_use[ra_max] = bh;
 				if (bh)
-					ll_rw_block(READ | REQ_META | REQ_PRIO,
-						    1, &bh);
+					ll_rw_block(READ_META, 1, &bh);
 			}
 		}
 		if ((bh = bh_use[ra_ptr++]) == NULL)
@@ -1029,25 +1028,17 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, stru
 	inode = NULL;
 	if (bh) {
 		__u32 ino = le32_to_cpu(de->inode);
+		brelse(bh);
 		if (!ext4_valid_inum(dir->i_sb, ino)) {
-                        /* for debugging, sangwoo2.lee */
-                        printk(KERN_ERR "Name of directory entry has bad inode# : %s\n", de->name);
-                        print_bh(dir->i_sb, bh, 0, EXT4_BLOCK_SIZE(dir->i_sb));
-                        /* for debugging */
-                        brelse(bh);
-
 			EXT4_ERROR_INODE(dir, "bad inode number: %u", ino);
 			return ERR_PTR(-EIO);
 		}
-		brelse(bh);
-
 		inode = ext4_iget(dir->i_sb, ino);
 		if (IS_ERR(inode)) {
 			if (PTR_ERR(inode) == -ESTALE) {
-	                        /* In case of -ESTALE, printing debugging data is already done in ext4_iget */
 				EXT4_ERROR_INODE(dir,
-					         "deleted inode referenced: %u at parent inode : %lu",
-						 ino, dir->i_ino);
+						 "deleted inode referenced: %u",
+						 ino);
 				return ERR_PTR(-EIO);
 			} else {
 				return ERR_CAST(inode);
@@ -1986,7 +1977,7 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 	struct ext4_iloc iloc;
 	int err = 0, rc;
 
-	if (!EXT4_SB(sb)->s_journal)
+	if (!ext4_handle_valid(handle))
 		return 0;
 
 	mutex_lock(&EXT4_SB(sb)->s_orphan_lock);
@@ -2067,7 +2058,8 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 	struct ext4_iloc iloc;
 	int err = 0;
 
-	if (!EXT4_SB(inode->i_sb)->s_journal &&
+	/* ext4_handle_valid() assumes a valid handle_t pointer */
+	if (handle && !ext4_handle_valid(handle) &&
 	    !(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS))
 		return 0;
 
@@ -2087,7 +2079,7 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 	 * transaction handle with which to update the orphan list on
 	 * disk, but we still need to remove the inode from the linked
 	 * list in memory. */
-	if (!handle)
+	if (sbi->s_journal && !handle)
 		goto out;
 
 	err = ext4_reserve_inode_write(handle, inode, &iloc);

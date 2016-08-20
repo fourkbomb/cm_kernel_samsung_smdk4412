@@ -45,15 +45,6 @@ config BATTERY_MAX17047_FUELGAUGE
 	  in handheld and portable equipment. The MAX17047 is configured
 	  to operate with a single lithium cell
 
-config BATTERY_MAX17047_C_FUELGAUGE
-	tristate "Maxim MAX17047 Fuel Gauge - COULOMB_COUNTING"
-	depends on I2C
-	help
-	  MAX17047 is fuel-gauge systems for lithium-ion (Li+) batteries
-	  in handheld and portable equipment. The MAX17047 is configured
-	  to operate with a single lithium cell
-
-
 config BATTERY_SMB136_CHARGER
 	tristate "SMB136 battery charger support"
 	depends on I2C
@@ -77,6 +68,11 @@ config BATTERY_SAMSUNG_P1X
 	help
 	 Say Y to include support for samsung battery driver for P1x.
 
+config BATTERY_SIOP_LEVEL
+	tristate "SIOP Level support for samsung battery driver"
+	default n
+	help
+	 Say Y to support SIOP Level for samsung battery driver.
 
 # Fuel Gauge
 

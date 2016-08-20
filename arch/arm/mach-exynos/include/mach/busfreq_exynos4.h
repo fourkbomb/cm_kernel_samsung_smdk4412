@@ -24,14 +24,8 @@
 
 #define TIMINGROW_OFFSET	0x34
 
-#define PRIME_DMC_MAX_THRESHOLD		30
 #define EXYNOS4412_DMC_MAX_THRESHOLD	30
 #define EXYNOS4212_DMC_MAX_THRESHOLD	30
-#if defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_SP7160LTE) || defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_T0)
-#define DECODING_LOAD 5
-#else
-#define DECODING_LOAD 10
-#endif
 
 extern unsigned int up_threshold;
 extern unsigned int ppmu_threshold;
@@ -41,6 +35,9 @@ extern unsigned int max_cpu_threshold;
 extern unsigned int cpu_slope_size;
 extern unsigned int dmc_max_threshold;
 extern unsigned int load_history_size;
+#if defined(CONFIG_SLP_BUSFREQ_ROUND_OFF)
+extern bool busfreq_round_off_onoff;
+#endif
 
 struct opp;
 struct device;

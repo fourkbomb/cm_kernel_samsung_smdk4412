@@ -38,6 +38,10 @@ config SND_SOC_CACHE_LZO
 config SND_SOC_AC97_BUS
 	bool
 
+config SND_SOC_PM_RUNTIME
+	bool "Support ASoC PM runtime to cpu_dai, codec_dai and platform"
+	depends on PM_RUNTIME
+
 # All the supported SoCs
 source "sound/soc/atmel/Kconfig"
 source "sound/soc/au1x/Kconfig"

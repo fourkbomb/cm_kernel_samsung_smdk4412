@@ -122,7 +122,7 @@ static struct flite_fmt *find_format(u32 *pixelformat, u32 *mbus_code, int index
 }
 #endif
 
-struct flite_fmt const *find_flite_format(struct v4l2_mbus_framefmt *mf)
+inline struct flite_fmt const *find_flite_format(struct v4l2_mbus_framefmt *mf)
 {
 	int num_fmt = ARRAY_SIZE(flite_formats);
 
@@ -2044,10 +2044,8 @@ static int flite_probe(struct platform_device *pdev)
 	}
 
 	sd = kzalloc(sizeof(*sd), GFP_KERNEL);
-	if (!sd) {
-		ret = -ENOMEM;
-		goto err_irq;
-	}
+	if (!sd)
+	       goto err_irq;
 	v4l2_subdev_init(sd, &flite_subdev_ops);
 	snprintf(sd->name, sizeof(sd->name), "flite-subdev.%d", flite->id);
 

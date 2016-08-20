@@ -108,8 +108,8 @@ static bool g_debug_tkey = FALSE;
 
 static int touchkey_i2c_check(struct touchkey_i2c *tkey_i2c);
 
-static u16 menu_sensitivity;
-static u16 back_sensitivity;
+static u8 menu_sensitivity;
+static u8 back_sensitivity;
 #if defined(TK_USE_4KEY)
 static u8 home_sensitivity;
 static u8 search_sensitivity;
@@ -324,7 +324,7 @@ static ssize_t set_touchkey_autocal_testmode(struct device *dev,
 			tkey_i2c->pdata->power_on(1);
 			msleep(50);
 #if defined(TK_HAS_AUTOCAL)
-			touchkey_autocalibration(tkey_i2c);
+			touchkey_autocalibration();
 #endif
 		}
 	} else {
@@ -672,10 +672,6 @@ static irqreturn_t touchkey_interrupt(int irq, void *dev_id)
 	int pressed;
 
 	set_touchkey_debug('a');
-
-	if (!atomic_read(&tkey_i2c->keypad_enable)) {
-		return;
-	}
 
 	retry = 3;
 	while (retry--) {
@@ -1230,12 +1226,8 @@ static ssize_t touchkey_menu_show(struct device *dev,
 
 	ret = i2c_touchkey_read(tkey_i2c->client, KEYCODE_REG, data, 14);
 
-	printk(KERN_DEBUG "called %s data[12] = %d, data[13] =%d\n", __func__,
-			data[12], data[13]);
-	menu_sensitivity = ((0x00FF & data[12]) << 8) | data[13];
-	printk(KERN_DEBUG "called %s menu_sensitivity =%d\n", __func__,
-			menu_sensitivity);
-
+	printk(KERN_DEBUG "called %s data[13] =%d\n", __func__, data[13]);
+	menu_sensitivity = data[13];
 #else
 	u8 data[10];
 	int ret;
@@ -1259,11 +1251,8 @@ static ssize_t touchkey_back_show(struct device *dev,
 
 	ret = i2c_touchkey_read(tkey_i2c->client, KEYCODE_REG, data, 14);
 
-	printk(KERN_DEBUG "called %s data[10] = %d, data[11] =%d\n", __func__,
-			data[10], data[11]);
-	back_sensitivity =((0x00FF & data[10]) << 8) | data[11];
-	printk(KERN_DEBUG "called %s back_sensitivity =%d\n", __func__,
-			back_sensitivity);
+	printk(KERN_DEBUG "called %s data[11] =%d\n", __func__, data[11]);
+	back_sensitivity = data[11];
 #else
 	u8 data[10];
 	int ret;
@@ -1415,40 +1404,6 @@ static ssize_t set_touchkey_firm_status_show(struct device *dev,
 	return count;
 }
 
-static ssize_t sec_keypad_enable_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct touchkey_i2c *tkey_i2c = dev_get_drvdata(dev);
-
-	return sprintf(buf, "%d\n", atomic_read(&tkey_i2c->keypad_enable));
-}
-
-static ssize_t sec_keypad_enable_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct touchkey_i2c *tkey_i2c = dev_get_drvdata(dev);
-
-	unsigned int val = 0;
-	sscanf(buf, "%d", &val);
-	val = (val == 0 ? 0 : 1);
-	atomic_set(&tkey_i2c->keypad_enable, val);
-	if (val) {
-		set_bit(KEY_BACK, tkey_i2c->input_dev->keybit);
-		set_bit(KEY_MENU, tkey_i2c->input_dev->keybit);
-		set_bit(KEY_HOME, tkey_i2c->input_dev->keybit);
-	} else {
-		clear_bit(KEY_BACK, tkey_i2c->input_dev->keybit);
-		clear_bit(KEY_MENU, tkey_i2c->input_dev->keybit);
-		clear_bit(KEY_HOME, tkey_i2c->input_dev->keybit);
-	}
-	input_sync(tkey_i2c->input_dev);
-
-	return count;
-}
-
-static DEVICE_ATTR(keypad_enable, S_IRUGO|S_IWUSR, sec_keypad_enable_show,
-	      sec_keypad_enable_store);
-
 static DEVICE_ATTR(recommended_version, S_IRUGO | S_IWUSR | S_IWGRP,
 		   touch_version_read, touch_version_write);
 static DEVICE_ATTR(updated_version, S_IRUGO | S_IWUSR | S_IWGRP,
@@ -1534,7 +1489,6 @@ static struct attribute *touchkey_attributes[] = {
 	&dev_attr_touchkey_threshold.attr,
 	&dev_attr_autocal_enable.attr,
 	&dev_attr_autocal_stat.attr,
-	&dev_attr_keypad_enable.attr,
 #endif
 	NULL,
 };
@@ -1601,8 +1555,6 @@ static int i2c_touchkey_probe(struct i2c_client *client,
 	set_bit(EV_LED, input_dev->evbit);
 	set_bit(LED_MISC, input_dev->ledbit);
 	set_bit(EV_KEY, input_dev->evbit);
-
-	atomic_set(&tkey_i2c->keypad_enable, 1);
 
 	for (i = 1; i < touchkey_count; i++)
 		set_bit(touchkey_keycode[i], input_dev->keybit);

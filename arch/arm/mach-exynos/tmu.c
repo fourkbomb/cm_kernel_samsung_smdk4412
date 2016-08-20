@@ -483,7 +483,7 @@ static int exynos_tc_volt(struct s5p_tmu_info *info, int enable)
 	static int usage;
 	int ret = 0;
 
-	if (!info || !(info->dev))
+	if (!info)
 		return -EPERM;
 
 	data = info->dev->platform_data;
@@ -1364,7 +1364,7 @@ static int s5p_tmu_resume(struct platform_device *pdev)
 	struct s5p_tmu_info *info = platform_get_drvdata(pdev);
 	struct s5p_platform_tmu *data;
 
-	if (!info || !(info->dev))
+	if (!info)
 		return -EAGAIN;
 
 	data = info->dev->platform_data;

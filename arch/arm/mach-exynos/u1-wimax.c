@@ -8,7 +8,7 @@
 #include <plat/gpio-cfg.h>
 #include <mach/regs-gpio.h>
 #include <mach/gpio.h>
-#include <mach/gpio-u1.h>
+#include <mach/gpio-trats1.h>
 #include <linux/wimax/samsung/max8893.h>
 
 #if defined(CONFIG_WIMAX_CMC) /* && defined(CONFIG_TARGET_LOCALE_NA)*/

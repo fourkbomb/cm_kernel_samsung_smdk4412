@@ -264,6 +264,9 @@ retry:
 	}
 
 	/* subdev call for init */
+#if !defined(CONFIG_MACH_PX)
+	do_gettimeofday(&ctrl->before_time);
+#endif
 	if (ctrl->cap->fmt.priv == V4L2_PIX_FMT_MODE_CAPTURE) {
 		ret = v4l2_subdev_call(cam->sd, core, init, 1);
 		pixelformat = V4L2_PIX_FMT_JPEG;
@@ -1046,6 +1049,11 @@ static int fimc_alloc_buffers(struct fimc_control *ctrl,
 	struct fimc_capinfo *cap = ctrl->cap;
 	int i, j;
 	int plane_length[4] = {0, };
+#ifdef	CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	int alloc_size, err;
+	struct cma_info mem_info;
+#endif
+
 	if (plane < 1 || plane > 3)
 		return -ENOMEM;
 
@@ -1103,6 +1111,36 @@ static int fimc_alloc_buffers(struct fimc_control *ctrl,
 	else
 		plane_length[3] = 0;
 
+#ifdef	CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	if (align) {
+		alloc_size = (ALIGN(plane_length[0], align) +
+				ALIGN(plane_length[1], align)
+				+ ALIGN(plane_length[2], align))
+				* cap->nr_bufs;
+	} else {
+		alloc_size = (plane_length[0] + plane_length[1] +
+				plane_length[2]) * cap->nr_bufs;
+	}
+
+	err = cma_info(&mem_info, ctrl->dev, 0);
+	printk(KERN_DEBUG "%s : [cma_info] start_addr : 0x%x, end_addr	: 0x%x, "
+			"total_size : 0x%x, free_size : 0x%x req_size : 0x%x\n",
+			__func__, mem_info.lower_bound,	mem_info.upper_bound,
+			mem_info.total_size, mem_info.free_size, alloc_size);
+
+	if (err || (mem_info.free_size < alloc_size)) {
+		fimc_err("%s: get cma info failed\n", __func__);
+		ctrl->mem.size = 0;
+		ctrl->mem.base = 0;
+		return -ENOMEM;
+	} else {
+		ctrl->mem.size = alloc_size;
+		ctrl->mem.base = (dma_addr_t)cma_alloc
+			(ctrl->dev, ctrl->cma_name, (size_t) alloc_size, align);
+	}
+
+	ctrl->mem.curr = ctrl->mem.base;
+#endif
 	for (i = 0; i < cap->nr_bufs; i++) {
 		for (j = 0; j < plane; j++) {
 			cap->bufs[i].length[j] = plane_length[j];
@@ -1186,6 +1224,13 @@ int fimc_reqbufs_capture(void *fh, struct v4l2_requestbuffers *b)
 			fimc_dma_free(ctrl, &ctrl->cap->bufs[i], 1);
 			fimc_dma_free(ctrl, &ctrl->cap->bufs[i], 2);
 		}
+#ifdef CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+		if (ctrl->mem.base) {
+			cma_free(ctrl->mem.base);
+			ctrl->mem.base = 0;
+			ctrl->mem.size = 0;
+		}
+#endif
 
 		mutex_unlock(&ctrl->v4l2_lock);
 		return 0;
@@ -1199,6 +1244,13 @@ int fimc_reqbufs_capture(void *fh, struct v4l2_requestbuffers *b)
 			fimc_dma_free(ctrl, &cap->bufs[i], 1);
 			fimc_dma_free(ctrl, &cap->bufs[i], 2);
 		}
+#ifdef CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+		if (ctrl->mem.base) {
+			cma_free(ctrl->mem.base);
+			ctrl->mem.base = 0;
+			ctrl->mem.size = 0;
+		}
+#endif
 	}
 	fimc_free_buffers(ctrl);
 
@@ -1271,9 +1323,16 @@ int fimc_reqbufs_capture(void *fh, struct v4l2_requestbuffers *b)
 	case V4L2_PIX_FMT_YUV422P:	/* fall through */
 	case V4L2_PIX_FMT_YUV420:
 	case V4L2_PIX_FMT_YVU420:
+#ifdef CONFIG_SLP
+		/* SLP OSP App need to set align for YVU420 format */
+		fimc_info1("%s : 3plane\n", __func__);
+		ret = fimc_alloc_buffers(ctrl, 3,
+			cap->fmt.width * cap->fmt.height, SZ_4K, bpp, 0);
+#else
 		fimc_info1("%s : 3plane\n", __func__);
 		ret = fimc_alloc_buffers(ctrl, 3,
 			cap->fmt.width * cap->fmt.height, 0, bpp, 0);
+#endif
 		break;
 
 	case V4L2_PIX_FMT_JPEG:
@@ -1336,9 +1395,15 @@ int fimc_querybuf_capture(void *fh, struct v4l2_buffer *b)
 	case V4L2_PIX_FMT_YUV422P:	/* fall through */
 	case V4L2_PIX_FMT_YUV420:
 	case V4L2_PIX_FMT_YVU420:
+#ifdef CONFIG_SLP
+		b->length = ALIGN(ctrl->cap->bufs[b->index].length[0], SZ_4K)
+			+ ALIGN(ctrl->cap->bufs[b->index].length[1], SZ_4K)
+			+ ALIGN(ctrl->cap->bufs[b->index].length[2], SZ_4K);
+#else
 		b->length = ctrl->cap->bufs[b->index].length[0]
 			+ ctrl->cap->bufs[b->index].length[1]
 			+ ctrl->cap->bufs[b->index].length[2];
+#endif
 		break;
 
 	default:
@@ -1484,6 +1549,21 @@ int fimc_s_ctrl_capture(void *fh, struct v4l2_control *c)
 		ctrl->cap->rotate = c->value;
 		break;
 
+#ifdef CONFIG_SLP
+	case V4L2_CID_HFLIP:
+		if (c->value)
+			ctrl->cap->flip |= FIMC_YFLIP;
+		else
+			ctrl->cap->flip &= ~FIMC_YFLIP;
+		break;
+
+	case V4L2_CID_VFLIP:
+		if (c->value)
+			ctrl->cap->flip |= FIMC_XFLIP;
+		else
+			ctrl->cap->flip &= ~FIMC_XFLIP;
+		break;
+#else
 	case V4L2_CID_HFLIP:
 		if (c->value)
 			ctrl->cap->flip |= FIMC_XFLIP;
@@ -1497,7 +1577,7 @@ int fimc_s_ctrl_capture(void *fh, struct v4l2_control *c)
 		else
 			ctrl->cap->flip &= ~FIMC_YFLIP;
 		break;
-
+#endif
 	case V4L2_CID_PADDR_Y:
 		if (ctrl->cap->bufs)
 			c->value = ctrl->cap->bufs[c->value].base[FIMC_ADDR_Y];
@@ -1860,8 +1940,20 @@ int fimc_streamon_capture(void *fh)
 								STREAM_MODE_CAM_ON);
 					}
 				} else {
-					v4l2_subdev_call(cam->sd, video, s_stream,
-						STREAM_MODE_WAIT_OFF);
+					do_gettimeofday(&ctrl->curr_time);
+					inner_elapsed_usec = \
+						(ctrl->curr_time.tv_sec - ctrl->before_time.tv_sec) * USEC_PER_SEC \
+						+ ctrl->curr_time.tv_usec - ctrl->before_time.tv_usec;
+					inner_elapsed_usec = inner_elapsed_usec / 1000;
+
+					/* printk(KERN_INFO "\n\nfront cam stream off remain time = %dms\n",
+								inner_elapsed_usec);*/
+
+					if (150 > inner_elapsed_usec) {
+						/*printk(KERN_INFO "front cam stream off added msleep = %dms\n",
+							150 - inner_elapsed_usec);*/
+						msleep(150 - inner_elapsed_usec);
+					}
 				}
 #endif
 				if (cam->id == CAMERA_CSI_C) {
@@ -2020,11 +2112,10 @@ int fimc_streamoff_capture(void *fh)
 			STREAM_MODE_CAM_OFF);
 #endif /* CONFIG_VIDEO_IMPROVE_STREAMOFF */
 #else /* CONFIG_MACH_PX */
-	if (get_fimc_dev()->active_camera == 1) {
-		if ((ctrl->id != FIMC2) && (ctrl->cam->type == CAM_TYPE_MIPI))
-			v4l2_subdev_call(ctrl->cam->sd, video, s_stream,
-				STREAM_MODE_CAM_OFF);
-	}
+	if (get_fimc_dev()->active_camera == 1)
+		v4l2_subdev_call(ctrl->cam->sd, video, s_stream, STREAM_MODE_CAM_OFF);
+
+	do_gettimeofday(&ctrl->before_time);
 #endif
 
 	/* wait for stop hardware */

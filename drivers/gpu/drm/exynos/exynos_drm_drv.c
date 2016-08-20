@@ -39,6 +39,7 @@
 #include "exynos_drm_gem.h"
 #include "exynos_drm_g2d.h"
 #include "exynos_drm_ipp.h"
+#include "exynos_drm_hdmi.h"
 #include "exynos_drm_plane.h"
 #include "exynos_drm_vidi.h"
 #include "exynos_drm_dmabuf.h"
@@ -121,9 +122,6 @@ static int exynos_drm_load(struct drm_device *dev, unsigned long flags)
 		DRM_ERROR("failed to allocate private\n");
 		return -ENOMEM;
 	}
-
-	/* maximum size of userptr is limited to 16MB as default. */
-	private->userptr_limit = SZ_16M;
 
 	/* setup device address space for iommu. */
 	private->vmm = exynos_drm_iommu_setup(0x80000000, 0x40000000);
@@ -223,7 +221,6 @@ static int exynos_drm_unload(struct drm_device *dev)
 
 	exynos_drm_fbdev_fini(dev);
 	exynos_drm_device_unregister(dev);
-	drm_vblank_cleanup(dev);
 	drm_kms_helper_poll_fini(dev);
 	drm_mode_config_cleanup(dev);
 	kfree(dev->dev_private);
@@ -313,16 +310,15 @@ static struct drm_ioctl_desc exynos_ioctls[] = {
 			exynos_drm_gem_userptr_ioctl, DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(EXYNOS_GEM_GET,
 			exynos_drm_gem_get_ioctl, DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EXYNOS_USER_LIMIT,
-			exynos_drm_gem_user_limit_ioctl, DRM_MASTER |
-			DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF_DRV(EXYNOS_GEM_EXPORT_UMP,
 			exynos_drm_gem_export_ump_ioctl, DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(EXYNOS_GEM_CACHE_OP,
 			exynos_drm_gem_cache_op_ioctl, DRM_UNLOCKED),
 	/* temporary ioctl commands. */
+#ifndef CONFIG_SLP_DMABUF
 	DRM_IOCTL_DEF_DRV(EXYNOS_GEM_GET_PHY,
 			exynos_drm_gem_get_phy_ioctl, DRM_UNLOCKED),
+#endif
 	DRM_IOCTL_DEF_DRV(EXYNOS_GEM_PHY_IMP,
 			exynos_drm_gem_phy_imp_ioctl, DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(EXYNOS_VIDI_CONNECTION,
@@ -339,10 +335,13 @@ static struct drm_ioctl_desc exynos_ioctls[] = {
 			exynos_drm_ipp_get_property, DRM_UNLOCKED | DRM_AUTH),
 	DRM_IOCTL_DEF_DRV(EXYNOS_IPP_SET_PROPERTY,
 			exynos_drm_ipp_set_property, DRM_UNLOCKED | DRM_AUTH),
-	DRM_IOCTL_DEF_DRV(EXYNOS_IPP_BUF,
-			exynos_drm_ipp_buf, DRM_UNLOCKED | DRM_AUTH),
-	DRM_IOCTL_DEF_DRV(EXYNOS_IPP_CTRL,
-			exynos_drm_ipp_ctrl, DRM_UNLOCKED | DRM_AUTH),
+	DRM_IOCTL_DEF_DRV(EXYNOS_IPP_QUEUE_BUF,
+			exynos_drm_ipp_queue_buf, DRM_UNLOCKED | DRM_AUTH),
+	DRM_IOCTL_DEF_DRV(EXYNOS_IPP_CMD_CTRL,
+			exynos_drm_ipp_cmd_ctrl, DRM_UNLOCKED | DRM_AUTH),
+
+	DRM_IOCTL_DEF_DRV(EXYNOS_HDMI_AUDIO,
+			exynos_drm_hdmi_audio, DRM_UNLOCKED | DRM_AUTH),
 };
 
 static const struct file_operations exynos_drm_driver_fops = {
@@ -427,6 +426,16 @@ static int __init exynos_drm_init(void)
 #endif
 
 #ifdef CONFIG_DRM_EXYNOS_HDMI
+#ifdef CONFIG_DRM_EXYNOS_HDCP
+	ret = platform_driver_register(&hdcp_driver);
+	if (ret < 0)
+		goto out_hdcp;
+#endif
+#ifdef CONFIG_DRM_EXYNOS_CEC
+	ret = platform_driver_register(&cec_driver);
+	if (ret < 0)
+		goto out_cec;
+#endif
 	ret = platform_driver_register(&hdmi_driver);
 	if (ret < 0)
 		goto out_hdmi;
@@ -518,6 +527,14 @@ out_common_hdmi:
 out_mixer:
 	platform_driver_unregister(&hdmi_driver);
 out_hdmi:
+#ifdef CONFIG_DRM_EXYNOS_CEC
+out_cec:
+	platform_driver_unregister(&cec_driver);
+#endif
+#ifdef CONFIG_DRM_EXYNOS_HDCP
+	platform_driver_unregister(&hdcp_driver);
+out_hdcp:
+#endif
 #endif
 
 #ifdef CONFIG_DRM_EXYNOS_FIMD
@@ -561,6 +578,12 @@ static void __exit exynos_drm_exit(void)
 	platform_driver_unregister(&exynos_drm_common_hdmi_driver);
 	platform_driver_unregister(&mixer_driver);
 	platform_driver_unregister(&hdmi_driver);
+#ifdef CONFIG_DRM_EXYNOS_CEC
+	platform_driver_unregister(&cec_driver);
+#endif
+#ifdef CONFIG_DRM_EXYNOS_HDCP
+	platform_driver_unregister(&hdcp_driver);
+#endif
 #endif
 
 #ifdef CONFIG_DRM_EXYNOS_FIMD

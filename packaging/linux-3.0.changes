@@ -1,0 +1,3 @@
+* Thu Mar 18 2013 Passion Zhao <passion.zhao@intel.com>
+  - Fix the bug: smackcipso can't set CIPSO(https://tizendev.org/bugs/browse/TDIS-3891)
+

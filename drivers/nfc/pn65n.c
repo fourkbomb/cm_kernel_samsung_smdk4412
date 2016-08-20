@@ -425,7 +425,9 @@ static int pn65n_probe(struct i2c_client *client,
 	}
 	disable_irq_nosync(pn65n_dev->client->irq);
 	atomic_set(&pn65n_dev->irq_enabled, 0);
-
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	device_init_wakeup_setirq(&pn65n_dev->client->dev, client->irq);
+#endif
 	return 0;
 
 err_request_irq_failed:

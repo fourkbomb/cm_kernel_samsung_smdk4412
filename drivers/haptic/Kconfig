@@ -1,0 +1,32 @@
+menuconfig HAPTIC
+	bool "Haptic support"
+	help
+	  Say Y to enalbe haptic support.
+	  It enables the haptic and controlled
+	  from both userspace and kernel
+
+if HAPTIC
+
+config HAPTIC_CLASS
+	tristate "Haptic Class Support"
+	help
+	  Say Y to enable haptic class support.
+	  This option enables the haptic sysfs class
+	  in /sys/class/haptic.
+
+
+comment "Haptic chips"
+
+config HAPTIC_MAX8997
+	tristate "MAX8997 haptic controller"
+	depends on HAPTIC_CLASS && I2C
+	help
+	  The MAX8997(PMIC) has a haptic controller.
+
+config HAPTIC_MAX77693
+	tristate "MAX77693 haptic controller"
+	depends on HAPTIC_CLASS && I2C
+	help
+	  The MAX77693(PMIC) has a haptic controller.
+
+endif	# HAPTIC

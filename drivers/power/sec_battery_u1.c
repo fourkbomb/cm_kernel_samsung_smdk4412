@@ -29,6 +29,10 @@
 #include <plat/adc.h>
 #include <linux/power/sec_battery_u1.h>
 
+#ifdef CONFIG_JACK_MON
+#include <linux/jack.h>
+#endif
+
 #if defined(CONFIG_TARGET_LOCALE_NA) || defined(CONFIG_TARGET_LOCALE_NAATT)
 #define POLLING_INTERVAL	(10 * 1000)
 #else
@@ -214,7 +218,7 @@
 #endif
 
 #ifdef CONFIG_TARGET_LOCALE_NA
-#define FULL_CHARGE_COND_VOLTAGE    (4150 * 1000)	/* 4.15 V */
+#define FULL_CHARGE_COND_VOLTAGE    (4000 * 1000)	/* 4.00 V */
 #else
 #define FULL_CHARGE_COND_VOLTAGE    (4150 * 1000)	/* 4.15 V */
 #endif
@@ -527,6 +531,14 @@ static int sec_bat_get_property(struct power_supply *ps,
 		break;
 #endif
 	case POWER_SUPPLY_PROP_CAPACITY:
+#ifdef CONFIG_TARGET_LOCALE_NA
+		if (info->charging_status != POWER_SUPPLY_STATUS_FULL
+		    && info->batt_soc == 100) {
+			val->intval = 99;
+			break;
+		}
+#endif				/*CONFIG_TARGET_LOCALE_NA */
+
 		if (info->charging_status == POWER_SUPPLY_STATUS_FULL) {
 			val->intval = 100;
 			break;
@@ -1689,6 +1701,10 @@ static void sec_bat_cable_work(struct work_struct *work)
 		break;
 	}
 
+#ifdef CONFIG_JACK_MON
+	jack_event_handler("charger", info->cable_type ? true : false);
+#endif
+
 	power_supply_changed(&info->psy_ac);
 	power_supply_changed(&info->psy_usb);
 
@@ -1985,9 +2001,6 @@ static bool sec_bat_check_ing_level_trigger(struct sec_bat_info *info)
 #endif
 					if (info->batt_vcell >=
 					    FULL_CHARGE_COND_VOLTAGE) {
-#if defined(CONFIG_TARGET_LOCALE_NA)
-						if (info->batt_soc > 99){
-#endif
 						/* USB full charged */
 						info->charging_int_full_count++;
 						if (info->
@@ -2005,9 +2018,6 @@ static bool sec_bat_check_ing_level_trigger(struct sec_bat_info *info)
 							 __func__,
 							 info->
 						 charging_int_full_count);
-#if defined(CONFIG_TARGET_LOCALE_NA)
-						}
-#endif
 					} else {
 						info->charging_int_full_count =
 						    0;
@@ -3301,7 +3311,7 @@ static __devinit int sec_bat_probe(struct platform_device *pdev)
 	schedule_delayed_work(&info->vf_check_work, 0);
 #endif
 
-#if defined(CONFIG_MACH_Q1_BD)
+#if defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_TRATS)
 	if (pdata->initial_check)
 		pdata->initial_check();
 #endif

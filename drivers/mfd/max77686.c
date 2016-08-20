@@ -164,9 +164,11 @@ static int max77686_i2c_probe(struct i2c_client *i2c,
 
 	if (ret < 0)
 		goto err_mfd;
-
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	device_init_wakeup_setirq(max77686->dev, max77686->irq);
+#else
 	device_init_wakeup(max77686->dev, pdata->wakeup);
-
+#endif
 	return ret;
 
 err_mfd:

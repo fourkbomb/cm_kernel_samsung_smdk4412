@@ -275,6 +275,13 @@ struct v4l2_capability {
 #define V4L2_CAP_ASYNCIO                0x02000000  /* async I/O */
 #define V4L2_CAP_STREAMING              0x04000000  /* streaming I/O ioctls */
 
+#ifdef CONFIG_SLP
+/* buffer share method */
+#define V4L2_CAP_SHARE_PADDR		0x10000000  /* physical address */
+#define V4L2_CAP_SHARE_FD		0x20000000  /* file descriptor */
+#define V4L2_CAP_SHARE_ION		0x40000000  /* ION */
+#endif
+
 /*
  *	V I D E O   I M A G E   F O R M A T
  */

@@ -30,15 +30,17 @@
 #include <asm/byteorder.h>
 
 #include "usb.h"
-#ifdef CONFIG_SAMSUNG_SMARTDOCK
-#include "sec-dock.h"
-#endif
 
 /* if we are in debug mode, always announce new devices */
 #ifdef DEBUG
 #ifndef CONFIG_USB_ANNOUNCE_NEW_DEVICES
 #define CONFIG_USB_ANNOUNCE_NEW_DEVICES
 #endif
+#endif
+
+#ifdef CONFIG_MDM_HSIC_PM
+/* avoid duplicate reset_resume */
+static int reset_resume_flag = 0;
 #endif
 
 struct usb_hub {
@@ -1674,11 +1676,14 @@ void usb_disconnect(struct usb_device **pdev)
 {
 	struct usb_device	*udev = *pdev;
 	int			i;
+	struct usb_hcd		*hcd;
 
 	if (!udev) {
 		pr_debug ("%s nodev\n", __func__);
 		return;
 	}
+
+	hcd = bus_to_hcd(udev->bus);
 
 	/* mark the device as inactive, so any further urb submissions for
 	 * this device (and any of its children) will fail immediately.
@@ -1687,10 +1692,6 @@ void usb_disconnect(struct usb_device **pdev)
 	usb_set_device_state(udev, USB_STATE_NOTATTACHED);
 	dev_info(&udev->dev, "USB disconnect, device number %d by %pF\n",
 			udev->devnum, __builtin_return_address(0));
-
-#ifdef CONFIG_SAMSUNG_SMARTDOCK
-	call_battery_notify(udev, 0);
-#endif
 
 	usb_lock_device(udev);
 
@@ -1705,7 +1706,9 @@ void usb_disconnect(struct usb_device **pdev)
 	 * so that the hardware is now fully quiesced.
 	 */
 	dev_dbg (&udev->dev, "unregistering device\n");
+	mutex_lock(hcd->bandwidth_mutex);
 	usb_disable_device(udev, 0);
+	mutex_unlock(hcd->bandwidth_mutex);
 	usb_hcd_synchronize_unlinks(udev);
 
 	usb_remove_ep_devs(&udev->ep0);
@@ -1935,12 +1938,6 @@ int usb_new_device(struct usb_device *udev)
 
 	/* Tell the world! */
 	announce_device(udev);
-#ifdef CONFIG_SAMSUNG_SMARTDOCK
-#if defined(CONFIG_MUIC_MAX77693_SUPPORT_OTG_AUDIO_DOCK)
-	call_audiodock_notify(udev);
-#endif
-	call_battery_notify(udev, 1);
-#endif
 
 	if (udev->serial)
 		add_device_randomness(udev->serial, strlen(udev->serial));
@@ -2326,11 +2323,6 @@ static int check_port_resume_type(struct usb_device *udev,
 		if (portchange & USB_PORT_STAT_C_ENABLE)
 			clear_port_feature(hub->hdev, port1,
 					USB_PORT_FEAT_C_ENABLE);
-		#ifdef CONFIG_MDM_HSIC_PM
-		/* MDM9x15, HSIC deivce do need this delay at LPA wake */
-		if (udev->quirks & USB_QUIRK_HSIC_TUNE)
-			msleep(30);
-		#endif
 	}
 
 	return status;
@@ -2462,6 +2454,11 @@ static int finish_port_resume(struct usb_device *udev)
 	int	status = 0;
 	u16	devstatus = 0;
 
+#ifdef CONFIG_MDM_HSIC_PM
+	if (udev->reset_resume && (udev->quirks & USB_QUIRK_HSIC_TUNE))
+		msleep(40);
+#endif
+
 	/* caller owns the udev device lock */
 	dev_dbg(&udev->dev, "%s\n",
 		udev->reset_resume ? "finish reset-resume" : "finish resume");
@@ -2480,6 +2477,22 @@ static int finish_port_resume(struct usb_device *udev)
 	 * operation is carried out here, after the port has been
 	 * resumed.
 	 */
+
+#ifdef CONFIG_MDM_HSIC_PM
+        /* avoid duplicate reset_resume */
+        if(udev->reset_resume) {
+                if  (reset_resume_flag) {
+                        devstatus = 0;
+                        status = usb_get_status(udev, USB_RECIP_DEVICE, 0, &devstatus);
+                        dev_dbg(&udev->dev, "reset_resume : avoid duplicate reset_resume status = %d \n", status);
+                        goto done;
+                }
+                else {
+                        dev_dbg(&udev->dev, "reset_resume : set reset_resume_flag to 1 status = %d \n", status);
+                        reset_resume_flag = 1;
+                }
+        }
+#endif
 
 	if (udev->reset_resume)
  retry_reset_resume:
@@ -2654,6 +2667,15 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 		hub_port_logical_disconnect(hub, port1);
 	}
 
+#ifdef CONFIG_MDM_HSIC_PM
+        /* avoid duplicate reset_resume */
+        if (reset_resume_flag == 1) {
+                msleep(50);
+                reset_resume_flag = 0;
+                dev_dbg(&udev->dev, "reset_resume : set reset_resume_flag to 0\n");
+        }
+#endif
+
 	return status;
 }
 
@@ -2663,6 +2685,10 @@ int usb_remote_wakeup(struct usb_device *udev)
 	int	status = 0;
 
 	if (udev->state == USB_STATE_SUSPENDED) {
+#ifdef CONFIG_MDM_HSIC_PM
+		/* MDM9x15 delayed resume */
+			msleep(30);
+#endif
 		dev_dbg(&udev->dev, "usb %sresume\n", "wakeup-");
 		status = usb_autoresume_device(udev);
 		if (status == 0) {
@@ -3602,14 +3628,7 @@ static void hub_events(void)
 				udev = hdev->children[i-1];
 				if (udev) {
 					/* TRSMRCY = 10 msec */
-					#ifdef CONFIG_MDM_HSIC_PM
-					/* MDM9x15, HSIC deivce */
-					if (udev->quirks & USB_QUIRK_HSIC_TUNE)
-						msleep(10 + 10);
-					else
-					#else
 					msleep(10);
-					#endif
 
 					usb_lock_device(udev);
 					ret = usb_remote_wakeup(hdev->

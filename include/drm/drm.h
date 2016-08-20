@@ -777,6 +777,7 @@ struct drm_event_vblank {
 #define DRM_CAP_VBLANK_HIGH_CRTC 0x2
 #define DRM_CAP_DUMB_PREFERRED_DEPTH 0x3
 #define DRM_CAP_DUMB_PREFER_SHADOW 0x4
+#define DRM_CAP_TIMESTAMP_MONOTONIC 0x6
 
 /* typedef area */
 #ifndef __KERNEL__

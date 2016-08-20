@@ -296,11 +296,7 @@ int s5p_dsim_rd_data(void *ptr, u8 addr, u16 count, u8 *buf)
 #endif	/* CONFIG_FB_S5P_S6E63M0 */
 		break;
 	case 2:
-#if defined(CONFIG_FB_S5P_S6E63M0)
-		response = MIPI_RESP_DCS_RD_2;
-#else
 		response = MIPI_RESP_GENERIC_RD_2;
-#endif	/* CONFIG_FB_S5P_S6E63M0 */
 		break;
 	default:
 		response = MIPI_RESP_GENERIC_RD_LONG;
@@ -759,7 +755,11 @@ static void s5p_dsim_set_display_mode(struct dsim_global *dsim,
 				(struct s3cfb_lcd *) main_lcd->lcd_panel_info;
 
 			s5p_dsim_set_main_disp_resol(dsim_base,
+#if defined(CONFIG_FB_S5P_S6E63M0)
+				main_lcd_panel_info->height + 2,
+#else
 				main_lcd_panel_info->height,
+#endif
 				main_lcd_panel_info->width);
 		} else
 			dev_warn(dsim->dev, "lcd panel info of main lcd is NULL\n");
@@ -1031,6 +1031,21 @@ int s5p_dsim_fifo_clear(void)
 	return ret;
 }
 
+void s5p_dsim_set_main_stand_by(unsigned int enable)
+{
+	struct dsim_global *dsim = g_dsim;
+	unsigned int reg;
+
+	reg = readl(dsim->reg_base + S5P_DSIM_MDRESOL);
+
+	reg &= ~DSIM_MAIN_STAND_BY;
+
+	if (enable)
+		reg |= DSIM_MAIN_STAND_BY;
+
+	writel(reg, dsim->reg_base + S5P_DSIM_MDRESOL);
+}
+
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
 int s5p_dsim_get_panel_sel_value(void)
 {
@@ -1076,6 +1091,8 @@ int s5p_dsim_set_lcd_sel_value(unsigned int lcd_sel)
 		printk(KERN_ERR "lcd_sel_pin is NULL\n");
 		return -EINVAL;
 	}
+	pr_info(KERN_DEBUG "%s, set lcd_sel : %s\n",
+		__func__, lcd_sel ? "SUB-LCD" : "MAIN-LCD");
 
 	gpio_set_value(lcd_sel_pin, lcd_sel);
 	return prev_lcd_sel;

@@ -43,7 +43,7 @@
 struct lcd_info {
 	unsigned int			bl;
 	unsigned int			current_bl;
-	unsigned int			auto_brightness;
+
 	unsigned int			ldi_enable;
 	unsigned int			power;
 	struct mutex			lock;
@@ -65,61 +65,6 @@ struct lcd_info {
 	struct dsim_global		*dsim;
 };
 
-static const unsigned char SEQ_PASSWD1[] = {
-	0xF0,
-	0x5A, 0x5A
-};
-
-static const unsigned char SEQ_PASSWD2[] = {
-	0xF1,
-	0x5A, 0x5A
-};
-
-static const unsigned char SEQ_SONY_IP_SET1[] = {
-	0xC4,
-	0x7C, 0xE6, 0x7C, 0xE6, 0x7C, 0xE6, 0x7C, 0x7C,
-	0x05, 0x0F, 0x1F, 0x01, 0x00, 0x00,
-};
-
-static const unsigned char SEQ_SONY_IP_SET2[] = {
-	0xC5,
-	0x80, 0x80, 0x80, 0x41, 0x43, 0x34, 0x80, 0x80,
-	0x01, 0xFF, 0x25, 0x58, 0x50
-};
-
-/* Should be removed when panel nvm is updated */
-static const unsigned char SEQ_PGAMMACTL[] = {
-	0xFA,	0x9C,	0xBF,	0x1A,	0xD6,	0xE3,	0xE3,	0x1B,
-	0xDA,	0x9B,	0x16,	0x51,	0x12,	0x15,	0xD9,	0x9B,
-	0x1A,	0xDD,	0x62,	0x2D,	0x79,	0x6A,	0x2C,	0x7F,
-	0x11,	0x09,	0x53,	0x91,	0x09,	0x08,	0xCA,	0x06,
-	0x04,	0x87,	0x0B,	0x4E,	0xD2,	0x13,	0xD7,	0x18,
-	0x1A,	0x9A,	0xC1,	0x0F,	0xFF,	0xD7,	0x53,	0x61,
-	0xE2,	0x5A,	0x9A,	0xDC,	0x59,	0x96,	0x98,	0x5C,
-	0x1F,	0xE3,	0x25,	0xE6,	0x27,	0x23,	0x23,	0x4C,
-};
-
-static const unsigned char SEQ_NGAMMACTL[] = {
-	0xFB,	0x9C,	0xBF,	0x1A,	0xD6,	0xE3,	0xE3,	0x1B,
-	0xDA,	0x9B,	0x16,	0x51,	0x12,	0x15,	0xD9,	0x9B,
-	0x1A,	0xDD,	0x62,	0x2D,	0x79,	0x6A,	0x2C,	0x7F,
-	0x11,	0x09,	0x53,	0x91,	0x09,	0x08,	0xCA,	0x06,
-	0x04,	0x87,	0x0B,	0x4E,	0xD2,	0x13,	0xD7,	0x18,
-	0x1A,	0x9A,	0xC1,	0x0F,	0xFF,	0xD7,	0x53,	0x61,
-	0xE2,	0x5A,	0x9A,	0xDC,	0x59,	0x96,	0x98,	0x5C,
-	0x1F,	0xE3,	0x25,	0xE6,	0x27,	0x23,	0x23,	0x4C,
-};
-
-static const unsigned char SEQ_PASSWD1_DISABLE[] = {
-	0xF0,
-	0xA5, 0xA5
-};
-
-static const unsigned char SEQ_PASSWD2_DISABLE[] = {
-	0xF1,
-	0xA5, 0xA5
-};
-
 static const unsigned char SEQ_SLPOUT[] = {
 	0x11,
 	0x00,
@@ -132,6 +77,12 @@ static const unsigned char SEQ_DSCTL[] = {
 	0x00
 };
 
+static const unsigned char SEQ_WRDISBV[] = {
+	0x51,
+	0xFF,
+	0x00
+};
+
 static const unsigned char SEQ_WRCTRLD[] = {
 	0x53,
 	0x2C,
@@ -141,12 +92,6 @@ static const unsigned char SEQ_WRCTRLD[] = {
 static const unsigned char SEQ_WRCABC[] = {
 	0x55,
 	0x01,
-	0x00
-};
-
-static const unsigned char SEQ_WRCABC_OUTDOOR[] = {
-	0x55,
-	0x04,
 	0x00
 };
 
@@ -209,20 +154,17 @@ static unsigned char TRANS_BRIGHTNESS[] = {
 	249,	250,	251,	252,	253,	254,	255,	255,
 };
 
-extern void (*lcd_early_suspend)(void);
-extern void (*lcd_late_resume)(void);
+
 
 #if defined(GPIO_OLED_DET)
 static void esd_reset_lcd(struct lcd_info *lcd)
 {
 	dev_info(&lcd->ld->dev, "++%s\n", __func__);
-	if (lcd_early_suspend)
-		lcd_early_suspend();
+	s6e8ax0_early_suspend();
 	lcd->dsim->ops->suspend();
 
 	lcd->dsim->ops->resume();
-	if (lcd_late_resume)
-		lcd_late_resume();
+	s6e8ax0_late_resume();
 	dev_info(&lcd->ld->dev, "--%s\n", __func__);
 }
 
@@ -252,7 +194,7 @@ static irqreturn_t oled_detection_int(int irq, void *_lcd)
 #endif
 
 
-static int s6d6aa1_write(struct lcd_info *lcd, const unsigned char *seq, int len)
+static int s6e8ax0_write(struct lcd_info *lcd, const unsigned char *seq, int len)
 {
 	int size;
 	const unsigned char *wbuf;
@@ -277,7 +219,7 @@ static int s6d6aa1_write(struct lcd_info *lcd, const unsigned char *seq, int len
 	return 0;
 }
 
-static int _s6d6aa1_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf)
+static int _s6e8ax0_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf)
 {
 	int ret = 0;
 
@@ -294,12 +236,12 @@ static int _s6d6aa1_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf
 	return ret;
 }
 
-static int s6d6aa1_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf, u8 retry_cnt)
+static int s6e8ax0_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf, u8 retry_cnt)
 {
 	int ret = 0;
 
 read_retry:
-	ret = _s6d6aa1_read(lcd, addr, count, buf);
+	ret = _s6e8ax0_read(lcd, addr, count, buf);
 	if (!ret) {
 		if (retry_cnt) {
 			printk(KERN_WARNING "[WARN:LCD] %s : retry cnt : %d\n", __func__, retry_cnt);
@@ -335,7 +277,7 @@ static int update_brightness(struct lcd_info *lcd, u8 force)
 
 		lcd->current_bl = lcd->bl;
 		SEQ_WRDISBV_CTL[1] = lcd->bl;
-		s6d6aa1_write(lcd, SEQ_WRDISBV_CTL, \
+		s6e8ax0_write(lcd, SEQ_WRDISBV_CTL, \
 			ARRAY_SIZE(SEQ_WRDISBV_CTL));
 
 		dev_info(&lcd->ld->dev, "brightness=%d, bl=%d\n", brightness, lcd->bl);
@@ -346,52 +288,45 @@ static int update_brightness(struct lcd_info *lcd, u8 force)
 	return 0;
 }
 
-static int s6d6aa1_ldi_init(struct lcd_info *lcd)
+static int s6e8ax0_ldi_init(struct lcd_info *lcd)
 {
 	int ret = 0;
 
 	msleep(15);
 
-	s6d6aa1_write(lcd, SEQ_SLPOUT, ARRAY_SIZE(SEQ_SLPOUT));
+	s6e8ax0_write(lcd, SEQ_SLPOUT, ARRAY_SIZE(SEQ_SLPOUT));
 
 	msleep(145);
 
-	s6d6aa1_write(lcd, SEQ_PASSWD1, ARRAY_SIZE(SEQ_PASSWD1));
-	s6d6aa1_write(lcd, SEQ_PASSWD2, ARRAY_SIZE(SEQ_PASSWD2));
-	s6d6aa1_write(lcd, SEQ_SONY_IP_SET1, ARRAY_SIZE(SEQ_SONY_IP_SET1));
-	s6d6aa1_write(lcd, SEQ_SONY_IP_SET2, ARRAY_SIZE(SEQ_SONY_IP_SET2));
-	s6d6aa1_write(lcd, SEQ_PGAMMACTL, ARRAY_SIZE(SEQ_PGAMMACTL));
-	s6d6aa1_write(lcd, SEQ_NGAMMACTL, ARRAY_SIZE(SEQ_NGAMMACTL));
-	s6d6aa1_write(lcd, SEQ_PASSWD1_DISABLE, ARRAY_SIZE(SEQ_PASSWD1_DISABLE));
-	s6d6aa1_write(lcd, SEQ_PASSWD2_DISABLE, ARRAY_SIZE(SEQ_PASSWD2_DISABLE));
-	s6d6aa1_write(lcd, SEQ_DSCTL, ARRAY_SIZE(SEQ_DSCTL));
-	s6d6aa1_write(lcd, SEQ_WRCTRLD, ARRAY_SIZE(SEQ_WRCTRLD));
-	s6d6aa1_write(lcd, SEQ_WRCABC, ARRAY_SIZE(SEQ_WRCABC));
+	s6e8ax0_write(lcd, SEQ_DSCTL, ARRAY_SIZE(SEQ_DSCTL));
+	s6e8ax0_write(lcd, SEQ_WRDISBV, ARRAY_SIZE(SEQ_WRDISBV));
+	s6e8ax0_write(lcd, SEQ_WRCTRLD, ARRAY_SIZE(SEQ_WRCTRLD));
+	s6e8ax0_write(lcd, SEQ_WRCABC, ARRAY_SIZE(SEQ_WRCABC));
 
 
 	return ret;
 }
 
-static int s6d6aa1_ldi_enable(struct lcd_info *lcd)
+static int s6e8ax0_ldi_enable(struct lcd_info *lcd)
 {
 	int ret = 0;
 
-	s6d6aa1_write(lcd, SEQ_DISPON, ARRAY_SIZE(SEQ_DISPON));
+	s6e8ax0_write(lcd, SEQ_DISPON, ARRAY_SIZE(SEQ_DISPON));
 
 	return ret;
 }
 
-static int s6d6aa1_ldi_disable(struct lcd_info *lcd)
+static int s6e8ax0_ldi_disable(struct lcd_info *lcd)
 {
 	int ret = 0;
 
-	s6d6aa1_write(lcd, SEQ_DISPOFF, ARRAY_SIZE(SEQ_DISPOFF));
-	s6d6aa1_write(lcd, SEQ_SLPIN, ARRAY_SIZE(SEQ_SLPIN));
+	s6e8ax0_write(lcd, SEQ_DISPOFF, ARRAY_SIZE(SEQ_DISPOFF));
+	s6e8ax0_write(lcd, SEQ_SLPIN, ARRAY_SIZE(SEQ_SLPIN));
 
 	return ret;
 }
 
-static int s6d6aa1_power_on(struct lcd_info *lcd)
+static int s6e8ax0_power_on(struct lcd_info *lcd)
 {
 	int ret = 0;
 	struct lcd_platform_data *pd = NULL;
@@ -399,14 +334,14 @@ static int s6d6aa1_power_on(struct lcd_info *lcd)
 
 	/* dev_info(&lcd->ld->dev, "%s\n", __func__); */
 
-	ret = s6d6aa1_ldi_init(lcd);
+	ret = s6e8ax0_ldi_init(lcd);
 	if (ret) {
 		dev_err(&lcd->ld->dev, "failed to initialize ldi.\n");
 		goto err;
 	}
 
 
-	ret = s6d6aa1_ldi_enable(lcd);
+	ret = s6e8ax0_ldi_enable(lcd);
 	if (ret) {
 		dev_err(&lcd->ld->dev, "failed to enable ldi.\n");
 		goto err;
@@ -419,7 +354,7 @@ err:
 	return ret;
 }
 
-static int s6d6aa1_power_off(struct lcd_info *lcd)
+static int s6e8ax0_power_off(struct lcd_info *lcd)
 {
 	int ret = 0;
 
@@ -427,21 +362,21 @@ static int s6d6aa1_power_off(struct lcd_info *lcd)
 
 	lcd->ldi_enable = 0;
 
-	ret = s6d6aa1_ldi_disable(lcd);
+	ret = s6e8ax0_ldi_disable(lcd);
 
 	msleep(135);
 
 	return ret;
 }
 
-static int s6d6aa1_power(struct lcd_info *lcd, int power)
+static int s6e8ax0_power(struct lcd_info *lcd, int power)
 {
 	int ret = 0;
 
 	if (POWER_IS_ON(power) && !POWER_IS_ON(lcd->power))
-		ret = s6d6aa1_power_on(lcd);
+		ret = s6e8ax0_power_on(lcd);
 	else if (!POWER_IS_ON(power) && POWER_IS_ON(lcd->power))
-		ret = s6d6aa1_power_off(lcd);
+		ret = s6e8ax0_power_off(lcd);
 
 	if (!ret)
 		lcd->power = power;
@@ -449,7 +384,7 @@ static int s6d6aa1_power(struct lcd_info *lcd, int power)
 	return ret;
 }
 
-static int s6d6aa1_set_power(struct lcd_device *ld, int power)
+static int s6e8ax0_set_power(struct lcd_device *ld, int power)
 {
 	struct lcd_info *lcd = lcd_get_data(ld);
 
@@ -459,10 +394,10 @@ static int s6d6aa1_set_power(struct lcd_device *ld, int power)
 		return -EINVAL;
 	}
 
-	return s6d6aa1_power(lcd, power);
+	return s6e8ax0_power(lcd, power);
 }
 
-  static int s6d6aa1_check_fb(struct lcd_device *ld, struct fb_info *fb)
+  static int s6e8ax0_check_fb(struct lcd_device *ld, struct fb_info *fb)
 {
 	struct s3cfb_window *win = fb->par;
 	struct lcd_info *lcd = lcd_get_data(ld);
@@ -472,14 +407,14 @@ static int s6d6aa1_set_power(struct lcd_device *ld, int power)
 	return 0;
 }
 
-static int s6d6aa1_get_power(struct lcd_device *ld)
+static int s6e8ax0_get_power(struct lcd_device *ld)
 {
 	struct lcd_info *lcd = lcd_get_data(ld);
 
 	return lcd->power;
 }
 
-static int s6d6aa1_set_brightness(struct backlight_device *bd)
+static int s6e8ax0_set_brightness(struct backlight_device *bd)
 {
 	int ret = 0;
 	int brightness = bd->props.brightness;
@@ -505,7 +440,7 @@ static int s6d6aa1_set_brightness(struct backlight_device *bd)
 	return ret;
 }
 
-static int s6d6aa1_get_brightness(struct backlight_device *bd)
+static int s6e8ax0_get_brightness(struct backlight_device *bd)
 {
 	struct lcd_info *lcd = bl_get_data(bd);
 
@@ -513,14 +448,14 @@ static int s6d6aa1_get_brightness(struct backlight_device *bd)
 }
 
 static struct lcd_ops panel_lcd_ops = {
-	.set_power = s6d6aa1_set_power,
-	.get_power = s6d6aa1_get_power,
-	.check_fb  = s6d6aa1_check_fb,
+	.set_power = s6e8ax0_set_power,
+	.get_power = s6e8ax0_get_power,
+	.check_fb  = s6e8ax0_check_fb,
 };
 
 static const struct backlight_ops panel_backlight_ops  = {
-	.get_brightness = s6d6aa1_get_brightness,
-	.update_status = s6d6aa1_set_brightness,
+	.get_brightness = s6e8ax0_get_brightness,
+	.update_status = s6e8ax0_set_brightness,
 };
 
 static ssize_t lcd_type_show(struct device *dev,
@@ -537,44 +472,11 @@ static ssize_t lcd_type_show(struct device *dev,
 
 static DEVICE_ATTR(lcd_type, 0444, lcd_type_show, NULL);
 
-static ssize_t auto_brightness_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct lcd_info *lcd = dev_get_drvdata(dev);
-	char temp[3];
-
-	sprintf(temp, "%d\n", lcd->auto_brightness);
-	strcpy(buf, temp);
-
-	return strlen(buf);
-}
-
-static ssize_t auto_brightness_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t size)
-{
-	struct lcd_info *lcd = dev_get_drvdata(dev);
-	int value;
-	int rc;
-
-	rc = strict_strtoul(buf, (unsigned int)0, (unsigned long *)&value);
-	if (rc < 0)
-		return rc;
-	else {
-		lcd->auto_brightness = value;
-		if (lcd->auto_brightness < 4)
-			s6d6aa1_write(lcd, SEQ_WRCABC, ARRAY_SIZE(SEQ_WRCABC));
-		else
-			s6d6aa1_write(lcd, SEQ_WRCABC_OUTDOOR, ARRAY_SIZE(SEQ_WRCABC_OUTDOOR));
-	}
-	return size;
-}
-
-static DEVICE_ATTR(auto_brightness, 0644, auto_brightness_show, auto_brightness_store);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 struct lcd_info *g_lcd;
 
-void s6d6aa1_early_suspend(void)
+void s6e8ax0_early_suspend(void)
 {
 	struct lcd_info *lcd = g_lcd;
 
@@ -590,20 +492,20 @@ void s6d6aa1_early_suspend(void)
 	gpio_direction_output(GPIO_OLED_DET, GPIO_LEVEL_LOW);
 	gpio_free(GPIO_OLED_DET);
 #endif
-	s6d6aa1_power(lcd, FB_BLANK_POWERDOWN);
+	s6e8ax0_power(lcd, FB_BLANK_POWERDOWN);
 
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
 	return ;
 }
 
-void s6d6aa1_late_resume(void)
+void s6e8ax0_late_resume(void)
 {
 	struct lcd_info *lcd = g_lcd;
 
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 
-	s6d6aa1_power(lcd, FB_BLANK_UNBLANK);
+	s6e8ax0_power(lcd, FB_BLANK_UNBLANK);
 #if defined(GPIO_OLED_DET)
 	s3c_gpio_cfgpin(GPIO_OLED_DET, S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(GPIO_OLED_DET, S3C_GPIO_PULL_NONE);
@@ -617,7 +519,7 @@ void s6d6aa1_late_resume(void)
 }
 #endif
 
-static int s6d6aa1_probe(struct device *dev)
+static int s6e8ax0_probe(struct device *dev)
 {
 	int ret = 0;
 	struct lcd_info *lcd;
@@ -660,10 +562,6 @@ static int s6d6aa1_probe(struct device *dev)
 	if (ret < 0)
 		dev_err(&lcd->ld->dev, "failed to add sysfs entries, %d\n", __LINE__);
 
-	ret = device_create_file(&lcd->bd->dev, &dev_attr_auto_brightness);
-	if (ret < 0)
-		dev_err(&lcd->ld->dev, "failed to add sysfs entries, %d\n", __LINE__);
-
 	dev_set_drvdata(dev, lcd);
 
 	mutex_init(&lcd->lock);
@@ -685,9 +583,6 @@ static int s6d6aa1_probe(struct device *dev)
 		}
 #endif
 
-	lcd_early_suspend = s6d6aa1_early_suspend;
-	lcd_late_resume = s6d6aa1_late_resume;
-
 	return 0;
 
 out_free_backlight:
@@ -703,11 +598,11 @@ err_alloc:
 	return ret;
 }
 
-static int __devexit s6d6aa1_remove(struct device *dev)
+static int __devexit s6e8ax0_remove(struct device *dev)
 {
 	struct lcd_info *lcd = dev_get_drvdata(dev);
 
-	s6d6aa1_power(lcd, FB_BLANK_POWERDOWN);
+	s6e8ax0_power(lcd, FB_BLANK_POWERDOWN);
 	lcd_device_unregister(lcd->ld);
 	backlight_device_unregister(lcd->bd);
 	kfree(lcd);
@@ -716,35 +611,35 @@ static int __devexit s6d6aa1_remove(struct device *dev)
 }
 
 /* Power down all displays on reboot, poweroff or halt. */
-static void s6d6aa1_shutdown(struct device *dev)
+static void s6e8ax0_shutdown(struct device *dev)
 {
 	struct lcd_info *lcd = dev_get_drvdata(dev);
 
 	dev_info(&lcd->ld->dev, "%s\n", __func__);
 
-	s6d6aa1_power(lcd, FB_BLANK_POWERDOWN);
+	s6e8ax0_power(lcd, FB_BLANK_POWERDOWN);
 }
 
-static struct mipi_lcd_driver s6d6aa1_mipi_driver = {
+static struct mipi_lcd_driver s6e8ax0_mipi_driver = {
 	.name = "s6d6aa1",
-	.probe			= s6d6aa1_probe,
-	.remove			= __devexit_p(s6d6aa1_remove),
-	.shutdown		= s6d6aa1_shutdown,
+	.probe			= s6e8ax0_probe,
+	.remove			= __devexit_p(s6e8ax0_remove),
+	.shutdown		= s6e8ax0_shutdown,
 };
 
-static int s6d6aa1_init(void)
+static int s6e8ax0_init(void)
 {
-	return s5p_dsim_register_lcd_driver(&s6d6aa1_mipi_driver);
+	return s5p_dsim_register_lcd_driver(&s6e8ax0_mipi_driver);
 }
 
-static void s6d6aa1_exit(void)
+static void s6e8ax0_exit(void)
 {
 	return;
 }
 
-module_init(s6d6aa1_init);
-module_exit(s6d6aa1_exit);
+module_init(s6e8ax0_init);
+module_exit(s6e8ax0_exit);
 
-MODULE_DESCRIPTION("MIPI-DSI S6D6AA1:ACX445BLN SCLCD (720x1280) Panel Driver");
+MODULE_DESCRIPTION("MIPI-DSI s6d6aa1:SCLCD (720x1280) Panel Driver");
 MODULE_LICENSE("GPL");
 

@@ -37,6 +37,7 @@
 #include "mdnie.h"
 #include "s5p_fimd_ext.h"
 #include "cmc623.h"
+#include "cmc623_redwood.h"
 
 /* FIXME:!! need to change chip id dynamically */
 #define MDNIE_CHIP_ID "cmc623p"
@@ -150,16 +151,24 @@ static int mdnie_request_fw(struct s5p_mdnie *mdnie, const char *name)
 static int mdnie_request_tables(struct s5p_mdnie *mdnie, const char *name)
 {
 	struct mdnie_tables *tables;
+	unsigned int tables_size;
 	int i;
 
 	mdnie_info("name[%s]", name);
-	tables = (struct mdnie_tables *)&mdnie_main_tables;
+	if (mdnie->pdata->model == REDWOOD_mdnie) {
+		tables = (struct mdnie_tables *)&redwood_mdnie_tables;
+		tables_size = ARRAY_SIZE(redwood_mdnie_tables);
+	} else {
+		tables = (struct mdnie_tables *)&mdnie_main_tables;
+		tables_size = ARRAY_SIZE(mdnie_main_tables);
+	}
+
 	if (!tables) {
 		dev_err(mdnie->dev, "mode mdnie tables is NULL.\n");
 		return -EINVAL;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(mdnie_main_tables); i++) {
+	for (i = 0; i < tables_size; i++) {
 		if (strcmp(name , tables[i].name) == 0) {
 			mdnie_info("tune_id[%d]name[%s]", i, tables[i].name);
 			mdnie_write_tune(mdnie, tables[i].value,

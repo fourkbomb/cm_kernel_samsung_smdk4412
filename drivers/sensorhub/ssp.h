@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012, Samsung Electronics Co. Ltd. All Rights Reserved.
+ *  Copyright (C) 2011, Samsung Electronics Co. Ltd. All Rights Reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,14 +17,21 @@
 #define __SSP_PRJ_H__
 
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/uaccess.h>
+#include <linux/poll.h>
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/interrupt.h>
+#include <asm/div64.h>
+#include <linux/init.h>
+#include <linux/delay.h>
+#include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include <linux/gpio.h>
 #include <linux/earlysuspend.h>
+#include <linux/irq.h>
 #include <linux/wakelock.h>
 #include <linux/miscdevice.h>
 #include <linux/ssp_platformdata.h>
@@ -32,20 +39,18 @@
 #include <linux/firmware.h>
 #include <linux/timer.h>
 
-#ifdef CONFIG_SENSORS_SSP_SENSORHUB
-#include "ssp_sensorhub.h"
-#endif
+#define SSP_DBG 1
 
 #define SUCCESS		1
 #define FAIL		0
 #define ERROR		-1
 
-#define FACTORY_DATA_MAX	39
-
-#define SSP_DBG		1
+#define CANCELATION_THRESHOLD	9
+#define DEFUALT_THRESHOLD	15
 
 #if SSP_DBG
 #define SSP_FUNC_DBG 1
+#define SSP_DATA_DBG 0
 
 #define ssp_dbg(dev, format, ...) do { \
 	printk(KERN_INFO dev, format, ##__VA_ARGS__); \
@@ -55,17 +60,23 @@
 #endif
 
 #if SSP_FUNC_DBG
-#define func_dbg() do { \
-	printk(KERN_INFO "[SSP]: %s\n", __func__); \
+#define func_dbg()	do { \
+	printk(KERN_INFO "%s : [SSP]\n", __func__); \
 	} while (0)
 #else
 #define func_dbg()
 #endif
 
-#define SSP_SW_RESET_TIME	3000
+#if SSP_DATA_DBG
+#define data_dbg(dev, format, ...) do { \
+	printk(KERN_INFO dev, format, ##__VA_ARGS__); \
+	} while (0)
+#else
+#define data_dbg(dev, format, ...)
+#endif
+
 #define DEFUALT_POLLING_DELAY	(200 * NSEC_PER_MSEC)
 #define PROX_AVG_READ_NUM	80
-#define DEFAULT_RETRIES		3
 
 /* Sensor Sampling Time Define */
 enum {
@@ -128,7 +139,6 @@ enum {
 #define MSG2SSP_AP_STT				0xC8
 #define MSG2SSP_AP_STATUS_WAKEUP		0xD1
 #define MSG2SSP_AP_STATUS_SLEEP			0xD2
-#define MSG2SSP_AP_STATUS_RESET			0xD3
 #define MSG2SSP_AP_WHOAMI			0x0F
 #define MSG2SSP_AP_FIRMWARE_REV			0xF0
 #define MSG2SSP_AP_SENSOR_FORMATION		0xF1
@@ -142,7 +152,6 @@ enum {
 #define MSG2SSP_SSP_SLEEP	0xC1
 #define MSG2SSP_STS		0xC2	/* Start to Send */
 #define MSG2SSP_RTS		0xC4	/* Ready to Send */
-#define MSG2SSP_STT		0xC8
 #define MSG2SSP_SRM		0xCA	/* Start to Read MSG */
 #define MSG2SSP_SSM		0xCB	/* Start to Send MSG */
 #define MSG2SSP_SSD		0xCE	/* Start to Send Data Type & Length */
@@ -151,6 +160,11 @@ enum {
 #define MSG_ACK					0x80	/* ACK from SSP to AP */
 #define MSG_NAK					0x70	/* NAK from SSP to AP */
 
+#ifdef CONFIG_SENSORS_SSP_SENSORHUB
+#define SUBCMD_GPIOWAKEUP			(0X02)
+#define SUBCMD_POWEREUP				(0X04)
+#define MSG2SSP_STT				(0xC8)
+#endif
 
 /* SSP_INSTRUCTION_CMD */
 enum {
@@ -159,8 +173,6 @@ enum {
 	CHANGE_DELAY,
 	GO_SLEEP,
 	FACTORY_MODE,
-	REMOVE_LIBRARY,
-	ADD_LIBRARY,
 };
 
 /* SENSOR_TYPE */
@@ -186,7 +198,6 @@ enum {
 	MCU_FACTORY,
 	GYROSCOPE_TEMP_FACTORY,
 	GYROSCOPE_DPS_FACTORY,
-	MCU_SLEEP_FACTORY,
 	SENSOR_FACTORY_MAX,
 };
 
@@ -198,10 +209,10 @@ struct sensor_value {
 			s16 z;
 		};
 		struct {
-			u16 r;
-			u16 g;
-			u16 b;
-			u16 w;
+			s16 r;
+			s16 g;
+			s16 b;
+			s16 w;
 		};
 		u8 prox[4];
 		s16 data[4];
@@ -222,15 +233,6 @@ struct ssp_data {
 	struct input_dev *light_input_dev;
 	struct input_dev *prox_input_dev;
 
-	struct device *sen_dev;
-	struct device *mcu_device;
-	struct device *acc_device;
-	struct device *gyro_device;
-	struct device *mag_device;
-	struct device *prs_device;
-	struct device *prox_device;
-	struct device *light_device;
-
 	struct i2c_client *client;
 	struct wake_lock ssp_wake_lock;
 	struct miscdevice akmd_device;
@@ -240,8 +242,8 @@ struct ssp_data {
 	struct calibraion_data accelcal;
 	struct calibraion_data gyrocal;
 	struct sensor_value buf[SENSOR_MAX];
+	struct device *sen_dev;
 
-	bool bSspShutdown;
 	bool bCheckSuspend;
 	bool bDebugEnabled;
 	bool bMcuIRQTestSuccessed;
@@ -250,30 +252,22 @@ struct ssp_data {
 	bool bBarcodeEnabled;
 
 	unsigned char uProxCanc;
-	unsigned char uProxHiThresh;
-	unsigned char uProxLoThresh;
+	unsigned char uProxThresh;
 	unsigned char uFuseRomData[3];
-	unsigned char uFactorydata[FACTORY_DATA_MAX];
 	char *pchLibraryBuf;
-	char chLcdLdi[2];
 	int iIrq;
 	int iLibraryLength;
 	int aiCheckStatus[SENSOR_MAX];
+	int iIrqWakeCnt;
 
-	unsigned int uIrqFailCnt;
-	unsigned int uSsdFailCnt;
-	unsigned int uResetCnt;
-	unsigned int uInstFailCnt;
+	unsigned int uI2cFailCnt;
 	unsigned int uTimeOutCnt;
-	unsigned int uIrqCnt;
-	unsigned int uBusyCnt;
-	unsigned int uMissSensorCnt;
-
 	unsigned int uGyroDps;
-	unsigned int uSensorState;
+	unsigned int uAliveSensorDebug;
 	unsigned int uCurFirmRev;
 	unsigned int uFactoryProxAvg[4];
 	unsigned int uFactorydataReady;
+	unsigned int uFactorydata[21];
 	s32 iPressureCal;
 
 	atomic_t aSensorEnable;
@@ -281,7 +275,6 @@ struct ssp_data {
 
 	int (*wakeup_mcu)(void);
 	int (*check_mcu_ready)(void);
-	int (*check_mcu_busy)(void);
 	int (*set_mcu_reset)(int);
 	int (*check_ap_rev)(void);
 	void (*get_sensor_data[SENSOR_MAX])(char *, int *,
@@ -294,14 +287,16 @@ struct ssp_data {
 #endif
 
 #ifdef CONFIG_SENSORS_SSP_SENSORHUB
-	struct ssp_sensorhub_data *hub_data;
+	struct input_dev *context_input_dev;
+	struct miscdevice sensorhub_device;
+	struct wake_lock sensorhub_wake_lock;
+	int read_context_length;
+	int write_context_length;
+	char *context_data;
+	int library_inst_cnt;
 #endif
 };
 
-int waiting_wakeup_mcu(struct ssp_data *);
-int ssp_i2c_read(struct ssp_data *, char *, u16, char *, u16, int);
-void toggle_mcu_reset(struct ssp_data *);
-int initialize_mcu(struct ssp_data *);
 int initialize_input_dev(struct ssp_data *);
 int initialize_sysfs(struct ssp_data *);
 void initialize_accel_factorytest(struct ssp_data *);
@@ -311,22 +306,12 @@ void initialize_gyro_factorytest(struct ssp_data *);
 void initialize_pressure_factorytest(struct ssp_data *);
 void initialize_magnetic_factorytest(struct ssp_data *);
 void initialize_function_pointer(struct ssp_data *);
-void initialize_magnetic(struct ssp_data *);
-void remove_accel_factorytest(struct ssp_data *);
-void remove_gyro_factorytest(struct ssp_data *);
-void remove_prox_factorytest(struct ssp_data *);
-void remove_light_factorytest(struct ssp_data *);
-void remove_pressure_factorytest(struct ssp_data *);
-void remove_magnetic_factorytest(struct ssp_data *);
-void destroy_sensor_class(void);
 int initialize_event_symlink(struct ssp_data *);
 int accel_open_calibration(struct ssp_data *);
 int gyro_open_calibration(struct ssp_data *);
 int pressure_open_calibration(struct ssp_data *);
-int proximity_open_calibration(struct ssp_data *);
+int proximity_open_calibration(struct ssp_data *data);
 void check_fwbl(struct ssp_data *);
-int update_mcu_bin(struct ssp_data *);
-int update_crashed_mcu_bin(struct ssp_data *);
 void remove_input_dev(struct ssp_data *);
 void remove_sysfs(struct ssp_data *);
 void remove_event_symlink(struct ssp_data *);
@@ -334,21 +319,17 @@ int ssp_sleep_mode(struct ssp_data *);
 int ssp_resume_mode(struct ssp_data *);
 int send_instruction(struct ssp_data *, u8, u8, u8 *, u8);
 int select_irq_msg(struct ssp_data *);
-int get_chipid(struct ssp_data *);
 int get_fuserom_data(struct ssp_data *);
-int set_sensor_position(struct ssp_data *);
-void sync_sensor_state(struct ssp_data *);
-void set_proximity_threshold(struct ssp_data *, unsigned char, unsigned char);
+void set_sensor_position(struct ssp_data *);
+void set_proximity_threshold(struct ssp_data *);
 void set_proximity_barcode_enable(struct ssp_data *, bool);
 unsigned int get_delay_cmd(u8);
 unsigned int get_msdelay(int64_t);
-unsigned int get_sensor_scanning_info(struct ssp_data *);
+unsigned int get_sensor_scanning_info(struct ssp_data *data);
 unsigned int get_firmware_rev(struct ssp_data *);
 int parse_dataframe(struct ssp_data *, char *, int);
 void enable_debug_timer(struct ssp_data *);
 void disable_debug_timer(struct ssp_data *);
-int initialize_debug_timer(struct ssp_data *);
-int proximity_open_lcd_ldi(struct ssp_data *);
 void report_acc_data(struct ssp_data *, struct sensor_value *);
 void report_gyro_data(struct ssp_data *, struct sensor_value *);
 void report_mag_data(struct ssp_data *, struct sensor_value *);
@@ -357,26 +338,25 @@ void report_pressure_data(struct ssp_data *, struct sensor_value *);
 void report_light_data(struct ssp_data *, struct sensor_value *);
 void report_prox_data(struct ssp_data *, struct sensor_value *);
 void report_prox_raw_data(struct ssp_data *, struct sensor_value *);
-void print_mcu_debug(char *, int *);
+long akmd_ioctl(struct file *, unsigned int, unsigned long);
 unsigned int get_module_rev(void);
-void reset_mcu(struct ssp_data *);
-void convert_acc_data(s16 *);
 int sensors_register(struct device *, void *,
 	struct device_attribute*[], char *);
-void sensors_unregister(struct device *, struct device_attribute*[]);
-ssize_t mcu_reset_show(struct device *, struct device_attribute *, char *);
 ssize_t mcu_revision_show(struct device *, struct device_attribute *, char *);
-ssize_t mcu_update_show(struct device *, struct device_attribute *, char *);
-ssize_t mcu_update2_show(struct device *, struct device_attribute *, char *);
 ssize_t mcu_factorytest_store(struct device *, struct device_attribute *,
 	const char *, size_t);
 ssize_t mcu_factorytest_show(struct device *,
 	struct device_attribute *, char *);
-ssize_t mcu_model_name_show(struct device *,
-	struct device_attribute *, char *);
-ssize_t mcu_sleep_factorytest_show(struct device *,
-	struct device_attribute *, char *);
-ssize_t mcu_sleep_factorytest_store(struct device *,
-	struct device_attribute *, const char *, size_t);
+ssize_t mcu_model_name_show(struct device *dev,
+	struct device_attribute *attr, char *buf);
 
+#ifdef CONFIG_SENSORS_SSP_SENSORHUB
+void ssp_report_context_data(struct ssp_data *data);
+void ssp_report_context_noti(struct ssp_data *data, char noti);
+int ssp_handle_sensorhub_data(struct ssp_data *data, char *dataframe,
+				int *data_index, int length);
+int ssp_receive_large_msg(struct ssp_data *data, u8 sub_cmd);
+int ssp_initialize_sensorhub(struct ssp_data *data);
+void ssp_remove_sensorhub(struct ssp_data *data);
+#endif
 #endif

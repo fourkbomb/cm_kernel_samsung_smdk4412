@@ -34,7 +34,7 @@
 
 #define  FC8150_FREQ_XTAL  BBM_XTAL_FREQ
 
-/* static OAL_SEMAPHORE hBbmMutex; */
+/*static OAL_SEMAPHORE hBbmMutex;*/
 
 static int WaitForXfer(HANDLE hDevice)
 {
@@ -63,8 +63,8 @@ static int WaitForXfer(HANDLE hDevice)
 	return res;
 }
 
-static int fci_i2c_transfer(HANDLE hDevice, u8 cmd_type, u8 chip
-	, u8 addr[], u8 addr_len, u8 data[], u8 data_len)
+static int fci_i2c_transfer(HANDLE hDevice, u8 cmd_type, u8 chip, \
+	u8 addr[], u8 addr_len, u8 data[], u8 data_len)
 {
 	int i;
 	int result = I2C_OK;
@@ -72,7 +72,8 @@ static int fci_i2c_transfer(HANDLE hDevice, u8 cmd_type, u8 chip
 	switch (cmd_type) {
 	case I2C_WRITE:
 		bbm_write(hDevice, BBM_I2C_TXR, chip | cmd_type);
-		bbm_write(hDevice, BBM_I2C_CR, I2C_CR_STA | I2C_CR_WR /*0x90*/);
+		bbm_write(hDevice, BBM_I2C_CR, \
+			I2C_CR_STA | I2C_CR_WR /*0x90*/);
 		result = WaitForXfer(hDevice);
 		if (result != I2C_OK)
 			return result;
@@ -80,9 +81,10 @@ static int fci_i2c_transfer(HANDLE hDevice, u8 cmd_type, u8 chip
 		if (addr && addr_len) {
 			i = 0;
 			while ((i < addr_len) && (result == I2C_OK)) {
-				bbm_write(hDevice, BBM_I2C_TXR, addr[i]);
-				bbm_write(hDevice, BBM_I2C_CR
-					, I2C_CR_WR /*0x10*/);
+				bbm_write(hDevice, \
+					BBM_I2C_TXR, addr[i]);
+				bbm_write(hDevice, \
+					BBM_I2C_CR, I2C_CR_WR /*0x10*/);
 				result = WaitForXfer(hDevice);
 				if (result != I2C_OK)
 					return result;
@@ -93,7 +95,8 @@ static int fci_i2c_transfer(HANDLE hDevice, u8 cmd_type, u8 chip
 		i = 0;
 		while ((i < data_len) && (result == I2C_OK)) {
 			bbm_write(hDevice, BBM_I2C_TXR, data[i]);
-			bbm_write(hDevice, BBM_I2C_CR, I2C_CR_WR /*0x10*/);
+			bbm_write(hDevice, BBM_I2C_CR, \
+				I2C_CR_WR /*0x10*/);
 			result = WaitForXfer(hDevice);
 			if (result != I2C_OK)
 				return result;
@@ -107,64 +110,77 @@ static int fci_i2c_transfer(HANDLE hDevice, u8 cmd_type, u8 chip
 		break;
 	case I2C_READ:
 		if (addr && addr_len) {
-			bbm_write(hDevice, BBM_I2C_TXR, chip | I2C_WRITE);
-			bbm_write(hDevice, BBM_I2C_CR
-				, I2C_CR_STA | I2C_CR_WR /*0x90*/);
+			bbm_write(hDevice, BBM_I2C_TXR, \
+				chip | I2C_WRITE);
+			bbm_write(hDevice, BBM_I2C_CR, \
+				I2C_CR_STA |
+				I2C_CR_WR /*0x90*/); /* send start */
 			result = WaitForXfer(hDevice);
 			if (result != I2C_OK)
 				return result;
 
 			i = 0;
 			while ((i < addr_len) && (result == I2C_OK)) {
-				bbm_write(hDevice, BBM_I2C_TXR, addr[i]);
-				bbm_write(hDevice, BBM_I2C_CR
-					, I2C_CR_WR /*0x10*/);
+				bbm_write(hDevice, \
+					BBM_I2C_TXR, addr[i]);
+				bbm_write(hDevice, \
+					BBM_I2C_CR, I2C_CR_WR /*0x10*/);
 				result = WaitForXfer(hDevice);
 				if (result != I2C_OK)
 					return result;
+
+				i++;
+				}
+			}
+
+			bbm_write(hDevice, BBM_I2C_TXR, chip | I2C_READ);
+			bbm_write(hDevice, BBM_I2C_CR, \
+				I2C_CR_STA |
+				I2C_CR_WR /*0x90*/); /* resend start */
+			result = WaitForXfer(hDevice);
+			if (result != I2C_OK)
+				return result;
+
+
+			i = 0;
+			while ((i < data_len) && (result == I2C_OK)) {
+				if (i == data_len - 1) {
+					bbm_write(hDevice, BBM_I2C_CR, \
+						I2C_CR_RD|
+						I2C_CR_NACK \
+						/*0x28*/); /* No Ack Read */
+					result = WaitForXfer(hDevice);
+					if ((result != I2C_NACK) && \
+						(result != I2C_OK)) {
+						PRINTF(hDevice,
+							"NACK4-0[%02x]\n",
+							result);
+						return result;
+					}
+				} else {
+					bbm_write(hDevice, BBM_I2C_CR, \
+						I2C_CR_RD \
+						/*0x20*/); /* Ack Read */
+					result = WaitForXfer(hDevice);
+					if (result != I2C_OK) {
+						PRINTF(hDevice,
+							"NACK4-1[%02x]\n",
+							result);
+						return result;
+					}
+				}
+				bbm_read(hDevice, BBM_I2C_RXR, &data[i]);
 				i++;
 			}
-		}
 
-		bbm_write(hDevice, BBM_I2C_TXR, chip | I2C_READ);
-		bbm_write(hDevice, BBM_I2C_CR, I2C_CR_STA | I2C_CR_WR /*0x90*/);
-		result = WaitForXfer(hDevice);
-		if (result != I2C_OK)
-			return result;
-
-		i = 0;
-		while ((i < data_len) && (result == I2C_OK)) {
-			if (i == data_len - 1) {
-				bbm_write(hDevice, BBM_I2C_CR
-					, I2C_CR_RD|I2C_CR_NACK/*0x28*/);
-				result = WaitForXfer(hDevice);
-				if ((result != I2C_NACK)
-					&& (result != I2C_OK)) {
-					PRINTF(hDevice, "NACK4-0[%02x]\n"
-						, result);
-					return result;
-				}
-			} else {
-				bbm_write(hDevice, BBM_I2C_CR
-					, I2C_CR_RD /*0x20*/);
-				result = WaitForXfer(hDevice);
-				if (result != I2C_OK) {
-					PRINTF(hDevice, "NACK4-1[%02x]\n"
-						, result);
-					return result;
-				}
+			bbm_write(hDevice, BBM_I2C_CR, \
+				I2C_CR_STO /*0x40*/); /* send stop */
+			result = WaitForXfer(hDevice);
+			if ((result != I2C_NACK) && (result != I2C_OK)) {
+				PRINTF(hDevice, "NACK5[%02X]\n", result);
+				return result;
 			}
-			bbm_read(hDevice, BBM_I2C_RXR, &data[i]);
-			i++;
-		}
-
-		bbm_write(hDevice, BBM_I2C_CR, I2C_CR_STO /*0x40*/);
-		result = WaitForXfer(hDevice);
-		if ((result != I2C_NACK) && (result != I2C_OK)) {
-			PRINTF(hDevice, "NACK5[%02X]\n", result);
-			return result;
-		}
-		break;
+			break;
 	default:
 		return I2C_NOK;
 	}
@@ -180,6 +196,8 @@ int fci_i2c_init(HANDLE hDevice, int speed, int slaveaddr)
 	if (((5 * speed) >> 1) <= r)
 		pr++;
 
+	/* OAL_CREATE_SEMAPHORE(&hBbmMutex, "int_i2c", 1, OAL_FIFO); */
+
 	bbm_word_write(hDevice, BBM_I2C_PR_L, pr);
 	bbm_write(hDevice, BBM_I2C_CTR, 0xc0);
 
@@ -192,12 +210,15 @@ int fci_i2c_read(HANDLE hDevice, u8 chip, u8 addr, u8 alen, u8 *data, u8 len)
 {
 	int ret;
 
-	ret = fci_i2c_transfer(hDevice, I2C_READ, chip << 1, &addr
-		, alen, data, len);
+	/*OAL_OBTAIN_SEMAPHORE(&hBbmMutex, OAL_SUSPEND); */
+	ret = fci_i2c_transfer(hDevice, I2C_READ, chip << 1, &addr, \
+	alen, data, len);
+	/*OAL_RELEASE_SEMAPHORE(&hBbmMutex); */
 
 	if (ret != I2C_OK) {
-		PRINTF(hDevice, "fci_i2c_read() result=%d, addr = %x, data=%x\n"
-			, ret, addr, *data);
+		PRINTF(hDevice,
+			"fci_i2c_read() result=%d,addr=%x,data=%x\n",
+			ret, addr, *data);
 		return ret;
 	}
 
@@ -209,12 +230,16 @@ int fci_i2c_write(HANDLE hDevice, u8 chip, u8 addr, u8 alen, u8 *data, u8 len)
 	int ret;
 	u8 *paddr = &addr;
 
-	ret = fci_i2c_transfer(hDevice, I2C_WRITE, chip << 1
-		, paddr, alen, data, len);
+	/*OAL_OBTAIN_SEMAPHORE(&hBbmMutex, OAL_SUSPEND);*/
+	ret = fci_i2c_transfer(hDevice, I2C_WRITE, chip << 1,
+		paddr, alen, data, len);
+	/*OAL_RELEASE_SEMAPHORE(&hBbmMutex); */
 
 	if (ret != I2C_OK)
-		PRINTF(hDevice, "fci_i2c_write() result=%d, addr= %x, data=%x\n"
-		, ret, addr, *data);
+		PRINTF(hDevice,
+			"fci_i2c_write() result=%d,addr=%x,data=%x\n",
+			ret, addr, *data);
+
 
 	return ret;
 }
@@ -222,5 +247,6 @@ int fci_i2c_write(HANDLE hDevice, u8 chip, u8 addr, u8 alen, u8 *data, u8 len)
 int fci_i2c_deinit(HANDLE hDevice)
 {
 	bbm_write(hDevice, BBM_I2C_CTR, 0x00);
+	/*OAL_DELETE_SEMAPHORE(&hBbmMutex); */
 	return BBM_OK;
 }

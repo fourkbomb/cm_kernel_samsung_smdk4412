@@ -21,7 +21,10 @@
 #include <mach/sec_debug.h>
 
 #include "internals.h"
-
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+#include <linux/suspend.h>
+static DEFINE_SPINLOCK(wakeup_status_lock);
+#endif
 /**
  * handle_bad_irq - handle spurious and unhandled irqs
  * @irq:       the interrupt number
@@ -171,10 +174,23 @@ irqreturn_t handle_irq_event(struct irq_desc *desc)
 {
 	struct irqaction *action = desc->action;
 	irqreturn_t ret;
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	unsigned long irqflags;
+#endif
 
 	desc->istate &= ~IRQS_PENDING;
 	irqd_set(&desc->irq_data, IRQD_IRQ_INPROGRESS);
 	raw_spin_unlock(&desc->lock);
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	spin_lock_irqsave(&wakeup_status_lock, irqflags);	/* to be safe */
+	if (wakeup_state) {
+		raw_spin_lock(&desc->lock);
+		desc->hit_in_sleep++;
+		raw_spin_unlock(&desc->lock);
+		wakeup_state = 0;
+	}
+	spin_unlock_irqrestore(&wakeup_status_lock, irqflags);
+#endif
 
 	ret = handle_irq_event_percpu(desc, action);
 

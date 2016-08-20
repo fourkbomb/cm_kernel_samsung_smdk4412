@@ -1,5 +1,5 @@
 /*
-## cyasdiagnostics.c - Linux Antioch device driver file
+## cyasdiagnostics.h - Linux Antioch device driver file
 ## ===========================
 ## Copyright (C) 2010  Cypress Semiconductor
 ##

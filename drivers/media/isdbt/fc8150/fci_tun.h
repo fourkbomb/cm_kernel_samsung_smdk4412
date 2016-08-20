@@ -15,21 +15,21 @@ extern "C" {
 
 #include "fci_types.h"
 
-enum i2c_type {
+typedef enum {
 	FCI_I2C_TYPE        = 0,
 	FCI_BYPASS_TYPE     = 1
-};
+} i2c_type;
 
-enum band_type {
+typedef enum {
 	ISDBT_1_SEG_TYPE    = 2
-};
+} band_type;
 
-enum product_type {
-	FC8150_TUNER        = 8150,
-	FC8151_TUNER        = 8151
-};
+typedef enum {
+	FC8150_TUNER        = 8150, /* BGA & QFN */
+	FC8151_TUNER        = 8151  /* WLCSP */
+} product_type;
 
-extern int tuner_ctrl_select(HANDLE hDevice, enum i2c_type type);
+extern int tuner_ctrl_select(HANDLE hDevice, i2c_type type);
 extern int tuner_ctrl_deselect(HANDLE hDevice);
 extern int tuner_select(HANDLE hDevice, u32 product, u32 band);
 extern int tuner_deselect(HANDLE hDevice);
@@ -43,4 +43,4 @@ extern int tuner_get_rssi(HANDLE hDevice, s32 *rssi);
 }
 #endif
 
-#endif
+#endif		/* __FCI_TUN_H__ */

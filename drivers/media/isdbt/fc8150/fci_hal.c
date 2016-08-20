@@ -15,7 +15,7 @@
 #include "fc8150_i2c.h"
 #include "fc8150_spib.h"
 
-struct IF_PORT {
+typedef struct {
 	int (*init)(HANDLE hDevice, u16 param1, u16 param2);
 
 	int (*byteread)(HANDLE hDevice, u16 addr, u8  *data);
@@ -31,9 +31,9 @@ struct IF_PORT {
 	int (*dataread)(HANDLE hDevice, u16 addr, u8 *data, u32 length);
 
 	int (*deinit)(HANDLE hDevice);
-};
+} IF_PORT;
 
-static struct IF_PORT hpiif = {
+static IF_PORT hpiif = {
 	&fc8150_hpi_init,
 
 	&fc8150_hpi_byteread,
@@ -51,7 +51,7 @@ static struct IF_PORT hpiif = {
 	&fc8150_hpi_deinit
 };
 
-static struct IF_PORT spiif = {
+static IF_PORT spiif = {
 	&fc8150_spi_init,
 
 	&fc8150_spi_byteread,
@@ -69,7 +69,7 @@ static struct IF_PORT spiif = {
 	&fc8150_spi_deinit
 };
 
-static struct IF_PORT spibif = {
+static IF_PORT spibif = {
 	&fc8150_spib_init,
 
 	&fc8150_spib_byteread,
@@ -87,7 +87,7 @@ static struct IF_PORT spibif = {
 	&fc8150_spib_deinit
 };
 
-static struct IF_PORT ppiif = {
+static IF_PORT ppiif = {
 	&fc8150_ppi_init,
 
 	&fc8150_ppi_byteread,
@@ -105,7 +105,7 @@ static struct IF_PORT ppiif = {
 	&fc8150_ppi_deinit
 };
 
-static struct IF_PORT i2cif = {
+static IF_PORT i2cif = {
 	&fc8150_i2c_init,
 
 	&fc8150_i2c_byteread,
@@ -123,7 +123,7 @@ static struct IF_PORT i2cif = {
 	&fc8150_i2c_deinit
 };
 
-static struct IF_PORT *ifport = &spiif;
+static IF_PORT *ifport = &spiif;
 u8 hostif_type = BBM_SPI;
 
 int bbm_hostif_select(HANDLE hDevice, u8 hostif)

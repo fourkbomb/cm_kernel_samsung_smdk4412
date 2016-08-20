@@ -451,6 +451,7 @@ int do_syslog(int type, char __user *buf, int len, bool from_file)
 		if (count > log_buf_len)
 			count = log_buf_len;
 		spin_lock_irq(&logbuf_lock);
+
 		if (count > logged_chars)
 			count = logged_chars;
 		if (do_clear)
@@ -1873,12 +1874,4 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 		dumper->dump(dumper, reason, s1, l1, s2, l2);
 	rcu_read_unlock();
 }
-#endif
-
-#ifdef CONFIG_MACH_PX
-void logbuf_force_unlock(void)
-{
-	logbuf_lock = __SPIN_LOCK_UNLOCKED(logbuf_lock);
-}
-EXPORT_SYMBOL(logbuf_force_unlock);
 #endif

@@ -963,10 +963,23 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb, struct net_device *dev,
 			struct ifla_vf_mac vf_mac;
 			struct ifla_vf_vlan vf_vlan;
 			struct ifla_vf_tx_rate vf_tx_rate;
+			struct ifla_vf_spoofchk vf_spoofchk;
+
+			/*
+			 * Not all SR-IOV capable drivers support the
+			 * spoofcheck query.  Preset to -1 so the user
+			 * space tool can detect that the driver didn't
+			 * report anything.
+			 */
+			ivi.spoofchk = -1;
 			memset(ivi.mac, 0, sizeof(ivi.mac));
 			if (dev->netdev_ops->ndo_get_vf_config(dev, i, &ivi))
 				break;
-			vf_mac.vf = vf_vlan.vf = vf_tx_rate.vf = ivi.vf;
+			vf_mac.vf =
+				vf_vlan.vf =
+				vf_tx_rate.vf =
+				vf_spoofchk.vf = ivi.vf;
+
 			memcpy(vf_mac.mac, ivi.mac, sizeof(ivi.mac));
 			vf_vlan.vlan = ivi.vlan;
 			vf_vlan.qos = ivi.qos;

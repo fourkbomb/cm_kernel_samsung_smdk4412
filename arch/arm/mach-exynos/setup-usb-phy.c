@@ -32,6 +32,13 @@
    #include <linux/usb/hcd.h>
 #endif
 
+#ifdef CONFIG_USB_OHCI_S5P
+   #include <plat/devs.h>
+   #include <linux/usb.h>
+   #include <linux/usb/otg.h>
+   #include <linux/usb/hcd.h>
+#endif
+
 #define ETC6PUD		(S5P_VA_GPIO2 + 0x228)
 #define EXYNOS4_USB_CFG		(S3C_VA_SYS + 0x21C)
 #define EXYNOS5_USB_CFG		(S3C_VA_SYS + 0x230)
@@ -67,10 +74,6 @@ struct exynos_usb_phy {
 	unsigned long flags;
 	unsigned long usage;
 };
-
-#if defined(CONFIG_KONA_00_BD)
-extern int current_cable_type;
-#endif
 
 static struct exynos_usb_phy usb_phy_control;
 
@@ -361,13 +364,10 @@ static int exynos4_usb_phy1_resume(struct platform_device *pdev)
 		if (usb_phy_control.lpa_entered) {
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB) \
 		|| defined(CONFIG_MDM_HSIC_PM)
-			if (!strcmp(pdev->name, "s5p-ehci")) {
+			if (!strcmp(pdev->name, "s5p-ehci"))
 				set_hsic_lpa_states(STATE_HSIC_LPA_WAKE);
-				usb_phy_control.lpa_entered = 0;
-			}
-#else
-			usb_phy_control.lpa_entered = 0;
 #endif
+			usb_phy_control.lpa_entered = 0;
 			err = 1;
 		} else {
 			err = 0;
@@ -429,13 +429,10 @@ static int exynos4_usb_phy1_resume(struct platform_device *pdev)
 		}
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB) \
 		|| defined(CONFIG_MDM_HSIC_PM)
-		if (!strcmp(pdev->name, "s5p-ehci")) {
+		if (!strcmp(pdev->name, "s5p-ehci"))
 			set_hsic_lpa_states(STATE_HSIC_LPA_WAKE);
-			usb_phy_control.lpa_entered = 0;
-		}
-#else
-		usb_phy_control.lpa_entered = 0;
 #endif
+		usb_phy_control.lpa_entered = 0;
 		err = 1;
 	}
 	udelay(80);
@@ -479,7 +476,11 @@ static int exynos4_usb_phy1_init(struct platform_device *pdev)
 	/* set clock frequency for PLL */
 	phyclk = readl(EXYNOS4_PHYCLK) & ~(EXYNOS4210_CLKSEL_MASK);
 	phyclk |= exynos_usb_phy_set_clock(pdev);
+#ifdef CONFIG_USB_OHCI_S5P
+	phyclk |= PHY1_COMMON_ON_N;
+#else
 	phyclk &= ~(PHY1_COMMON_ON_N);
+#endif
 	writel(phyclk, EXYNOS4_PHYCLK);
 
 	/* set to normal HSIC 0 and 1 of PHY1 */
@@ -1009,9 +1010,6 @@ int exynos4_check_usb_op(void)
 	int ret;
 
 #if defined(CONFIG_MDM_HSIC_PM)
-	if (set_hsic_lpa_states(STATE_HSIC_LPA_ENABLE))
-		return 1;
-
 	/* if it is normal boot, block lpa till modem boot */
 	if (set_hsic_lpa_states(STATE_HSIC_LPA_CHECK))
 		return 1;
@@ -1023,29 +1021,14 @@ int exynos4_check_usb_op(void)
 	local_irq_save(flags);
 	phypwr = readl(EXYNOS4_PHYPWR);
 
-#if defined(CONFIG_KONA_00_BD)
-        /*If USB Device is power on,  */
-        if (current_cable_type != 3) // 3 is TA (POWER_SUPPLY_TYPE_MAINS)
-        {
-//              printk("[USB] current_cable_type is %d !!!!!! ",current_cable_type);
-                if (exynos_usb_device_phy_is_on()) {
-                        op = 1;
-                        goto done;
-                } else if (!exynos4_usb_host_phy_is_on()) {
-                        op = 0;
-                        goto done;
-                }
-        }
-#else
-        /*If USB Device is power on,  */
-        if (exynos_usb_device_phy_is_on()) {
-                op = 1;
-                goto done;
-        } else if (!exynos4_usb_host_phy_is_on()) {
-                op = 0;
-                goto done;
-        }
-#endif
+	/*If USB Device is power on,  */
+	if (exynos_usb_device_phy_is_on()) {
+		op = 1;
+		goto done;
+	} else if (!exynos4_usb_host_phy_is_on()) {
+		op = 0;
+		goto done;
+	}
 
 	/*If USB Device & Host is suspended,  */
 	if (soc_is_exynos4210()) {
@@ -1068,16 +1051,11 @@ int exynos4_check_usb_op(void)
 		if (phypwr & (PHY1_STD_FORCE_SUSPEND
 			| EXYNOS4212_HSIC0_FORCE_SUSPEND
 			| EXYNOS4212_HSIC1_FORCE_SUSPEND)) {
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB) \
+		|| defined(CONFIG_MDM_HSIC_PM)
 			/* HSIC LPA: LPA USB phy retention reume call the usb
 			* reset resume, so we should let CP to HSIC L3 mode. */
-#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
 			set_hsic_lpa_states(STATE_HSIC_LPA_ENTER);
-#elif defined(CONFIG_MDM_HSIC_PM)
-			ret = set_hsic_lpa_states(STATE_HSIC_LPA_ENTER);
-			if (ret < 0) {
-				op = 1;
-				goto done;
-			}
 #endif
 			/* unset to normal of Host */
 			writel(readl(EXYNOS4_PHYPWR)
@@ -1202,13 +1180,15 @@ int s5p_usb_phy_suspend(struct platform_device *pdev, int type)
 		if (soc_is_exynos4210() ||
 			soc_is_exynos4212() ||
 			soc_is_exynos4412()) {
-			dev_info(&pdev->dev, "host_phy_susp\n");
 #ifdef CONFIG_USB_OHCI_S5P
-		if (ohci_hcd->state == HC_STATE_SUSPENDED) {
-			phyclk = readl(EXYNOS4_PHYCLK);
-			phyclk &= ~(PHY1_COMMON_ON_N);
-			writel(phyclk, EXYNOS4_PHYCLK);
-		}
+			/* Set OHCI clock off when ohci_hcd is suspended */
+			if (ohci_hcd->state == HC_STATE_SUSPENDED) {
+				phyclk = readl(EXYNOS4_PHYCLK);
+				phyclk &= ~(PHY1_COMMON_ON_N);
+				writel(phyclk, EXYNOS4_PHYCLK);
+			}
+			dev_info(&pdev->dev, "host_phy_susp:%d\n",
+					ohci_hcd->state);
 #endif
 			ret = exynos4_usb_phy1_suspend(pdev);
 		} else
@@ -1238,7 +1218,6 @@ int s5p_usb_phy_resume(struct platform_device *pdev, int type)
 		if (soc_is_exynos4210() ||
 			soc_is_exynos4212() ||
 			soc_is_exynos4412()) {
-			dev_info(&pdev->dev, "host_phy_resume\n");
 #ifdef CONFIG_USB_OHCI_S5P
 			phyclk = readl(EXYNOS4_PHYCLK);
 			phyclk |= PHY1_COMMON_ON_N;

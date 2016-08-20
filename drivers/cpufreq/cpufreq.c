@@ -371,6 +371,31 @@ static int __cpufreq_set_policy(struct cpufreq_policy *data,
 /**
  * cpufreq_per_cpu_attr_write() / store_##file_name() - sysfs write access
  */
+#if defined(CONFIG_CPU_FREQ_GOV_SLP)
+#define store_one(file_name, object)			\
+static ssize_t store_##file_name					\
+(struct cpufreq_policy *policy, const char *buf, size_t count)		\
+{									\
+	unsigned int ret = -EINVAL;					\
+	struct cpufreq_policy new_policy;				\
+									\
+	ret = cpufreq_get_policy(&new_policy, policy->cpu);		\
+	if (ret)							\
+		return -EINVAL;						\
+								\
+	if ((buf[0] == '-') && (buf[1] == '1'))				\
+		sprintf((char *)buf, "%d", policy->cpuinfo.max_freq);	\
+								\
+	ret = sscanf(buf, "%u", &new_policy.object);			\
+	if (ret != 1)							\
+		return -EINVAL;						\
+									\
+	ret = __cpufreq_set_policy(policy, &new_policy);		\
+	policy->user_policy.object = policy->object;			\
+									\
+	return ret ? ret : count;					\
+}
+#else
 #define store_one(file_name, object)			\
 static ssize_t store_##file_name					\
 (struct cpufreq_policy *policy, const char *buf, size_t count)		\
@@ -391,6 +416,8 @@ static ssize_t store_##file_name					\
 									\
 	return ret ? ret : count;					\
 }
+#endif
+
 
 store_one(scaling_min_freq, min);
 store_one(scaling_max_freq, max);

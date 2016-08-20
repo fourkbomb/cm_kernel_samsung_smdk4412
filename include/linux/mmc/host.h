@@ -255,7 +255,7 @@ struct mmc_host {
 #define MMC_CAP2_HS200_1_2V_SDR	(1 << 8)        /* can support */
 #define MMC_CAP2_HS200		(MMC_CAP2_HS200_1_8V_SDR | \
 				 MMC_CAP2_HS200_1_2V_SDR)
-#define MMC_CAP2_ADAPT_PACKED	(1 << 9)	/* Disable packed write adaptively */
+
 	mmc_pm_flag_t		pm_caps;	/* supported pm features */
 	unsigned int        power_notify_type;
 #define MMC_HOST_PW_NOTIFY_NONE		0
@@ -266,11 +266,7 @@ struct mmc_host {
 	int			clk_requests;	/* internal reference counter */
 	unsigned int		clk_delay;	/* number of MCI clk hold cycles */
 	bool			clk_gated;	/* clock gated */
-#ifdef CONFIG_WIMAX_CMC
-	struct work_struct	clk_gate_work;	/* delayed clock gate */
-#else
 	struct delayed_work	clk_gate_work; /* delayed clock gate */
-#endif
 	unsigned int		clk_old;	/* old clock value cache */
 	spinlock_t		clk_lock;	/* lock for clk fields */
 	struct mutex		clk_gate_mutex;	/* mutex for clock gating */

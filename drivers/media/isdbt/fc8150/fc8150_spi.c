@@ -26,8 +26,8 @@
 struct spi_device *fc8150_spi;
 
 static u8 tx_data[10];
-static u8 rdata_buf[8192];
-static u8 wdata_buf[8192];
+static u8 rdata_buf[8192] = {0};
+static u8 wdata_buf[8192] = {0};
 
 static DEFINE_MUTEX(lock);
 
@@ -66,12 +66,12 @@ static struct spi_driver fc8150_spi_driver = {
 	.remove		= __devexit_p(fc8150_spi_remove),
 };
 
-static int fc8150_spi_write_then_read(struct spi_device *spi
-	, u8 *txbuf, u16 tx_length, u8 *rxbuf, u16 rx_length)
+static int fc8150_spi_write_then_read(struct spi_device *spi, \
+	u8 *txbuf, u16 tx_length, u8 *rxbuf, u16 rx_length)
 {
 	int res = 0;
 
-	struct spi_message	message;
+	struct spi_message message;
 	struct spi_transfer	x;
 
 	spi_message_init(&message);
@@ -93,8 +93,8 @@ static int fc8150_spi_write_then_read(struct spi_device *spi
 	return res;
 }
 
-static int spi_bulkread(HANDLE hDevice, u16 addr
-	, u8 command, u8 *data, u16 length)
+static int spi_bulkread(HANDLE hDevice, u16 addr, u8 command, \
+	u8 *data, u16 length)
 {
 	int res;
 
@@ -104,8 +104,8 @@ static int spi_bulkread(HANDLE hDevice, u16 addr
 	tx_data[3] = (length >> 8) & 0xff;
 	tx_data[4] = length & 0xff;
 
-	res = fc8150_spi_write_then_read(fc8150_spi, &tx_data[0]
-		, 5, data, length);
+	res = fc8150_spi_write_then_read(fc8150_spi, &tx_data[0], \
+		5, data, length);
 
 	if (res) {
 		PRINTF(0, "fc8150_spi_bulkread fail : %d\n", res);
@@ -115,8 +115,8 @@ static int spi_bulkread(HANDLE hDevice, u16 addr
 	return BBM_OK;
 }
 
-static int spi_bulkwrite(HANDLE hDevice, u16 addr
-	, u8 command, u8 *data, u16 length)
+static int spi_bulkwrite(HANDLE hDevice, u16 addr, u8 command, \
+	u8 *data, u16 length)
 {
 	int i;
 	int res;
@@ -130,8 +130,8 @@ static int spi_bulkwrite(HANDLE hDevice, u16 addr
 	for (i = 0; i < length; i++)
 		tx_data[5+i] = data[i];
 
-	res = fc8150_spi_write_then_read(fc8150_spi
-		, &tx_data[0], length+5, NULL, 0);
+	res = fc8150_spi_write_then_read(fc8150_spi, &tx_data[0], \
+		length+5, NULL, 0);
 
 	if (res) {
 		PRINTF(0, "fc8150_spi_bulkwrite fail : %d\n", res);
@@ -141,8 +141,8 @@ static int spi_bulkwrite(HANDLE hDevice, u16 addr
 	return BBM_OK;
 }
 
-static int spi_dataread(HANDLE hDevice, u16 addr
-	, u8 command, u8 *data, u32 length)
+static int spi_dataread(HANDLE hDevice, u16 addr, u8 command, \
+	u8 *data, u32 length)
 {
 	int res;
 
@@ -152,8 +152,8 @@ static int spi_dataread(HANDLE hDevice, u16 addr
 	tx_data[3] = (length >> 8) & 0xff;
 	tx_data[4] = length & 0xff;
 
-	res = fc8150_spi_write_then_read(fc8150_spi
-		, &tx_data[0], 5, data, length);
+	res = fc8150_spi_write_then_read(fc8150_spi, &tx_data[0], 5, \
+		data, length);
 
 	if (res) {
 		PRINTF(0, "fc8150_spi_dataread fail : %d\n", res);
@@ -289,5 +289,6 @@ int fc8150_spi_dataread(HANDLE hDevice, u16 addr, u8 *data, u32 length)
 
 int fc8150_spi_deinit(HANDLE hDevice)
 {
+
 	return BBM_OK;
 }

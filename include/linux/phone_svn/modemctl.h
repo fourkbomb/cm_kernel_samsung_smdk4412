@@ -89,6 +89,10 @@ extern struct platform_device modemctl;
 extern int usbsvn_request_suspend(void);
 extern int usbsvn_request_resume(void);
 
+#if !defined(CONFIG_MACH_Q1_BD)
+extern unsigned int lpcharge;
+#endif
+
 int mc_is_modem_on(void);
 int mc_is_modem_active(void);
 int mc_is_suspend_request(void);

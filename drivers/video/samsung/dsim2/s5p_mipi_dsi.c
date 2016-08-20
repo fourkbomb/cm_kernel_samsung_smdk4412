@@ -141,6 +141,8 @@ static void s5p_mipi_update_cfg(struct mipi_dsim_device *dsim)
 	s5p_mipi_dsi_init_dsim(dsim);
 	s5p_mipi_dsi_init_link(dsim);
 
+	usleep_range(10000, 10000);
+
 	s5p_mipi_dsi_set_hs_enable(dsim);
 
 	/* set display timing. */
@@ -415,6 +417,11 @@ static int register_notif_to_fimd(struct mipi_dsim_device *dsim)
 					(void *)dsim);
 }
 
+static void unregister_notif_to_fimd(struct mipi_dsim_device *dsim)
+{
+	fimd_unregister_client(s5p_mipi_dsi_notifier);
+}
+
 static int s5p_mipi_dsi_power_on(struct mipi_dsim_device *dsim, bool enable)
 {
 	struct mipi_dsim_lcd_driver *client_drv = master_to_driver(dsim);
@@ -430,10 +437,6 @@ static int s5p_mipi_dsi_power_on(struct mipi_dsim_device *dsim, bool enable)
 		if (!dsim->suspended)
 			return 0;
 
-		/* lcd panel power on. */
-		if (client_drv && client_drv->power_on)
-			client_drv->power_on(client_dev, 1);
-
 		ret = s5p_mipi_regulator_enable(dsim);
 		if (ret < 0) {
 			client_drv->power_on(client_dev, 0);
@@ -448,6 +451,11 @@ static int s5p_mipi_dsi_power_on(struct mipi_dsim_device *dsim, bool enable)
 			client_drv->power_on(client_dev, 0);
 			return ret;
 		}
+		usleep_range(10000, 10000);
+
+		/* lcd panel power on. */
+		if (client_drv && client_drv->power_on)
+			client_drv->power_on(client_dev, 1);
 
 		/* enable MIPI-DSI PHY. */
 		if (dsim->pd->phy_enable)
@@ -458,6 +466,9 @@ static int s5p_mipi_dsi_power_on(struct mipi_dsim_device *dsim, bool enable)
 		/* set lcd panel sequence commands. */
 		if (client_drv && client_drv->set_sequence)
 			client_drv->set_sequence(client_dev);
+
+		if (client_drv && client_drv->resume)
+			client_drv->resume(client_dev);
 
 		dsim->suspended = false;
 	} else {
@@ -671,12 +682,13 @@ static int s5p_mipi_dsi_probe(struct platform_device *pdev)
 
 		s5p_mipi_dsi_init_interrupt(dsim);
 
-		if (client_drv && client_drv->check_mtp)
-			client_drv->check_mtp(dsim_ddi->dsim_lcd_dev);
-
-		/* set lcd panel sequence commands. */
-		if (client_drv && client_drv->set_sequence)
-			client_drv->set_sequence(dsim_ddi->dsim_lcd_dev);
+		if (client_drv && client_drv->check_mtp) {
+			ret = client_drv->check_mtp(dsim_ddi->dsim_lcd_dev);
+			if (ret < 0) {
+				dev_err(&pdev->dev, "failed to check mtp value.\n");
+				goto err_pm_runtime_active;
+			}
+		}
 	} else {
 		/* TODO:
 		 * add check_mtp callback function
@@ -706,6 +718,7 @@ err_pm_runtime_active:
 err_regulator_enable:
 	if (client_drv && client_drv->remove)
 		client_drv->remove(dsim_ddi->dsim_lcd_dev);
+	unregister_notif_to_fimd(dsim);
 
 err_free_irq:
 	free_irq(dsim->irq, dsim);
@@ -749,6 +762,8 @@ static int __devexit s5p_mipi_dsi_remove(struct platform_device *pdev)
 
 	release_resource(dsim->res);
 	release_mem_region(dsim->res->start, resource_size(dsim->res));
+
+	unregister_notif_to_fimd(dsim);
 
 	list_for_each_entry(dsim_ddi, &dsim_ddi_list, list) {
 		if (dsim_ddi) {

@@ -47,8 +47,6 @@ struct rmnet_ctrl_dev {
 
 	unsigned		is_opened;
 
-	bool			is_connected;
-
 	/*input control lines (DSR, CTS, CD, RI)*/
 	unsigned int		cbits_tolocal;
 
@@ -70,7 +68,6 @@ struct rmnet_ctrl_dev {
 	unsigned int		set_ctrl_line_state_cnt;
 	unsigned int		tx_ctrl_err_cnt;
 	unsigned int		zlp_cnt;
-	unsigned int		tx_ctrl_in_req_cnt;
 
 	struct wake_lock	ctrl_wake;
 

@@ -22,13 +22,14 @@ extern int fc8150_spib_bulkread(HANDLE hDevice, u16 addr, u8 *data, u16 length);
 extern int fc8150_spib_bytewrite(HANDLE hDevice, u16 addr, u8 data);
 extern int fc8150_spib_wordwrite(HANDLE hDevice, u16 addr, u16 data);
 extern int fc8150_spib_longwrite(HANDLE hDevice, u16 addr, u32 data);
-extern int fc8150_spib_bulkwrite(HANDLE hDevice, u16 addr
-	, u8 *data, u16 length);
-extern int fc8150_spib_dataread(HANDLE hDevice, u16 addr, u8 *data, u32 length);
+extern int fc8150_spib_bulkwrite(HANDLE hDevice, u16 addr, u8 *data, \
+	u16 length);
+extern int fc8150_spib_dataread(HANDLE hDevice, u16 addr, u8 *data, \
+	u32 length);
 extern int fc8150_spib_deinit(HANDLE hDevice);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* __FC8150_SPIB__*/

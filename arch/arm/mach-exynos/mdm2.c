@@ -196,8 +196,6 @@ static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
 		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio, 0);
 	}
 
-	/* first power charged after 10ms */
-	usleep_range(10000, 15000);
 	gpio_direction_output(mdm_drv->ap2mdm_status_gpio, 1);
 
 	if (!mdm_drv->mdm2ap_pblrdy)
@@ -289,13 +287,8 @@ static void mdm_status_changed(struct mdm_modem_drv *mdm_drv, int value)
 	if (value) {
 		mdm_peripheral_disconnect(mdm_drv);
 		mdm_peripheral_connect(mdm_drv);
-		if (mdm_drv->ap2mdm_wakeup_gpio > 0) {
-			if (gpio_get_value(mdm_drv->ap2mdm_wakeup_gpio)) {
-				gpio_set_value(mdm_drv->ap2mdm_wakeup_gpio, 0);
-				mdelay(5);
-			}
+		if (mdm_drv->ap2mdm_wakeup_gpio > 0)
 			gpio_direction_output(mdm_drv->ap2mdm_wakeup_gpio, 1);
-		}
 	}
 }
 
@@ -326,42 +319,11 @@ static void mdm_modem_shutdown(struct platform_device *pdev)
 	mdm_common_modem_shutdown(pdev);
 }
 
-#ifdef CONFIG_FAST_BOOT
-static void modem_complete(struct device *pdev)
-{
-	struct mdm_platform_data *pdata;
-
-	if (!pdev) {
-		pr_err("pdev is null!!\n");
-		return;
-	}
-	pdata = pdev->platform_data;
-
-	if (!pdata) {
-		pr_err("pdata is null!!\n");
-		return;
-	}
-
-	if (pdata->modem_complete)
-		pdata->modem_complete(pdev);
-}
-
-static const struct dev_pm_ops mdm2_pm_ops = {
-	.complete = modem_complete,
-};
-#endif
-
 static struct platform_driver mdm_modem_driver = {
 	.remove         = mdm_modem_remove,
-	/**
-	 * shutdown has done at reboot notifier
-	 *.shutdown	= mdm_modem_shutdown,
-	 */
+	.shutdown	= mdm_modem_shutdown,
 	.driver         = {
 		.name = "mdm2_modem",
-#ifdef CONFIG_FAST_BOOT
-		.pm = &mdm2_pm_ops,
-#endif
 		.owner = THIS_MODULE
 	},
 };

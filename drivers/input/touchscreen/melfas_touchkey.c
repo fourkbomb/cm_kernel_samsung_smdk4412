@@ -28,10 +28,10 @@
 #include <linux/miscdevice.h>
 #include <asm/uaccess.h>
 #include <linux/earlysuspend.h>
+#include <linux/regulator/consumer.h>
 #include <asm/io.h>
 #include <mach/gpio.h>
 #include <mach/irqs.h>
-#include <mach/gpio-midas.h>
 
 #ifdef CONFIG_CPU_FREQ
 #include <mach/cpufreq.h>
@@ -50,7 +50,7 @@ Melfas touchkey register
 #define ESD_STATE_BIT 0x10
 
 /* keycode value */
-#define TOUCHKEY_KEYCODE_MENU		139
+#define TOUCHKEY_KEYCODE_MENU		169
 #define TOUCHKEY_KEYCODE_BACK		158
 
 #define I2C_M_WR 0 /* for i2c */
@@ -69,7 +69,7 @@ Melfas touchkey register
 
 #define _3_TOUCH_SDA_28V GPIO_3_TOUCH_SDA
 #define _3_TOUCH_SCL_28V GPIO_3_TOUCH_SCL
-#define _3_GPIO_TOUCH_EN	GPIO_TOUCH_EN
+#define _3_GPIO_TOUCH_EN	GPIO_3_TOUCH_EN
 #define _3_GPIO_TOUCH_INT	GPIO_3_TOUCH_INT
 //#define IRQ_TOUCH_INT S5P_GPIOINT_BASE+22
 #define IRQ_TOUCH_INT gpio_to_irq(GPIO_3_TOUCH_INT)
@@ -77,7 +77,7 @@ Melfas touchkey register
 static unsigned int HWREV=7;
 //extern unsigned int HWREV; jiseong.oh
 static int touchkey_keycode[3] =
-    { 0, TOUCHKEY_KEYCODE_MENU, TOUCHKEY_KEYCODE_BACK };
+    { 0, TOUCHKEY_KEYCODE_BACK, TOUCHKEY_KEYCODE_MENU };
 static u8 activation_onoff = 1;	// 0:deactivate   1:activate
 static u8 is_suspending = 0;
 static u8 user_press_on = 0;
@@ -92,6 +92,7 @@ struct i2c_touchkey_driver {
 	struct input_dev *input_dev;
 	struct work_struct work;
 	struct early_suspend	early_suspend;
+	struct regulator	*touch_vdd;
 };
 struct i2c_touchkey_driver *touchkey_driver = NULL;
 struct workqueue_struct *touchkey_wq;
@@ -106,16 +107,6 @@ MODULE_DEVICE_TABLE(i2c, melfas_touchkey_id);
 extern void get_touchkey_data(u8 *data, u8 length);
 static void init_hw(void);
 static int i2c_touchkey_probe(struct i2c_client *client, const struct i2c_device_id *id);
-
-struct i2c_driver touchkey_i2c_driver =
-{
-	.driver = {
-		   .name = "melfas-touchkey",
-	},
-	.id_table = melfas_touchkey_id,
-	.probe = i2c_touchkey_probe,
-};
-
 
 static int i2c_touchkey_read(u8 reg, u8 *val, unsigned int len)
 {
@@ -346,6 +337,17 @@ static void melfas_touchkey_early_resume(struct early_suspend *h)
 }
 #endif	// End of CONFIG_HAS_EARLYSUSPEND
 
+static void melfas_touchkey_regulator_ctrl(struct i2c_touchkey_driver *touchkey_driver, bool enable)
+{
+	if (enable) {
+		if (touchkey_driver->touch_vdd)
+			regulator_enable(touchkey_driver->touch_vdd);
+	} else {
+		if (touchkey_driver->touch_vdd)
+			regulator_disable(touchkey_driver->touch_vdd);
+	}
+}
+
 extern int mcsdl_download_binary_data(u8 chip_ver);
 //extern int mcsdl_download_binary_file(unsigned char *pData, unsigned short nBinary_length);
 static int i2c_touchkey_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -390,6 +392,14 @@ static int i2c_touchkey_probe(struct i2c_client *client, const struct i2c_device
 		return err;
 	}
 
+	touchkey_driver->touch_vdd = regulator_get(dev, "touchkey");
+	if (IS_ERR(touchkey_driver->touch_vdd)) {
+		err = PTR_ERR(touchkey_driver->touch_vdd);
+		dev_err(dev, "failed to get %s regulator (%d)\n",
+				"touchkey", err);
+		touchkey_driver->touch_vdd = NULL;
+	}
+
 	gpio_pend_mask_mem = ioremap(INT_PEND_BASE, 0x10);
 	touchkey_wq = create_singlethread_workqueue("melfas_touchkey_wq");
 	if (!touchkey_wq)
@@ -409,6 +419,8 @@ static int i2c_touchkey_probe(struct i2c_client *client, const struct i2c_device
 		return -EBUSY;
 	}
 
+	melfas_touchkey_regulator_ctrl(touchkey_driver, 1);
+
 	return 0;
 }
 
@@ -417,10 +429,40 @@ static void init_hw(void)
 	gpio_direction_output(_3_GPIO_TOUCH_EN, 1);
 	msleep(100);
 	s3c_gpio_setpull(_3_GPIO_TOUCH_INT, S3C_GPIO_PULL_NONE);
-	s3c_gpio_cfgpin(EXYNOS4212_GPJ1(0), S3C_GPIO_SFN(0xf));
+	s3c_gpio_cfgpin(_3_GPIO_TOUCH_INT, S3C_GPIO_SFN(0xf));
 	irq_set_irq_type(IRQ_TOUCH_INT, IRQ_TYPE_EDGE_FALLING);
 }
 
+static int melfas_touchkey_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static int melfas_touchkey_suspend(struct i2c_client *client, pm_message_t mesg)
+{
+	melfas_touchkey_regulator_ctrl(touchkey_driver, 0);
+
+	return 0;
+}
+
+static int melfas_touchkey_resume(struct i2c_client *client)
+{
+	melfas_touchkey_regulator_ctrl(touchkey_driver, 1);
+
+	return 0;
+}
+
+struct i2c_driver touchkey_i2c_driver =
+{
+	.driver = {
+		   .name = "melfas-touchkey",
+	},
+	.id_table = melfas_touchkey_id,
+	.probe = i2c_touchkey_probe,
+	.suspend = melfas_touchkey_suspend,
+	.resume = melfas_touchkey_resume,
+	.remove = melfas_touchkey_remove,
+};
 
 int touchkey_update_open (struct inode *inode, struct file *filp)
 {

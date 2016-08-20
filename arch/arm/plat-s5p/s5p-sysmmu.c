@@ -228,16 +228,18 @@ void s5p_sysmmu_set_fault_handler(struct device *owner,
 }
 
 static int default_fault_handler(enum S5P_SYSMMU_INTERRUPT_TYPE itype,
-			     unsigned long pgtable_base,
-			     unsigned long fault_addr)
+			const char *mmuname,
+			unsigned long pgtable_base,
+			unsigned long fault_addr)
 {
 	unsigned long *ent;
 
 	if ((itype >= SYSMMU_FAULTS_NUM) || (itype < SYSMMU_PAGEFAULT))
 		itype = SYSMMU_FAULT_UNKNOWN;
 
-	pr_err("%s occured at 0x%lx(Page table base: 0x%lx)\n",
-			sysmmu_fault_name[itype], fault_addr, pgtable_base);
+	pr_err("%s occured at 0x%lx %s(Page table base: 0x%lx)\n",
+			sysmmu_fault_name[itype], fault_addr, mmuname,
+			pgtable_base);
 
 	pgtable_base += ((fault_addr & 0xFFF00000) >> 20) * 4;
 
@@ -273,6 +275,7 @@ static irqreturn_t s5p_sysmmu_irq(int irq, void *dev_id)
 	unsigned long base = 0;
 	struct sysmmu_drvdata *mmudata = dev_id;
 	enum S5P_SYSMMU_INTERRUPT_TYPE itype;
+	const char *mmuname = NULL;
 
 	read_lock(&mmudata->lock);
 
@@ -292,10 +295,12 @@ static irqreturn_t s5p_sysmmu_irq(int irq, void *dev_id)
 		dev_dbg(mmudata->dev, "System MMU %s occurred by %s\n",
 			sysmmu_fault_name[itype], dev_name(mmudata->owner));
 
+		mmuname = dev_name(mmudata->owner);
 		if ((mmudata->version == 3) && ((itype == SYSMMU_AR_MULTIHIT) ||
 					(itype == SYSMMU_AW_MULTIHIT))) {
 			__sysmmu_tlb_invalidate(mmudata->sfrbase);
-		} else if (mmudata->fault_handler(itype, base, addr) != 0) {
+		} else if (mmudata->fault_handler(itype, mmuname,
+		    base, addr) != 0) {
 			dev_dbg(mmudata->dev,
 				"%s is resolved. Retrying translation.\n",
 				sysmmu_fault_name[itype]);
@@ -320,8 +325,6 @@ static irqreturn_t s5p_sysmmu_irq(int irq, void *dev_id)
 void s5p_sysmmu_set_tablebase_pgd(struct device *owner, unsigned long pgd)
 {
 	struct sysmmu_drvdata *mmudata = NULL;
-
-	s5p_sysmmu_tlb_invalidate(owner);
 
 	while ((mmudata = get_sysmmu_data(owner, mmudata))) {
 		unsigned long flags;

@@ -357,10 +357,6 @@ enum max77693_types {
 	TYPE_MAX77693,
 };
 
-#ifdef CONFIG_FAST_BOOT
-extern bool fake_shut_down;
-#endif
-
 extern struct device *switch_dev;
 extern int max77693_irq_init(struct max77693_dev *max77693);
 extern void max77693_irq_exit(struct max77693_dev *max77693);
@@ -397,9 +393,6 @@ enum cable_type_muic {
 	CABLE_TYPE_MHL_MUIC,
 	CABLE_TYPE_MHL_VB_MUIC,
 	CABLE_TYPE_SMARTDOCK_MUIC,
-	CABLE_TYPE_SMARTDOCK_TA_MUIC,
-	CABLE_TYPE_SMARTDOCK_USB_MUIC,
-	CABLE_TYPE_AUDIODOCK_MUIC,
 #if defined(CONFIG_MUIC_DET_JACK)
 	CABLE_TYPE_EARJACK_MUIC,
 #endif
@@ -413,7 +406,7 @@ enum {
 #if defined(CONFIG_SWITCH_DUAL_MODEM)
 	CP_ESC_USB_MODE,
 #endif
-	OPEN_USB_MODE
+
 };
 
 enum {

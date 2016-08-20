@@ -143,14 +143,16 @@ struct mxt224s_platform_data {
 	u8 check_autocal;
 	u8 check_calgood;
 #endif
+	const u8 *t8_config_batt; // 20120926
+	const u8 *t8_config_chrg; // 20120926
 	const u8 *t9_config_batt;
 	const u8 *t9_config_chrg;
-	const u8 *t56_config_batt;
-	const u8 *t56_config_chrg;
+	const u8 *t47_config_batt;
+	const u8 *t47_config_chrg;
 	const u8 *t62_config_batt;
 	const u8 *t62_config_chrg;
-	void (*power_on) (void);
-	void (*power_off) (void);
+	int (*power_on) (void);
+	int (*power_off) (void);
 	void (*register_cb) (void *);
 	void (*read_ta_status) (void *);
 	const u8 *config_fw_version;

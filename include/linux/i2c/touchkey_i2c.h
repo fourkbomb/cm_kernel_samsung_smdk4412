@@ -57,8 +57,8 @@
 #define TK_FIRMWARE_VER  0x06
 #define TK_MODULE_VER    0x05
 #elif defined(CONFIG_MACH_T0)
-#define TK_FIRMWARE_VER	 0x11
-#define TK_MODULE_VER    0x08
+#define TK_FIRMWARE_VER	 0x0A
+#define TK_MODULE_VER    0x05
 #else
 #define TK_FIRMWARE_VER	 0x04
 #define TK_MODULE_VER    0x00
@@ -88,7 +88,6 @@
 
 /* Autocalibration */
 #if defined(CONFIG_TARGET_LOCALE_NAATT)\
-	|| defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)\
 	|| defined(CONFIG_TARGET_LOCALE_NA)\
 	|| defined(CONFIG_MACH_Q1_BD)\
 	|| defined(CONFIG_MACH_M0)\
@@ -117,8 +116,7 @@
 #define TK_HAS_FIRMWARE_UPDATE
 #endif
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT) \
-	|| defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
+#if defined(CONFIG_TARGET_LOCALE_NAATT)
 #define TK_USE_4KEY_TYPE_ATT
 #elif defined(CONFIG_MACH_LOCALE_NA) \
 	|| defined(CONFIG_MACH_U1_NA_SPR) \
@@ -178,8 +176,6 @@ struct touchkey_i2c {
 	struct early_suspend early_suspend;
 	struct mutex lock;
 	struct device	*dev;
-    struct work_struct	work;
-    struct workqueue_struct *wq;
 	int irq;
 	int module_ver;
 	int firmware_ver;
@@ -188,7 +184,6 @@ struct touchkey_i2c {
 	int (*power)(int on);
 	struct work_struct update_work;
 	int update_status;
-	atomic_t keypad_enable;
 };
 
 #endif /* _LINUX_CYPRESS_TOUCHKEY_I2C_H */

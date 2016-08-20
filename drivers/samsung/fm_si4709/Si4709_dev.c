@@ -71,7 +71,7 @@ static void wait_RDS(void);
 static int powerup(void);
 static int powerdown(void);
 
-static int seek(u32 *, int, int);
+static int seek(u32 *, int);
 static int tune_freq(u32);
 
 static void get_cur_chan_freq(u32 *, u16);
@@ -602,24 +602,6 @@ int Si4709_dev_chan_get(u32 *frequency)
 	return ret;
 }
 
-int Si4709_dev_seek_full(u32 *frequency)
-{
-	int ret = 0;
-
-	debug("Si47xx_dev_seek_full called\n");
-
-	if (Si4709_dev.valid == eFALSE) {
-		error("Si4709_dev_seek_full called when DS is invalid");
-		ret = -1;
-	} else {
-		Si4709_dev.state.seek_state = RADIO_SEEK_ON;
-		ret = seek(frequency, 1, 1);
-		Si4709_dev.state.seek_state = RADIO_SEEK_OFF;
-	}
-
-	return ret;
-}
-
 int Si4709_dev_seek_up(u32 *frequency)
 {
 	int ret = 0;
@@ -634,7 +616,7 @@ int Si4709_dev_seek_up(u32 *frequency)
 	} else {
 		Si4709_dev.state.seek_state = RADIO_SEEK_ON;
 
-		ret = seek(frequency, 1, 0);
+		ret = seek(frequency, 1);
 
 		Si4709_dev.state.seek_state = RADIO_SEEK_OFF;
 	}
@@ -658,7 +640,7 @@ int Si4709_dev_seek_down(u32 *frequency)
 	} else {
 		Si4709_dev.state.seek_state = RADIO_SEEK_ON;
 
-		ret = seek(frequency, 0, 0);
+		ret = seek(frequency, 0);
 
 		Si4709_dev.state.seek_state = RADIO_SEEK_OFF;
 	}
@@ -2120,7 +2102,7 @@ static int powerdown(void)
 	return ret;
 }
 
-static int seek(u32 *frequency, int up, int mode)
+static int seek(u32 *frequency, int up)
 {
 	int ret = 0;
 	u16 powercfg = Si4709_dev.registers[POWERCFG];
@@ -2132,14 +2114,7 @@ static int seek(u32 *frequency, int up, int mode)
 	else
 		POWERCFG_BITSET_SEEKUP_LOW(&Si4709_dev.registers[POWERCFG]);
 
-	/* add mode that configure skmode high(1) is stop freq if it reach end,
-	 *	low is wrap freq and this value is default value
-	 */
-	if (mode)
-		POWERCFG_BITSET_SKMODE_HIGH(&Si4709_dev.registers[POWERCFG]);
-	else
-		POWERCFG_BITSET_SKMODE_LOW(&Si4709_dev.registers[POWERCFG]);
-
+	POWERCFG_BITSET_SKMODE_HIGH(&Si4709_dev.registers[POWERCFG]);
 	POWERCFG_BITSET_SEEK_HIGH(&Si4709_dev.registers[POWERCFG]);
 	POWERCFG_BITSET_RESERVED(&Si4709_dev.registers[POWERCFG]);
 

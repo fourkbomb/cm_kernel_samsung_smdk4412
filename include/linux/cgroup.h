@@ -84,6 +84,12 @@ enum {
 	CSS_REMOVED, /* This CSS is dead */
 };
 
+/* Caller must verify that the css is not for root cgroup */
+static inline void __css_get(struct cgroup_subsys_state *css, int count)
+{
+	atomic_add(count, &css->refcnt);
+}
+
 /*
  * Call css_get() to hold a reference on the css; it can be used
  * for a reference obtained via:
@@ -91,7 +97,6 @@ enum {
  * - task->cgroups for a locked task
  */
 
-extern void __css_get(struct cgroup_subsys_state *css, int count);
 static inline void css_get(struct cgroup_subsys_state *css)
 {
 	/* We don't need to reference count the root state */
@@ -184,6 +189,11 @@ struct cgroup_pidlist {
 	struct rw_semaphore mutex;
 };
 
+struct cgroup_name {
+	struct rcu_head rcu_head;
+	char name[];
+};
+
 struct cgroup {
 	unsigned long flags;		/* "unsigned long" so bitops work */
 
@@ -202,6 +212,19 @@ struct cgroup {
 
 	struct cgroup *parent;		/* my parent */
 	struct dentry __rcu *dentry;	/* cgroup fs entry, RCU protected */
+
+	/*
+	 * This is a copy of dentry->d_name, and it's needed because
+	 * we can't use dentry->d_name in cgroup_path().
+	 *
+	 * You must acquire rcu_read_lock() to access cgrp->name, and
+	 * the only place that can change it is rename(), which is
+	 * protected by parent dir's i_mutex.
+	 *
+	 * Normally you should use cgroup_name() wrapper rather than
+	 * access it directly.
+	 */
+	struct cgroup_name __rcu *name;
 
 	/* Private pointers for each registered subsystem */
 	struct cgroup_subsys_state *subsys[CGROUP_SUBSYS_COUNT];
@@ -231,6 +254,7 @@ struct cgroup {
 
 	/* For RCU-protected deletion */
 	struct rcu_head rcu_head;
+	struct work_struct free_work;
 
 	/* List of events which userspace want to receive */
 	struct list_head event_list;
@@ -407,6 +431,12 @@ struct cgroup_scanner {
 	void *data;
 };
 
+/* Caller should hold rcu_read_lock() */
+static inline const char *cgroup_name(const struct cgroup *cgrp)
+{
+	return rcu_dereference(cgrp->name)->name;
+}
+
 /*
  * Add a new file to the given cgroup directory. Should only be
  * called by subsystems from within a populate() method
@@ -533,7 +563,6 @@ static inline struct cgroup_subsys_state *cgroup_subsys_state(
  */
 #define task_subsys_state_check(task, subsys_id, __c)			\
 	rcu_dereference_check(task->cgroups->subsys[subsys_id],		\
-			      rcu_read_lock_held() ||			\
 			      lockdep_is_held(&task->alloc_lock) ||	\
 			      cgroup_lock_is_held() || (__c))
 

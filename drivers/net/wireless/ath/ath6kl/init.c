@@ -53,7 +53,6 @@ static unsigned short reg_domain = 0x8348;
 static unsigned short reg_domain = 0xffff;
 #endif
 
-static unsigned short lrssi = 10;
 
 static unsigned short en_ani = 1;
 
@@ -64,7 +63,6 @@ module_param(wow_mode, uint, 0644);
 module_param(uart_debug, uint, 0644);
 module_param(ar6k_clock, uint, 0644);
 module_param(reg_domain, ushort, 0644);
-module_param(lrssi, ushort, 0644);
 module_param(en_ani, ushort, 0644);
 
 
@@ -488,6 +486,7 @@ static int ath6kl_target_config_wlan_params(struct ath6kl *ar, int idx)
 	int status = 0;
 	int ret;
 #ifdef CONFIG_MACH_PX
+	struct low_rssi_scan_params roam_ctrl;
 	struct ath6kl_vif *vif = ath6kl_get_vif_by_index(ar, idx);
 #endif
 	/*
@@ -581,7 +580,7 @@ static int ath6kl_target_config_wlan_params(struct ath6kl *ar, int idx)
 			vif->scparams.maxact_chdwell_time,
 			vif->scparams.pas_chdwell_time);
 
-		ath6kl_wmi_scanparams_cmd(ar->wmi, idx,
+		ret = ath6kl_wmi_scanparams_cmd(ar->wmi, idx,
 		      vif->scparams.fg_start_period,
 		      vif->scparams.fg_end_period, vif->scparams.bg_period,
 		      vif->scparams.minact_chdwell_time,
@@ -591,8 +590,22 @@ static int ath6kl_target_config_wlan_params(struct ath6kl *ar, int idx)
 		      vif->scparams.scan_ctrl_flags,
 		      vif->scparams.max_dfsch_act_time,
 		      vif->scparams.maxact_scan_per_ssid);
+		if (ret) {
+			ath6kl_dbg(ATH6KL_DBG_TRC, "failed to set scanparams"
+				   "(%d)\n", status);
+		}
 
-		ath6kl_wmi_set_roam_lrssi_cmd(ar->wmi, lrssi);
+		memset(&roam_ctrl, 0, sizeof(struct low_rssi_scan_params));
+		roam_ctrl.lrssi_scan_period  = a_cpu_to_sle16(DEF_LRSSI_SCAN_PERIOD);
+		roam_ctrl.lrssi_scan_threshold = a_cpu_to_sle16(DEF_LRSSI_ROAM_THRESHOLD +
+							   DEF_SCAN_FOR_ROAM_INTVL);
+		roam_ctrl.lrssi_roam_threshold = a_cpu_to_sle16(DEF_LRSSI_ROAM_THRESHOLD);
+		roam_ctrl.roam_rssi_floor = DEF_LRSSI_ROAM_FLOOR;
+		ret = ath6kl_wmi_set_roam_lrssi_config_cmd(ar->wmi, &roam_ctrl);
+		if (status) {
+			ath6kl_dbg(ATH6KL_DBG_TRC, "failed to set lrssi roam"
+				   "(%d)\n", status);
+		}
 	}
 #endif
 	return status;
@@ -2177,10 +2190,14 @@ int ath6kl_core_init(struct ath6kl *ar)
 		ar->wow_suspend_mode = wow_mode;
 	else
 		ar->wow_suspend_mode = 0;
-
+#ifdef CONFIG_MACH_PX
+	ar->wiphy->flags |= WIPHY_FLAG_HAVE_AP_SME |
+			    WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD;
+#else
 	ar->wiphy->flags |= WIPHY_FLAG_SUPPORTS_FW_ROAM |
 			    WIPHY_FLAG_HAVE_AP_SME |
 			    WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD;
+#endif
 
 #ifdef CONFIG_MACH_PX
 #else

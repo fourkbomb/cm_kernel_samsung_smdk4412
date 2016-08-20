@@ -1,6 +1,6 @@
 /* linux/drivers/video/samsung/s3cfb_s6e63m0.c
  *
- * MIPI-DSI based AMS367GEXX AMOLED lcd panel driver.
+ * MIPI-DSI based AMS367PR07 AMOLED lcd panel driver.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -46,8 +46,16 @@
 #define MIN_BRIGHTNESS		0
 #define MAX_BRIGHTNESS		255
 #define MAX_GAMMA			300
-#define DEFAULT_BRIGHTNESS		160
-#define DEFAULT_GAMMA_LEVEL		GAMMA_160CD
+#define DEFAULT_BRIGHTNESS		190
+#define DEFAULT_GAMMA_LEVEL		GAMMA_190CD
+
+#ifdef CONFIG_FB_S5P_PREVENTESD
+#define DDI_STATUS_REG_1		0xE5
+#define DDI_STATUS_REG_2		0x05
+#define DDI_STATUS_REG_3		0x0A
+#define DDI_STATUS_LEN_1		0x02
+#define DDI_STATUS_LEN_2		0x01
+#endif
 
 #define LDI_ID_REG			0xDA
 #define LDI_ID_LEN			3
@@ -55,7 +63,7 @@
 #ifdef SMART_DIMMING
 #define	PANEL_A1_SM2			0xA1
 
-#define LDI_MTP_LENGTH		24
+#define LDI_MTP_LENGTH		21
 #define LDI_MTP_ADDR			0xD3
 
 #define DYNAMIC_ELVSS_MIN_VALUE	0x81
@@ -64,10 +72,17 @@
 #define ELVSS_MODE0_MIN_VOLTAGE	62
 #define ELVSS_MODE1_MIN_VOLTAGE	52
 
+#ifdef CONFIG_FB_S5P_PREVENTESD
+#define MAX_REINIT_CNT		(100)
+#define LOW_GAMMA_LEVEL		GAMMA_100CD
+#endif
+
+#define INNER_DISPLAY		0
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
-#define NR_S6E63M0_PANEL	(2)
+#define NR_S6E63M0_PANEL	2
+#define OUTER_DISPLAY		1
 #else	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
-#define NR_S6E63M0_PANEL	(1)
+#define NR_S6E63M0_PANEL	1
 #endif	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
 
 struct str_elvss {
@@ -104,7 +119,6 @@ struct lcd_info {
 
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
 	unsigned int			detected[NR_S6E63M0_PANEL];
-	unsigned int			panel_select;
 #endif	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
 
 #ifdef SMART_DIMMING
@@ -115,9 +129,22 @@ struct lcd_info {
 #endif
 	unsigned int			irq;
 	unsigned int			connected;
-
+#ifdef CONFIG_FB_S5P_PREVENTESD
+	struct delayed_work		check_ddi;
+#endif
+#if defined(GPIO_OLED_DET)
+	struct delayed_work		oled_detection;
+	unsigned int			oled_detection_count;
+#endif
 	struct dsim_global		*dsim;
 };
+
+extern struct mutex s3cfb_lock;
+#ifdef CONFIG_FB_S5P_PREVENTESD
+extern unsigned int lpcharge;
+extern bool s3cfb_esd_detected;
+static int s6e63m0_read_ddi_status_reg(struct lcd_info *lcd, u8 *buf);
+#endif
 
 static const unsigned int candela_table[GAMMA_MAX] = {
 	 30,  40,  50,  60,  70,  80,  90, 100, 110, 120,
@@ -130,37 +157,142 @@ static int s6e63m0_read_mtp(struct lcd_info *lcd);
 #ifdef SMART_DIMMING_DEBUG_LCD
 static int print_mtp_value(struct lcd_info *lcd);
 #endif
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
 static int s6e63m0_read_id(struct lcd_info *lcd, u8 *buf);
-static int s6e63m0_dual_panel_detect(struct lcd_info *lcd);
+static int s6e63m0_outer_panel_detect(struct lcd_info *lcd);
+#endif
 /* Added for DUAL LCD work*/
+#ifdef CONFIG_FB_S5P_PREVENTESD
+static int s6e63m0_power(struct lcd_info *lcd, int power);
+
+static void check_ddi_work(struct work_struct *work)
+{
+	int ret;
+	static int reinit_lcd_cnt = 0;
+	static int oled_det_cnt = 0;
+	unsigned char	ddi_status[DDI_STATUS_LEN_1 + DDI_STATUS_LEN_2];
+	unsigned long	ms_jiffies = msecs_to_jiffies(1000);
+	struct lcd_info *lcd =
+		container_of(work, struct lcd_info, check_ddi.work);
+	int oled_det_level = gpio_get_value(GPIO_OLED_DET);
+
+	if (!lcd->connected) {
+		printk(KERN_INFO "%s, lcd is disconnected\n", __func__);
+		return;
+	}
+
+	if (lpcharge) {
+		printk(KERN_INFO "%s, do not detect esd in lpcharge mode\n", __func__);
+		return;
+	}
+
+	mutex_lock(&s3cfb_lock);
+
+	// check ldi status - should be ldi enabled.
+	if (lcd->ldi_enable != 1) {
+		printk(KERN_INFO "%s, ldi is disabled\n", __func__);
+		goto out;
+	}
+	if (oled_det_level) {
+		printk(KERN_INFO "%s, oled_det_pin detect esd\n", __func__);
+		s3cfb_esd_detected = true;
+		if (lcd->oled_detection_count < 10) {
+			lcd->oled_detection_count++;
+			set_dsim_hs_clk_toggle_count(15);
+			ms_jiffies = HZ/8;
+		} else {
+			set_dsim_hs_clk_toggle_count(0);
+			s3cfb_reinitialize_lcd();
+			reinit_lcd_cnt++;
+			ms_jiffies = msecs_to_jiffies(1000);
+		}
+		goto out;
+	}
+
+	if (oled_det_cnt++ < 3) goto out;
+
+	/* if esd has been detected once, read ddi status periodically */
+	if (!s3cfb_esd_detected) goto out;
+
+	/* Do not read ddi status with low brightness */
+	if (lcd->bl < LOW_GAMMA_LEVEL) goto out;
+
+	ret = s6e63m0_read_ddi_status_reg(lcd, ddi_status);
+	if (!ret) {
+		printk(KERN_INFO "%s, read failed\n", __func__);
+		set_dsim_hs_clk_toggle_count(0);
+		s3cfb_reinitialize_lcd();
+		reinit_lcd_cnt++;
+		ms_jiffies = msecs_to_jiffies(1000);
+	}
+
+	if (0x80 == ddi_status[0]
+			&& ( 0x00 == ddi_status[1] || 0x04 == ddi_status[1])
+			&& 0x00 == ddi_status[2]) {
+		printk(KERN_INFO "%s, normal ddi_status 0x%02x 0x%02x 0x%02x\n",
+				__func__, ddi_status[0],  ddi_status[1], ddi_status[2]);
+		if (lcd->oled_detection_count) {
+			set_dsim_hs_clk_toggle_count(0);
+		}
+		lcd->oled_detection_count = 0;
+		reinit_lcd_cnt = 0;
+		ms_jiffies = msecs_to_jiffies(1000);
+	} else {
+		printk(KERN_INFO "%s, invalid ddi_status [0]=0x%02x, [1]=0x%02x, [2]=0x%02x\n",
+				__func__, ddi_status[0], ddi_status[1], ddi_status[2]);
+		if (lcd->oled_detection_count < 3) {
+			lcd->oled_detection_count++;
+			set_dsim_hs_clk_toggle_count(15);
+			ms_jiffies = msecs_to_jiffies(500);
+		} else {
+			set_dsim_hs_clk_toggle_count(0);
+			s3cfb_reinitialize_lcd();
+			reinit_lcd_cnt++;
+			ms_jiffies = msecs_to_jiffies(1000);
+		}
+	}
+	oled_det_cnt = 0;
+out:
+	if (reinit_lcd_cnt < MAX_REINIT_CNT) {
+//		printk(KERN_INFO "%s, schedule_delayed_work(%u msec)\n", __func__, jiffies_to_msecs(ms_jiffies));
+		schedule_delayed_work(&lcd->check_ddi, ms_jiffies);
+	}
+	mutex_unlock(&s3cfb_lock);
+	return;
+}
+#endif
 
 #if defined(GPIO_OLED_DET)
-struct delayed_work hs_clk_re_try;
-unsigned int count_dsim;
-
-static void hs_clk_re_try_work(struct work_struct *work)
+static void oled_detection_work(struct work_struct *work)
 {
-	int read_oled_det;
+	struct lcd_info *lcd =
+		container_of(work, struct lcd_info, oled_detection.work);
 
-	read_oled_det = gpio_get_value(GPIO_OLED_DET);
-	printk(KERN_INFO "%s, %d, %d\n", __func__,
-			count_dsim, read_oled_det);
-	if (read_oled_det == 1) {
-		if (count_dsim < 10) {
-			schedule_delayed_work(&hs_clk_re_try, HZ/8);
-			count_dsim++;
+	int oled_det_level = gpio_get_value(GPIO_OLED_DET);
+
+	dev_info(&lcd->ld->dev, "%s, %d, %d\n", __func__, lcd->oled_detection_count, oled_det_level);
+
+	if (oled_det_level) {
+		if (lcd->oled_detection_count < 10) {
+			schedule_delayed_work(&lcd->oled_detection, HZ/8);
+			lcd->oled_detection_count++;
 			set_dsim_hs_clk_toggle_count(15);
 		} else
 			set_dsim_hs_clk_toggle_count(0);
 	} else
 		set_dsim_hs_clk_toggle_count(0);
+
 }
 
-static irqreturn_t oled_det_int(int irq, void *dev_id)
+static irqreturn_t oled_detection_int(int irq, void *_lcd)
 {
-	pr_info("[DSIM] %s\n", __func__);
-	schedule_delayed_work(&hs_clk_re_try, HZ/16);
-	count_dsim = 0;
+	struct lcd_info *lcd = _lcd;
+
+	dev_info(&lcd->ld->dev, "%s\n", __func__);
+
+	lcd->oled_detection_count = 0;
+	schedule_delayed_work(&lcd->oled_detection, HZ/16);
+
 	return IRQ_HANDLED;
 }
 #endif
@@ -248,21 +380,21 @@ static int get_backlight_level_from_brightness(int brightness)
 	return backlightlevel;
 }
 
-static int s6e63m0_gamma_ctl(struct lcd_info *lcd)
+static int s6e63m0_gamma_ctl(struct lcd_info *lcd, int panel)
 {
 #ifdef SMART_DIMMING_DEBUG_LCD
 	int j;
 #endif
-	s6e63m0_write(lcd, lcd->gamma_table[lcd->panel_select][lcd->bl],
+	s6e63m0_write(lcd, lcd->gamma_table[panel][lcd->bl],
 				GAMMA_PARAM_SIZE);
 
 	s6e63m0_write(lcd, SEQ_GAMMA_UPDATE,
 				ARRAY_SIZE(SEQ_GAMMA_UPDATE));
 #ifdef SMART_DIMMING_DEBUG_LCD
-	pr_info("panel_select = %d bl = %d\n", lcd->panel_select, lcd->bl);
+	pr_info("panel = %d bl = %d\n", panel, lcd->bl);
 	for (j = 0; j < GAMMA_PARAM_SIZE; j++)
 		pr_info("0x%02x, ",
-			lcd->gamma_table[lcd->panel_select][lcd->bl][j]);
+			lcd->gamma_table[panel][lcd->bl][j]);
 #endif
 	return 0;
 }
@@ -288,21 +420,9 @@ static int s6e63m0_set_acl(struct lcd_info *lcd)
 				dev_dbg(&lcd->ld->dev, "%s : cur_acl=%d\n",
 					__func__, lcd->cur_acl);
 			break;
-		case GAMMA_50CD ... GAMMA_160CD:
+		case GAMMA_50CD ... GAMMA_300CD:
 				s6e63m0_write(lcd, ACL_CUTOFF_TABLE[ACL_STATUS_40P], ACL_PARAM_SIZE);
 				lcd->cur_acl = 40;
-				dev_dbg(&lcd->ld->dev, "%s : cur_acl=%d\n",
-					__func__, lcd->cur_acl);
-			break;
-		case GAMMA_170CD ... GAMMA_220CD:
-				s6e63m0_write(lcd, ACL_CUTOFF_TABLE[ACL_STATUS_48P], ACL_PARAM_SIZE);
-				lcd->cur_acl = 48;
-				dev_dbg(&lcd->ld->dev, "%s : cur_acl=%d\n",
-					__func__, lcd->cur_acl);
-			break;
-		case GAMMA_230CD ... GAMMA_300CD:
-				s6e63m0_write(lcd, ACL_CUTOFF_TABLE[ACL_STATUS_50P], ACL_PARAM_SIZE);
-				lcd->cur_acl = 50;
 				dev_dbg(&lcd->ld->dev, "%s : cur_acl=%d\n",
 					__func__, lcd->cur_acl);
 			break;
@@ -321,7 +441,7 @@ static int s6e63m0_set_acl(struct lcd_info *lcd)
 }
 
 #ifdef SMART_DIMMING
-static int s6e63m0_set_elvss(struct lcd_info *lcd)
+static int s6e63m0_set_elvss(struct lcd_info *lcd, int panel)
 {
 	int ret = 0, elvss_level = 0;
 	u32 candela = candela_table[lcd->bl];
@@ -342,13 +462,13 @@ static int s6e63m0_set_elvss(struct lcd_info *lcd)
 	default:
 		break;
 	}
-	if (lcd->current_elvss != lcd->elvss_table[lcd->panel_select][elvss_level][1]) {
-		ret = s6e63m0_write(lcd, lcd->elvss_table[lcd->panel_select][elvss_level],
+	if (lcd->current_elvss != lcd->elvss_table[panel][elvss_level][1]) {
+		ret = s6e63m0_write(lcd, lcd->elvss_table[panel][elvss_level],
 					ELVSS_PARAM_SIZE);
-		lcd->current_elvss = lcd->elvss_table[lcd->panel_select][elvss_level][1];
+		lcd->current_elvss = lcd->elvss_table[panel][elvss_level][1];
 	}
 	dev_dbg(&lcd->ld->dev, "elvss = %x\n",
-				lcd->elvss_table[lcd->panel_select][elvss_level][1]);
+				lcd->elvss_table[panel][elvss_level][1]);
 	if (ret) {
 		ret = -EPERM;
 		goto elvss_err;
@@ -408,21 +528,21 @@ err_alloc_elvss_table:
 	return ret;
 }
 
-static int init_elvss_table(struct lcd_info *lcd)
+static int init_elvss_table(struct lcd_info *lcd, int panel)
 {
 	int i, j;
 	for (i = 0; i < ELVSS_STATUS_MAX; i++) {
-		lcd->elvss_table[lcd->panel_select][i][0] = 0xB2;
+		lcd->elvss_table[panel][i][0] = 0xB2;
 		for (j = 1; j < ELVSS_PARAM_SIZE; j++)
-			lcd->elvss_table[lcd->panel_select][i][j]
+			lcd->elvss_table[panel][i][j]
 				= get_elvss_value(lcd, i);
 	}
 #ifdef SMART_DIMMING_DEBUG_LCD
-	pr_info("ELVSS_TABLE [%2d]\n", lcd->panel_select);
+	pr_info("ELVSS_TABLE [%2d]\n", panel);
 	for (i = 0; i < ELVSS_STATUS_MAX; i++) {
 		for (j = 0; j < ELVSS_PARAM_SIZE; j++)
 			pr_info("0x%02x, ",
-				lcd->elvss_table[lcd->panel_select][i][j]);
+				lcd->elvss_table[panel][i][j]);
 	pr_info("\n");
 	}
 #endif
@@ -464,27 +584,27 @@ err_alloc_gamma_table:
 	return ret;
 }
 
-static int init_gamma_table(struct lcd_info *lcd)
+static int init_gamma_table(struct lcd_info *lcd, int panel)
 {
 	int i, j;
 	char gen_gamma[GAMMA_PARAM_SIZE] = {0,};
 
 	for (i = 0; i < GAMMA_MAX; i++) {
-		lcd->gamma_table[lcd->panel_select][i][0] = 0xFA;
-		lcd->gamma_table[lcd->panel_select][i][1] = 0x02;
+		lcd->gamma_table[panel][i][0] = 0xFA;
+		lcd->gamma_table[panel][i][1] = 0x02;
 
 		lcd->smart.brightness_level = candela_table[i];
 		generate_gamma(&(lcd->smart), gen_gamma, GAMMA_PARAM_SIZE);
 		for (j = 2; j < GAMMA_PARAM_SIZE; j++)
-			lcd->gamma_table[lcd->panel_select][i][j] = gen_gamma[j - 2];
+			lcd->gamma_table[panel][i][j] = gen_gamma[j - 2];
 	}
 #ifdef SMART_DIMMING_DEBUG_LCD
-	pr_info("GAMMA_TABLE[%2d]\n", lcd->panel_select);
+	pr_info("GAMMA_TABLE[%2d]\n", panel);
 	for (i = 0; i < GAMMA_MAX; i++) {
 		pr_info("%3d : ", i);
 		for (j = 0; j < GAMMA_PARAM_SIZE; j++)
 			pr_info("0x%02x, ",
-				lcd->gamma_table[lcd->panel_select][i][j]);
+				lcd->gamma_table[panel][i][j]);
 	pr_info("\n");
 	}
 #endif
@@ -495,19 +615,19 @@ static int update_brightness(struct lcd_info *lcd, u8 force)
 {
 	int ret;
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
-	int sel;
+	int panel;
 #endif	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
 	u32 brightness;
+	if (!lcd->connected)
+		return 0;
 
 	mutex_lock(&lcd->bl_lock);
 
 	brightness = lcd->bd->props.brightness;
 
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
-	sel = s5p_dsim_get_panel_sel_value();
-	lcd->panel_select = sel;
+	panel = s5p_dsim_get_panel_sel_value();
 #endif	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
-
 	if (unlikely(!lcd->auto_brightness && brightness > 250))
 		brightness = 250;
 
@@ -516,14 +636,14 @@ static int update_brightness(struct lcd_info *lcd, u8 force)
 	if ((force) || ((lcd->ldi_enable) &&
 				(lcd->current_bl != lcd->bl))) {
 
-		ret = s6e63m0_set_elvss(lcd);
+		ret = s6e63m0_set_elvss(lcd, panel);
 		ret = s6e63m0_set_acl(lcd);
-		ret = s6e63m0_gamma_ctl(lcd);
+		ret = s6e63m0_gamma_ctl(lcd, panel);
 
 		lcd->current_bl = lcd->bl;
 		dev_info(&lcd->ld->dev,
 			"panel = %d brightness=%d, bl=%d, candela=%d\n",
-			lcd->panel_select, brightness,
+			panel, brightness,
 			lcd->bl, candela_table[lcd->bl]);
 	}
 
@@ -538,9 +658,6 @@ static int s6e63m0_mtp_read_cmds(struct lcd_info *lcd)
 		ARRAY_SIZE(SEQ_PREPARE_MTP_READ1));
 	s6e63m0_write(lcd, SEQ_PREPARE_MTP_READ2,
 		ARRAY_SIZE(SEQ_PREPARE_MTP_READ2));
-	s6e63m0_write(lcd, SEQ_SLEEP_OUT,
-		ARRAY_SIZE(SEQ_SLEEP_OUT));
-	mdelay(120);
 	s6e63m0_write(lcd, SEQ_CONTENTION_ERROR_REMOVE,
 		ARRAY_SIZE(SEQ_CONTENTION_ERROR_REMOVE));
 	return 0;
@@ -549,7 +666,10 @@ static int s6e63m0_mtp_read_cmds(struct lcd_info *lcd)
 static int s6e63m0_ldi_init(struct lcd_info *lcd)
 {
 	int ret = 0;
-
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
+	int panel;
+	panel = s5p_dsim_get_panel_sel_value();
+#endif
 	mdelay(25);	/* 25ms	*/
 	s6e63m0_write(lcd, SEQ_SW_RESET,
 		ARRAY_SIZE(SEQ_SW_RESET));	/* SW Reset */
@@ -567,7 +687,7 @@ static int s6e63m0_ldi_init(struct lcd_info *lcd)
 		ARRAY_SIZE(SEQ_DISPLAY_CONDITION_SET1));
 	s6e63m0_write(lcd, SEQ_DISPLAY_CONDITION_SET2,
 		ARRAY_SIZE(SEQ_DISPLAY_CONDITION_SET2));
-	s6e63m0_write(lcd, lcd->gamma_table[lcd->panel_select][lcd->bl],
+	s6e63m0_write(lcd, lcd->gamma_table[panel][lcd->bl],
 		GAMMA_PARAM_SIZE);
 	s6e63m0_write(lcd, SEQ_GAMMA_UPDATE,
 		ARRAY_SIZE(SEQ_GAMMA_UPDATE));
@@ -602,6 +722,8 @@ static int s6e63m0_power_on(struct lcd_info *lcd)
 	int ret = 0;
 	struct lcd_platform_data *pd = NULL;
 	pd = lcd->lcd_pd;
+	if (!lcd->connected)
+		return 0;
 
 	dev_info(&lcd->ld->dev, "%s\n", __func__);
 
@@ -631,6 +753,8 @@ static int s6e63m0_power_off(struct lcd_info *lcd)
 {
 	int ret = 0;
 
+	if (!lcd->connected)
+		return 0;
 	dev_info(&lcd->ld->dev, "%s\n", __func__);
 	lcd->ldi_enable = 0;
 	ret = s6e63m0_ldi_disable(lcd);
@@ -690,6 +814,8 @@ static int s6e63m0_set_brightness(struct backlight_device *bd)
 
 	/* dev_info(&lcd->ld->dev, "%s: brightness=%d\n",
 				__func__, brightness); */
+	if (!lcd->connected)
+		return 0;
 
 	if (brightness < MIN_BRIGHTNESS ||
 		brightness > bd->props.max_brightness) {
@@ -770,7 +896,7 @@ static ssize_t lcd_type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	char temp[20];
-	sprintf(temp, "SMD_AMS397GEXX\n");
+	sprintf(temp, "SMD_AMS367PR07\n");
 	strcat(buf, temp);
 	return strlen(buf);
 }
@@ -850,6 +976,8 @@ void s6e63m0_early_suspend(void)
 	struct lcd_info *lcd = g_lcd;
 	set_dsim_lcd_enabled(0);
 
+	if (!lcd->connected)
+		return ;
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 #if defined(GPIO_OLED_DET)
 	disable_irq(lcd->irq);
@@ -859,6 +987,15 @@ void s6e63m0_early_suspend(void)
 	gpio_direction_output(GPIO_OLED_DET, GPIO_LEVEL_LOW);
 	gpio_free(GPIO_OLED_DET);
 #endif
+#ifdef CONFIG_FB_S5P_PREVENTESD
+	if (lcd->connected && !lpcharge) {
+		bool ret;
+		ret = cancel_delayed_work(&lcd->check_ddi);
+		if (ret) {
+			printk(KERN_INFO "%s, success - cancel delayed work\n", __func__);
+		}
+	}
+#endif
 	s6e63m0_power(lcd, FB_BLANK_POWERDOWN);
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
@@ -866,43 +1003,39 @@ void s6e63m0_early_suspend(void)
 }
 
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
-static int s6e63m0_dual_panel_detect(struct lcd_info *lcd)
+static int s6e63m0_outer_panel_detect(struct lcd_info *lcd)
 {
 	int ret = 0;
-
+	int panel;
+	panel = s5p_dsim_get_panel_sel_value();
 	/* Calculating Gamma table of outer LCD */
-	lcd->panel_select = s5p_dsim_get_panel_sel_value();
-	msleep(25);
-	if (lcd->gamma_table[lcd->panel_select][0][0] == 0x00) {
-		pr_info("GAMMA TABLE not found !! in panel %d\n",
-				lcd->panel_select);
-		ret = s6e63m0_read_id(lcd, lcd->id);
-		if (lcd->id[0] != 0xFE) {
-			lcd->detected[lcd->panel_select] = 0;
-			goto dual_det_err;
-		} else
-			lcd->detected[lcd->panel_select] = 1;
-		dev_info(&lcd->ld->dev, "ID: %x, %x, %x\n", lcd->id[0],
-				lcd->id[1], lcd->id[2]);
-		dev_info(&lcd->ld->dev, "s6e63m0 driver has been detected.\n");
-		ret = s6e63m0_read_mtp(lcd);
-		if (!ret) {
-			pr_info("[LCD:ERROR] : %s read mtp failed\n",
-					__func__);
-		}
+	pr_info("Outer panel init started!\n");
+	ret = s6e63m0_read_id(lcd, lcd->id);
+	if (lcd->id[0] != 0xFE) {
+		lcd->detected[panel] = 0;
+		goto dual_det_err;
+	} else
+		lcd->detected[panel] = 1;
+	printk(KERN_ERR	"[OCTA] Panel ID %d : %x, %x, %x\n", panel+1,
+		lcd->id[0], lcd->id[1], lcd->id[2]);
+	dev_info(&lcd->ld->dev, "s6e63m0 outer panel has been detected.\n");
+	ret = s6e63m0_read_mtp(lcd);
+	if (!ret) {
+		pr_info("[LCD:ERROR] : %s read mtp failed\n",
+				__func__);
+	}
 #ifdef SMART_DIMMING_DEBUG_LCD
-		ret += print_mtp_value(lcd);
+	ret += print_mtp_value(lcd);
 #endif
-		ret += Smart_dimming_init(&(lcd->smart));
-		if (lcd->support_elvss)
-			ret = init_elvss_table(lcd);
-		ret += init_gamma_table(lcd);
-		if (ret) {
-			lcd->gamma_table[lcd->panel_select]
-				= (unsigned char **)s6e63m0_gamma22_table;
-			lcd->elvss_table[lcd->panel_select]
-				= (unsigned char **)ELVSS_TABLE;
-		}
+	ret += Smart_dimming_init(&(lcd->smart));
+	if (lcd->support_elvss)
+		ret = init_elvss_table(lcd, panel);
+	ret += init_gamma_table(lcd, panel);
+	if (ret) {
+		lcd->gamma_table[panel]
+			= (unsigned char **)s6e63m0_gamma22_table;
+		lcd->elvss_table[panel]
+			= (unsigned char **)ELVSS_TABLE;
 	}
 	return 0;
 dual_det_err:
@@ -915,7 +1048,14 @@ dual_det_err:
 void s6e63m0_late_resume(void)
 {
 	struct lcd_info *lcd = g_lcd;
-
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
+	int panel;
+#endif
+	if (!lcd->connected)
+		return ;
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
+	panel = s5p_dsim_get_panel_sel_value();
+#endif
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 	s6e63m0_power(lcd, FB_BLANK_UNBLANK);
 #if defined(GPIO_OLED_DET)
@@ -926,30 +1066,43 @@ void s6e63m0_late_resume(void)
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
 	set_dsim_lcd_enabled(1);
+#ifdef CONFIG_FB_S5P_PREVENTESD
+	if (lcd->connected && !lpcharge) {
+		schedule_delayed_work(&lcd->check_ddi, msecs_to_jiffies(3000));
+	}
+#endif
+
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
-	if (lcd->detected[lcd->panel_select] == 0)
-		s6e63m0_dual_panel_detect(lcd);
+	if (lcd->detected[panel] == 0)
+		s6e63m0_outer_panel_detect(lcd);
 	update_brightness(lcd, 1);
 #endif
 	return ;
 }
 #endif
 
-static int s6e63m0_id_read_cmds(struct lcd_info *lcd)
+#ifdef CONFIG_FB_S5P_PREVENTESD
+static int s6e63m0_read_ddi_status_reg(struct lcd_info *lcd, u8 *buf)
 {
-	s6e63m0_write(lcd, SEQ_PREPARE_ID_READ,
-		ARRAY_SIZE(SEQ_PREPARE_ID_READ));
-	return 0;
+	int ret = 0;
+	s6e63m0_mtp_read_cmds(lcd);
+	ret = s6e63m0_read(lcd, DDI_STATUS_REG_1, DDI_STATUS_LEN_1, buf, 3);
+	ret = s6e63m0_read(lcd, DDI_STATUS_REG_2, DDI_STATUS_LEN_2, buf + 2, 3);
+	if (!ret) {
+		dev_info(&lcd->ld->dev, "read failed ddi_status_reg\n");
+	}
+	return ret;
 }
+#endif
 
 static int s6e63m0_read_id(struct lcd_info *lcd, u8 *buf)
 {
 	int ret = 0;
 
-	s6e63m0_id_read_cmds(lcd);
+	s6e63m0_mtp_read_cmds(lcd);
 	/* ID1: Default value of panel */
 	ret += s6e63m0_read(lcd, 0xDA, 1, buf, 3);
-	/* ID2: Way to Cell working */
+	/* ID2: Way of Cell working */
 	ret += s6e63m0_read(lcd, 0xDB, 1, buf + 1, 3);
 	/* Olny ID2 == C1 support */
 	if (*(buf + 1) == 0xC1)
@@ -967,12 +1120,11 @@ static int s6e63m0_read_id(struct lcd_info *lcd, u8 *buf)
 static int s6e63m0_read_mtp(struct lcd_info *lcd)
 {
 	int ret;
-	s6e63m0_mtp_read_cmds(lcd);
 	ret = s6e63m0_read(lcd, LDI_MTP_ADDR,
 		LDI_MTP_LENGTH, (u8 *)(&(lcd->smart.MTP)), 0);
 	return ret;
 }
-
+#endif
 static void s6e63m0_check_id(struct lcd_info *lcd, u8 *idbuf)
 {
 	if (idbuf[0] == PANEL_A1_SM2)
@@ -985,7 +1137,7 @@ static void s6e63m0_check_id(struct lcd_info *lcd, u8 *idbuf)
 					lcd->elvss.reference);
 	}
 }
-
+#ifdef SMART_DIMMING
 #ifdef SMART_DIMMING_DEBUG_LCD
 static int print_mtp_value(struct lcd_info *lcd)
 {
@@ -1020,6 +1172,9 @@ static int s6e63m0_probe(struct device *dev)
 {
 	int ret = 0;
 	struct lcd_info *lcd;
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
+	int panel;
+#endif
 
 	lcd = kzalloc(sizeof(struct lcd_info), GFP_KERNEL);
 	if (!lcd) {
@@ -1085,21 +1240,24 @@ static int s6e63m0_probe(struct device *dev)
 	mutex_init(&lcd->lock);
 	mutex_init(&lcd->bl_lock);
 	/* Start to reading DDI for Smart dimming */
-	lcd->panel_select = s5p_dsim_get_panel_sel_value();
-	lcd->detected[0] = 0;
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
-	lcd->detected[1] = 0;
-#endif	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
+	lcd->detected[INNER_DISPLAY] = 0;
+	lcd->detected[OUTER_DISPLAY] = 0;
+
+	panel = s5p_dsim_get_panel_sel_value();
 	ret += s6e63m0_read_id(lcd, lcd->id);
 	if (lcd->id[0] != 0xFE) {
-		lcd->detected[lcd->panel_select] = 0;
+		lcd->detected[panel] = 0;
 		goto err_alloc;
 
 	} else
-		lcd->detected[lcd->panel_select] = 1;
-
-	dev_info(&lcd->ld->dev, "ID: %x, %x, %x\n", lcd->id[0],
-			lcd->id[1], lcd->id[2]);
+		lcd->detected[panel] = 1;
+#else
+	if (lcd->id[0] != 0xFE)
+		goto err_alloc;
+#endif
+	printk(KERN_ERR	"[OCTA] Panel ID %d : %x, %x, %x\n", panel+1,
+		lcd->id[0], lcd->id[1], lcd->id[2]);
 	dev_info(&lcd->ld->dev, "s6e63m0 driver has been probed.\n");
 
 #ifdef SMART_DIMMING
@@ -1115,35 +1273,41 @@ static int s6e63m0_probe(struct device *dev)
 	ret += Smart_dimming_init(&(lcd->smart));
 	if (lcd->support_elvss) {
 		ret = alloc_elvss_table(lcd);
-		ret = init_elvss_table(lcd);
+		ret = init_elvss_table(lcd, panel);
 	}
 
 	if (ret) {
-		lcd->elvss_table[lcd->panel_select]
+		lcd->elvss_table[panel]
 			= (unsigned char **)ELVSS_TABLE;
 	}
 	ret += alloc_gamma_table(lcd);
-	ret += init_gamma_table(lcd);
+	ret += init_gamma_table(lcd, panel);
 	if (ret) {
-		lcd->gamma_table[lcd->panel_select]
+		lcd->gamma_table[panel]
 			= (unsigned char **)s6e63m0_gamma22_table;
 	}
 	/* End reading DDI for Smart dimming */
 	update_brightness(lcd, 1);
 #endif
-
+#ifdef CONFIG_FB_S5P_PREVENTESD
+	if (lcd->connected && !lpcharge) {
+		INIT_DELAYED_WORK(&lcd->check_ddi, check_ddi_work);
+		schedule_delayed_work(&lcd->check_ddi, msecs_to_jiffies(20000));
+	}
+#endif
 #if defined(GPIO_OLED_DET)
 	if (lcd->connected) {
-		INIT_DELAYED_WORK(&hs_clk_re_try, hs_clk_re_try_work);
+		INIT_DELAYED_WORK(&lcd->oled_detection, oled_detection_work);
 
 		lcd->irq = gpio_to_irq(GPIO_OLED_DET);
 
 		s3c_gpio_cfgpin(GPIO_OLED_DET, S3C_GPIO_SFN(0xf));
 		s3c_gpio_setpull(GPIO_OLED_DET, S3C_GPIO_PULL_NONE);
-		if (request_irq(lcd->irq, oled_det_int,
-					IRQF_TRIGGER_RISING,
-					"esd_detection", 0))
+#if !defined(CONFIG_FB_S5P_PREVENTESD)
+		if (request_irq(lcd->irq, oled_detection_int,
+			IRQF_TRIGGER_RISING, "esd_detection", lcd))
 			pr_err("failed to reqeust irq. %d\n", lcd->irq);
+#endif
 	}
 #endif
 	return 0;
@@ -1165,10 +1329,12 @@ static int __devexit s6e63m0_remove(struct device *dev)
 {
 	struct lcd_info *lcd = dev_get_drvdata(dev);
 
+	mutex_lock(&s3cfb_lock);
 	s6e63m0_power(lcd, FB_BLANK_POWERDOWN);
 	lcd_device_unregister(lcd->ld);
 	backlight_device_unregister(lcd->bd);
 	kfree(lcd);
+	mutex_unlock(&s3cfb_lock);
 
 	return 0;
 }
@@ -1177,8 +1343,11 @@ static int __devexit s6e63m0_remove(struct device *dev)
 static void s6e63m0_shutdown(struct device *dev)
 {
 	struct lcd_info *lcd = dev_get_drvdata(dev);
+
 	dev_info(&lcd->ld->dev, "%s\n", __func__);
+	mutex_lock(&s3cfb_lock);
 	s6e63m0_power(lcd, FB_BLANK_POWERDOWN);
+	mutex_unlock(&s3cfb_lock);
 }
 
 static struct mipi_lcd_driver s6e63m0_mipi_driver = {
@@ -1201,5 +1370,5 @@ static void s6e63m0_exit(void)
 module_init(s6e63m0_init);
 module_exit(s6e63m0_exit);
 
-MODULE_DESCRIPTION("MIPI-DSI S6E63M0:AMS367GEXX (480X800) Panel Driver");
+MODULE_DESCRIPTION("MIPI-DSI S6E63M0:AMS367PR07 (480X800) Panel Driver");
 MODULE_LICENSE("GPL");

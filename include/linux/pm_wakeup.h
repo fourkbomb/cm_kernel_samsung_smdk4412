@@ -42,6 +42,9 @@
  */
 struct wakeup_source {
 	char 			*name;
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	char				*wakeup_desc;	/* descriptive name */
+#endif
 	struct list_head	entry;
 	spinlock_t		lock;
 	struct timer_list	timer;
@@ -49,6 +52,12 @@ struct wakeup_source {
 	ktime_t total_time;
 	ktime_t max_time;
 	ktime_t last_time;
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	/* to store the wakeup irq no. associated with a wakeup device */
+	unsigned int		irq;
+	/* to store the hit in sleep for wakeup irqs */
+	unsigned long		wakeup_hits;
+#endif
 	unsigned long		event_count;
 	unsigned long		active_count;
 	unsigned long		relax_count;
@@ -83,6 +92,9 @@ extern int device_wakeup_enable(struct device *dev);
 extern int device_wakeup_disable(struct device *dev);
 extern void device_set_wakeup_capable(struct device *dev, bool capable);
 extern int device_init_wakeup(struct device *dev, bool val);
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+extern int device_init_wakeup_setirq(struct device *dev, int irq);
+#endif
 extern int device_set_wakeup_enable(struct device *dev, bool enable);
 extern void __pm_stay_awake(struct wakeup_source *ws);
 extern void pm_stay_awake(struct device *dev);

@@ -569,7 +569,7 @@ static inline int kvm_iommu_map_pages(struct kvm *kvm,
 }
 
 static inline void kvm_iommu_unmap_pages(struct kvm *kvm,
-					 struct kvm_memory_slot *slot)
+		struct kvm_memory_slot *slot)
 {
 }
 

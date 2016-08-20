@@ -422,7 +422,7 @@ void exynos_drm_gem_destroy(struct exynos_drm_gem_obj *exynos_gem_obj)
 	 * this callback will release a ump object only if user requested
 	 * ump export otherwise just return.
 	 */
-	if (private_cb->release_buffer)
+	if (private_cb && private_cb->release_buffer)
 		private_cb->release_buffer(exynos_gem_obj->priv_handle);
 
 	if (!buf->pages)
@@ -935,11 +935,6 @@ int exynos_drm_gem_userptr_ioctl(struct drm_device *dev, void *data,
 
 	size = roundup_gem_size(args->size, EXYNOS_BO_USERPTR);
 
-	if (size > priv->userptr_limit) {
-		DRM_ERROR("excessed maximum size of userptr.\n");
-		return -EINVAL;
-	}
-
 	userptr = args->userptr;
 
 	buf = exynos_drm_init_buf(dev, size);
@@ -1080,26 +1075,6 @@ int exynos_drm_gem_get_ioctl(struct drm_device *dev, void *data,
 
 	drm_gem_object_unreference(obj);
 	mutex_unlock(&dev->struct_mutex);
-
-	return 0;
-}
-
-int exynos_drm_gem_user_limit_ioctl(struct drm_device *dev, void *data,
-				      struct drm_file *filp)
-{
-	struct exynos_drm_private *priv = dev->dev_private;
-	struct drm_exynos_user_limit *limit = data;
-
-	if (limit->userptr_limit < PAGE_SIZE ||
-			limit->userptr_limit > USERPTR_MAX_SIZE) {
-		DRM_DEBUG_KMS("invalid userptr_limit size.\n");
-		return -EINVAL;
-	}
-
-	if (priv->userptr_limit == limit->userptr_limit)
-		return 0;
-
-	priv->userptr_limit = limit->userptr_limit;
 
 	return 0;
 }
@@ -1343,6 +1318,7 @@ err:
 }
 
 /* temporary functions. */
+#ifndef CONFIG_SLP_DMABUF
 int exynos_drm_gem_get_phy_ioctl(struct drm_device *drm_dev, void *data,
 		struct drm_file *file_priv)
 {
@@ -1381,6 +1357,7 @@ int exynos_drm_gem_get_phy_ioctl(struct drm_device *drm_dev, void *data,
 
 	return 0;
 }
+#endif
 
 int exynos_drm_gem_phy_imp_ioctl(struct drm_device *drm_dev, void *data,
 				 struct drm_file *file_priv)
@@ -1399,7 +1376,7 @@ int exynos_drm_gem_phy_imp_ioctl(struct drm_device *drm_dev, void *data,
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
 	packed_size = args->size;
-	size = roundup_gem_size(args->size, flags);
+	size = roundup(args->size, PAGE_SIZE);
 
 	exynos_gem_obj = exynos_drm_gem_init(drm_dev, size);
 	if (!exynos_gem_obj)
@@ -1431,16 +1408,8 @@ int exynos_drm_gem_phy_imp_ioctl(struct drm_device *drm_dev, void *data,
 
 	DRM_DEBUG_KMS("got gem handle = 0x%x\n", args->gem_handle);
 
-	if (buffer->size >= SZ_1M) {
-		npages = buffer->size >> SECTION_SHIFT;
-		buffer->page_size = SECTION_SIZE;
-	} else if (buffer->size >= SZ_64K) {
-		npages = buffer->size >> 16;
-		buffer->page_size = SZ_64K;
-	} else {
-		npages = buffer->size >> PAGE_SHIFT;
-		buffer->page_size = PAGE_SIZE;
-	}
+	npages = buffer->size >> PAGE_SHIFT;
+	buffer->page_size = PAGE_SIZE;
 
 	buffer->sgt = kzalloc(sizeof(struct sg_table), GFP_KERNEL);
 	if (!buffer->sgt) {
@@ -1555,7 +1524,7 @@ int exynos_drm_gem_dumb_create(struct drm_file *file_priv,
 	 */
 
 	args->pitch = args->width * args->bpp >> 3;
-	args->size = PAGE_ALIGN(args->pitch * args->height);
+	args->size = args->pitch * args->height;
 
 	exynos_gem_obj = exynos_drm_gem_create(dev, args->flags, args->size);
 	if (IS_ERR(exynos_gem_obj))

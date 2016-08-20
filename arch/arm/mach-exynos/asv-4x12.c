@@ -260,19 +260,17 @@ int exynos4x12_asv_init(struct samsung_asv *asv_info)
 	exynos_armclk_max = 1000000;
 #else
 	/* If maximum armclock is fused, set its value */
-	if (samsung_rev() < EXYNOS4412_REV_2_0) {
-		switch (tmp & MOD_SG_MASK) {
-		case 0:
-		case 3:
-			exynos_armclk_max = 1400000;
-			break;
-		case 2:
-			exynos_armclk_max = 1000000;
-			break;
-		default:
-			exynos_armclk_max = 1400000;
-			break;
-		}
+	switch (tmp & MOD_SG_MASK) {
+	case 0:
+	case 3:
+		exynos_armclk_max = 1400000;
+		break;
+	case 2:
+		exynos_armclk_max = 1000000;
+		break;
+	default:
+		exynos_armclk_max = 1400000;
+		break;
 	}
 #endif
 

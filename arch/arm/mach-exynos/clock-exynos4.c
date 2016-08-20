@@ -687,12 +687,20 @@ static struct clk exynos4_init_clocks_off[] = {
 		.ctrlbit	= (1 << 1),
 	}, {
 		.name		= "fimc",
+#ifdef CONFIG_DRM_EXYNOS_FIMC
+		.devname	= "exynos-drm-fimc.2",
+#else
 		.devname	= "s3c-fimc.2",
+#endif
 		.enable		= exynos4_clk_ip_cam_ctrl,
 		.ctrlbit	= (1 << 2),
 	}, {
 		.name		= "fimc",
+#ifdef CONFIG_DRM_EXYNOS_FIMC
+		.devname	= "exynos-drm-fimc.3",
+#else
 		.devname	= "s3c-fimc.3",
+#endif
 		.enable		= exynos4_clk_ip_cam_ctrl,
 		.ctrlbit	= (1 << 3),
 	}, {
@@ -1893,7 +1901,11 @@ static struct clksrc_clk exynos4_clksrcs[] = {
 	}, {
 		.clk	= {
 			.name		= "sclk_fimc",
+#ifdef CONFIG_DRM_EXYNOS_FIMC
+			.devname	= "exynos-drm-fimc.2",
+#else
 			.devname	= "s3c-fimc.2",
+#endif
 			.enable		= exynos4_clksrc_mask_cam_ctrl,
 			.ctrlbit	= (1 << 8),
 		},
@@ -1903,7 +1915,11 @@ static struct clksrc_clk exynos4_clksrcs[] = {
 	}, {
 		.clk	= {
 			.name		= "sclk_fimc",
+#ifdef CONFIG_DRM_EXYNOS_FIMC
+			.devname	= "exynos-drm-fimc.3",
+#else
 			.devname	= "s3c-fimc.3",
+#endif
 			.enable		= exynos4_clksrc_mask_cam_ctrl,
 			.ctrlbit	= (1 << 12),
 		},
@@ -2151,21 +2167,18 @@ static struct clksrc_clk exynos4_clksrcs[] = {
 	}, {
 		.clk	= {
 			.name		= "sclk_pcm",
-			.devname	= "samsung-pcm.0",
 			.parent		= &exynos4_clk_sclk_audio0.clk,
 		},
 			.reg_div = { .reg = EXYNOS4_CLKDIV_MAUDIO, .shift = 4, .size = 8 },
 	}, {
 		.clk	= {
 			.name		= "sclk_pcm",
-			.devname	= "samsung-pcm.1",
 			.parent		= &exynos4_clk_sclk_audio1.clk,
 		},
 			.reg_div = { .reg = EXYNOS4_CLKDIV_PERIL4, .shift = 4, .size = 8 },
 	}, {
 		.clk	= {
 			.name		= "sclk_pcm",
-			.devname        = "samsung-pcm.2",
 			.parent		= &exynos4_clk_sclk_audio2.clk,
 		},
 			.reg_div = { .reg = EXYNOS4_CLKDIV_PERIL4, .shift = 20, .size = 8 },

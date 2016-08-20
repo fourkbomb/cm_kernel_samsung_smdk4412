@@ -24,7 +24,6 @@ enum modem_t {
 	SEC_CMC221,
 	QC_MDM6600,
 	QC_ESC6270,
-	SPRD_SC8803,
 	DUMMY,
 	MAX_MODEM_TYPE
 };
@@ -64,7 +63,6 @@ enum modem_link {
 enum modem_network {
 	UMTS_NETWORK,
 	CDMA_NETWORK,
-	TDSCDMA_NETWORK,
 	LTE_NETWORK,
 };
 
@@ -80,9 +78,10 @@ enum sipc_ver {
 /**
  * struct modem_io_t - declaration for io_device
  * @name:	device name
- * @id:		contain format & channel information
+ * @id:		for SIPC4, contains format & channel information
  *		(id & 11100000b)>>5 = format  (eg, 0=FMT, 1=RAW, 2=RFS)
  *		(id & 00011111b)    = channel (valid only if format is RAW)
+ *		for SIPC5, contains only 8-bit channel ID
  * @format:	device format
  * @io_type:	type of this io_device
  * @links:	list of link_devices to use this io_device
@@ -103,11 +102,7 @@ struct modem_io_t {
 	enum modem_io io_type;
 	enum modem_link links;
 	enum modem_link tx_link;
-#ifdef CONFIG_MACH_U1
 	char *app;
-#else
-	bool rx_gather;
-#endif
 };
 
 struct modemlink_pm_data {
@@ -145,12 +140,10 @@ struct modemlink_pm_link_activectl {
 #define RES_DPRAM_IRQ_ID	2
 #define RES_DPRAM_SFR_ID	3
 
-#ifdef CONFIG_MACH_U1
 #define STR_CP_ACTIVE_IRQ	"cp_active_irq"
 #define STR_DPRAM_BASE		"dpram_base"
 #define STR_DPRAM_IRQ		"dpram_irq"
 #define STR_DPRAM_SFR_BASE	"dpram_sfr_base"
-#endif
 
 enum dpram_type {
 	EXT_DPRAM,
@@ -217,23 +210,9 @@ struct dpram_ipc_map {
 };
 
 struct modemlink_dpram_control {
-	void (*reset)(void);
-	void (*clear_intr)(void);
-	u16 (*recv_intr)(void);
-	void (*send_intr)(u16);
-	u16 (*recv_msg)(void);
-	void (*send_msg)(u16);
-
-	int (*wakeup)(void);
-	void (*sleep)(void);
-
-	void (*setup_speed)(enum dpram_speed);
-
 	enum dpram_type dp_type;	/* DPRAM type */
-	int aligned;			/* aligned access is required */
-#ifdef CONFIG_MACH_U1
+	int aligned;			/* Aligned access is required */
 	bool disabled;			/* Disabled during phone booting */
-#endif
 	u8 __iomem *dp_base;
 	u32 dp_size;
 
@@ -247,6 +226,8 @@ struct modemlink_dpram_control {
 	unsigned boot_tag_offset;
 	unsigned boot_count_offset;
 	unsigned max_boot_frame_size;
+
+	void (*setup_speed)(enum dpram_speed);
 };
 
 /* platform data */
@@ -268,9 +249,7 @@ struct modem_data {
 #endif
 	unsigned gpio_cp_warm_reset;
 	unsigned gpio_sim_detect;
-#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
 	unsigned gpio_dpram_int;
-#endif
 
 #ifdef CONFIG_LINK_DEVICE_PLD
 	unsigned gpio_fpga1_creset;
@@ -299,22 +278,9 @@ struct modem_data {
 	void (*vbus_off)(void);
 	struct regulator *cp_vbus;
 #endif
-
-#ifdef CONFIG_TDSCDMA_MODEM_SPRD8803
-	unsigned gpio_ipc_mrdy;
-	unsigned gpio_ipc_srdy;
-	unsigned gpio_ipc_sub_mrdy;
-	unsigned gpio_ipc_sub_srdy;
-	unsigned gpio_ap_cp_int1;
-	unsigned gpio_ap_cp_int2;
+#ifdef CONFIG_SEC_MODEM_IRON_TD
+	unsigned gpio_cp_uart_sel;
 #endif
-
-#ifdef CONFIG_SEC_DUAL_MODEM_MODE
-	unsigned gpio_sim_io_sel;
-	unsigned gpio_cp_ctrl1;
-	unsigned gpio_cp_ctrl2;
-#endif
-
 	/* Switch with 2 links in a modem */
 	unsigned gpio_dynamic_switching;
 
@@ -323,10 +289,9 @@ struct modem_data {
 	enum modem_t        modem_type;
 	enum modem_link     link_types;
 	char               *link_name;
-#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
+
 	/* Link to DPRAM control functions dependent on each platform */
 	struct modemlink_dpram_control *dpram_ctl;
-#endif
 
 	/* SIPC version */
 	enum sipc_ver ipc_version;

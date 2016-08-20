@@ -223,6 +223,11 @@ static long rtc_dev_ioctl(struct file *file,
 	struct rtc_wkalrm alarm;
 	void __user *uarg = (void __user *) arg;
 
+#if defined(CONFIG_SLP)
+	printk(KERN_DEBUG "[%s] file:0x%x cmd:0x%x arg:0x%x\n",
+		__func__, (int)file, cmd, (int)arg);
+#endif
+
 	err = mutex_lock_interruptible(&rtc->ops_lock);
 	if (err)
 		return err;
@@ -415,6 +420,14 @@ static long rtc_dev_ioctl(struct file *file,
 			err = -EFAULT;
 		return err;
 
+#if defined(CONFIG_RTC_ALARM_BOOT)
+	case RTC_WKALM_BOOT_SET:
+		mutex_unlock(&rtc->ops_lock);
+		if (copy_from_user(&alarm, uarg, sizeof(alarm)))
+			return -EFAULT;
+
+		return rtc_set_alarm_boot(rtc, &alarm);
+#endif
 	default:
 		/* Finally try the driver's ioctl interface */
 		if (ops->ioctl) {
@@ -428,6 +441,11 @@ static long rtc_dev_ioctl(struct file *file,
 
 done:
 	mutex_unlock(&rtc->ops_lock);
+
+#if defined(CONFIG_SLP)
+	printk(KERN_DEBUG "[%s] err:0x%x\n", __func__, err);
+#endif
+
 	return err;
 }
 

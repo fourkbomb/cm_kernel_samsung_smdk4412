@@ -31,6 +31,7 @@
 
 #include "exynos_drm_drv.h"
 #include "exynos_drm_encoder.h"
+#include "exynos_drm_connector.h"
 
 #define to_exynos_encoder(x)	container_of(x, struct exynos_drm_encoder,\
 				drm_encoder)
@@ -44,26 +45,23 @@
  * @dpms: store the encoder dpms value.
  */
 struct exynos_drm_encoder {
+	struct drm_crtc			*old_crtc;
 	struct drm_encoder		drm_encoder;
 	struct exynos_drm_manager	*manager;
 	int dpms;
 };
 
-static void exynos_drm_display_power(struct drm_encoder *encoder, int mode)
+static void exynos_drm_connector_power(struct drm_encoder *encoder, int mode)
 {
 	struct drm_device *dev = encoder->dev;
 	struct drm_connector *connector;
-	struct exynos_drm_manager *manager = exynos_drm_get_manager(encoder);
 
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
-		if (connector->encoder == encoder) {
-			struct exynos_drm_display_ops *display_ops =
-							manager->display_ops;
-
+		if (exynos_drm_best_encoder(connector) == encoder) {
 			DRM_DEBUG_KMS("connector[%d] dpms[%d]\n",
 					connector->base.id, mode);
-			if (display_ops && display_ops->power_on)
-				display_ops->power_on(manager->dev, mode);
+
+			exynos_drm_display_power(connector, mode);
 		}
 	}
 }
@@ -88,13 +86,13 @@ static void exynos_drm_encoder_dpms(struct drm_encoder *encoder, int mode)
 	case DRM_MODE_DPMS_ON:
 		if (manager_ops && manager_ops->apply)
 			manager_ops->apply(manager->dev);
-		exynos_drm_display_power(encoder, mode);
+		exynos_drm_connector_power(encoder, mode);
 		exynos_encoder->dpms = mode;
 		break;
 	case DRM_MODE_DPMS_STANDBY:
 	case DRM_MODE_DPMS_SUSPEND:
 	case DRM_MODE_DPMS_OFF:
-		exynos_drm_display_power(encoder, mode);
+		exynos_drm_connector_power(encoder, mode);
 		exynos_encoder->dpms = mode;
 		break;
 	default:
@@ -127,24 +125,74 @@ exynos_drm_encoder_mode_fixup(struct drm_encoder *encoder,
 	return true;
 }
 
+static void disable_plane_to_crtc(struct drm_device *dev,
+						struct drm_crtc *old_crtc,
+						struct drm_crtc *new_crtc)
+{
+	struct drm_plane *plane;
+
+	/*
+	 * if old_crtc isn't same as encoder->crtc then it means that
+	 * user changed crtc id to another one so the plane to old_crtc
+	 * should be disabled and plane->crtc should be set to new_crtc
+	 * (encoder->crtc)
+	 */
+	list_for_each_entry(plane, &dev->mode_config.plane_list, head) {
+		if (plane->crtc == old_crtc) {
+			/*
+			 * do not change below call order.
+			 *
+			 * plane->funcs->disable_plane call checks
+			 * if encoder->crtc is same as plane->crtc and if same
+			 * then overlay_ops->disable callback will be called
+			 * to diasble current hw overlay so plane->crtc should
+			 * have new_crtc because new_crtc was set to
+			 * encoder->crtc in advance.
+			 */
+			plane->crtc = new_crtc;
+			plane->funcs->disable_plane(plane);
+		}
+	}
+}
+
 static void exynos_drm_encoder_mode_set(struct drm_encoder *encoder,
 					 struct drm_display_mode *mode,
 					 struct drm_display_mode *adjusted_mode)
 {
 	struct drm_device *dev = encoder->dev;
 	struct drm_connector *connector;
-	struct exynos_drm_manager *manager = exynos_drm_get_manager(encoder);
-	struct exynos_drm_manager_ops *manager_ops = manager->ops;
+	struct exynos_drm_manager *manager;
+	struct exynos_drm_manager_ops *manager_ops;
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	exynos_drm_encoder_dpms(encoder, DRM_MODE_DPMS_ON);
-
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
-		if (connector->encoder == encoder)
+		if (connector->encoder == encoder) {
+			struct exynos_drm_encoder *exynos_encoder;
+
+			exynos_encoder = to_exynos_encoder(encoder);
+
+			if (exynos_encoder->old_crtc != encoder->crtc &&
+					exynos_encoder->old_crtc) {
+
+				/*
+				 * disable a plane to old crtc and change
+				 * crtc of the plane to new one.
+				 */
+				disable_plane_to_crtc(dev,
+						exynos_encoder->old_crtc,
+						encoder->crtc);
+			}
+
+			manager = exynos_drm_get_manager(encoder);
+			manager_ops = manager->ops;
+
 			if (manager_ops && manager_ops->mode_set)
 				manager_ops->mode_set(manager->dev,
 							adjusted_mode);
+
+			exynos_encoder->old_crtc = encoder->crtc;
+		}
 	}
 }
 
@@ -172,6 +220,20 @@ exynos_drm_encoder_get_crtc(struct drm_encoder *encoder)
 	return encoder->crtc;
 }
 
+static void exynos_drm_encoder_disable(struct drm_encoder *encoder)
+{
+	struct drm_plane *plane;
+	struct drm_device *dev = encoder->dev;
+
+	exynos_drm_encoder_dpms(encoder, DRM_MODE_DPMS_OFF);
+
+	/* all planes connected to this encoder should be also disabled. */
+	list_for_each_entry(plane, &dev->mode_config.plane_list, head) {
+		if (plane->crtc == encoder->crtc)
+			plane->funcs->disable_plane(plane);
+	}
+}
+
 static struct drm_encoder_helper_funcs exynos_encoder_helper_funcs = {
 	.dpms		= exynos_drm_encoder_dpms,
 	.mode_fixup	= exynos_drm_encoder_mode_fixup,
@@ -179,6 +241,7 @@ static struct drm_encoder_helper_funcs exynos_encoder_helper_funcs = {
 	.prepare	= exynos_drm_encoder_prepare,
 	.commit		= exynos_drm_encoder_commit,
 	.get_crtc	= exynos_drm_encoder_get_crtc,
+	.disable	= exynos_drm_encoder_disable,
 };
 
 static void exynos_drm_encoder_destroy(struct drm_encoder *encoder)
@@ -255,7 +318,7 @@ exynos_drm_encoder_create(struct drm_device *dev,
 		return NULL;
 	}
 
-	exynos_encoder->dpms = DRM_MODE_DPMS_ON;
+	exynos_encoder->dpms = DRM_MODE_DPMS_OFF;
 	exynos_encoder->manager = manager;
 	encoder = &exynos_encoder->drm_encoder;
 	encoder->possible_crtcs = possible_crtcs;
@@ -345,6 +408,15 @@ void exynos_drm_encoder_crtc_dpms(struct drm_encoder *encoder, void *data)
 		manager_ops->dpms(manager->dev, mode);
 
 	/*
+	 * in case that drm_crtc_helper_set_mode is called,
+	 * overlay_ops->commit() and manager_ops->commit() callback
+	 * can be called two times, at encoders->funcs->dpms,
+	 * crtc->funcs->commit() and encoder->funcs->commit() so
+	 * this setting will avoid to call them two times.
+	 */
+	exynos_encoder->dpms = mode;
+
+	/*
 	 * if this condition is ok then it means that the crtc is already
 	 * detached from encoder and last function for detaching is properly
 	 * done, so clear pipe from manager to prevent repeated call.
@@ -429,4 +501,14 @@ void exynos_drm_encoder_plane_disable(struct drm_encoder *encoder, void *data)
 
 	if (overlay_ops && overlay_ops->disable)
 		overlay_ops->disable(manager->dev, zpos);
+
+	/*
+	 * wait for vblank interrupt
+	 * - with iommu, the dma operation could induce page fault
+	 * when accessed to memory after gem buffer was released so
+	 * make sure that the dma operation is completed before releasing
+	 * the gem bufer.
+	 */
+	if (overlay_ops->wait_for_vblank)
+		overlay_ops->wait_for_vblank(manager->dev);
 }

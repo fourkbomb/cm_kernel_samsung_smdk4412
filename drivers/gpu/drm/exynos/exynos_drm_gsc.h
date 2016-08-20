@@ -3,6 +3,8 @@
  *
  * Authors:
  *	Eunchul Kim <chulspro.kim@samsung.com>
+ *	Jinyoung Jeon <jy0.jeon@samsung.com>
+ *	Sangmin Lee <lsmin.lee@samsung.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),

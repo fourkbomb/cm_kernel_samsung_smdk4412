@@ -44,7 +44,7 @@
 /* keep this value if you support double-pressed concept */
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 #define SEND_KEY_CHECK_TIME_MS	20		/* 20ms - GB VOC in KOR*/
-#elif defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_P4NOTE)
+#elif defined(CONFIG_MACH_Q1_BD)
 /* 27ms, total delay is approximately double more
    because hrtimer is called twice by gpio input driver,
    new sec spec total delay is 60ms +/-10ms */
@@ -55,14 +55,8 @@
 #define WAKE_LOCK_TIME		(HZ * 5)	/* 5 sec */
 #define EAR_CHECK_LOOP_CNT	10
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_P4NOTE) \
-	|| defined(CONFIG_MACH_GC1)
-#define JACK_CLASS_NAME "audio"
-#define JACK_DEV_NAME "earjack"
-#else
 #define JACK_CLASS_NAME "jack"
 #define JACK_DEV_NAME "jack_selector"
-#endif
 #define JACK_RESELECTOR_NAME "jack_reselector"
 
 static struct class *jack_class;
@@ -487,58 +481,6 @@ static ssize_t select_jack_store(struct device *dev,
 	return size;
 }
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_P4NOTE) \
-	|| defined(CONFIG_MACH_GC1)
-static ssize_t earjack_key_state_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct sec_jack_info *hi = dev_get_drvdata(dev);
-	int value = 0;
-
-	if (hi->pressed <= 0)
-		value = 0;
-	else
-		value = 1;
-
-	return sprintf(buf, "%d\n", value);
-}
-
-static ssize_t earjack_key_state_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t size)
-{
-	pr_info("%s : operate nothing\n", __func__);
-
-	return size;
-}
-
-static ssize_t earjack_state_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct sec_jack_info *hi = dev_get_drvdata(dev);
-	int value = 0;
-
-	if (hi->cur_jack_type == SEC_HEADSET_4POLE)
-		value = 1;
-	else
-		value = 0;
-
-	return sprintf(buf, "%d\n", value);
-}
-
-static ssize_t earjack_state_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t size)
-{
-	pr_info("%s : operate nothing\n", __func__);
-
-	return size;
-}
-static DEVICE_ATTR(key_state, S_IRUGO | S_IWUSR | S_IWGRP,
-		   earjack_key_state_show, earjack_key_state_store);
-
-static DEVICE_ATTR(state, S_IRUGO | S_IWUSR | S_IWGRP,
-		   earjack_state_show, earjack_state_store);
-#endif
-
 static DEVICE_ATTR(select_jack, S_IRUGO | S_IWUSR | S_IWGRP,
 		select_jack_show, select_jack_store);
 
@@ -673,16 +615,6 @@ static int sec_jack_probe(struct platform_device *pdev)
 		pr_err("Failed to create device file(%s)!\n",
 			dev_attr_reselect_jack.attr.name);
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_P4NOTE) \
-	|| defined(CONFIG_MACH_GC1)
-	if (device_create_file(jack_dev, &dev_attr_key_state) < 0)
-		pr_err("Failed to create device file (%s)!\n",
-			dev_attr_key_state.attr.name);
-
-	if (device_create_file(jack_dev, &dev_attr_state) < 0)
-		pr_err("Failed to create device file (%s)!\n",
-			dev_attr_state.attr.name);
-#endif
 	set_bit(EV_KEY, hi->ids[0].evbit);
 	hi->ids[0].flags = INPUT_DEVICE_ID_MATCH_EVBIT;
 	hi->handler.filter = sec_jack_buttons_filter;

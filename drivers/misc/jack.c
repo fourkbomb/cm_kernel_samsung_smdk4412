@@ -20,6 +20,8 @@ struct jack_data {
 	struct jack_platform_data	*pdata;
 };
 
+static DEFINE_MUTEX(jack_mutex);
+
 static struct platform_device *jack_dev;
 
 static void jack_set_data(struct jack_platform_data *pdata,
@@ -77,6 +79,7 @@ int jack_get_data(const char *name)
 }
 EXPORT_SYMBOL_GPL(jack_get_data);
 
+
 void jack_event_handler(const char *name, int value)
 {
 	struct jack_data *jack;
@@ -88,11 +91,13 @@ void jack_event_handler(const char *name, int value)
 		return;
 	}
 
+	mutex_lock(&jack_mutex);
 	jack = platform_get_drvdata(jack_dev);
 	jack_set_data(jack->pdata, name, value);
 	sprintf(env_str, "CHGDET=%s", name);
 	dev_info(&jack_dev->dev, "jack event %s\n", env_str);
 	kobject_uevent_env(&jack_dev->dev.kobj, KOBJ_CHANGE, envp);
+	mutex_unlock(&jack_mutex);
 }
 EXPORT_SYMBOL_GPL(jack_event_handler);
 

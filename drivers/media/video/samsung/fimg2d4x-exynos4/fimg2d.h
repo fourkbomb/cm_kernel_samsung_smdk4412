@@ -438,7 +438,6 @@ struct fimg2d_context {
 	atomic_t ncmd;
 	wait_queue_head_t wait_q;
 	struct fimg2d_perf perf[MAX_PERF_DESCS];
-	unsigned long *pgd_clone;
 };
 
 /**

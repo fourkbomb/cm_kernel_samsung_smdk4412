@@ -351,8 +351,11 @@ int s3cfb_set_lcd_size(struct s3cfb_global *ctrl)
 	cfg |= S3C_VIDTCON2_HOZVAL(ctrl->lcd->width - 1);
 #endif
 
+#if defined(CONFIG_FB_S5P_S6E63M0)
+	cfg |= S3C_VIDTCON2_LINEVAL(ctrl->lcd->height - 1 + 2);
+#else
 	cfg |= S3C_VIDTCON2_LINEVAL(ctrl->lcd->height - 1);
-
+#endif
 	writel(cfg, ctrl->regs + S3C_VIDTCON2);
 
 	return 0;

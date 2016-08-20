@@ -51,6 +51,10 @@ struct irq_desc {
 	unsigned int		irq_count;	/* For detecting broken IRQs */
 	unsigned long		last_unhandled;	/* Aging timer for unhandled count */
 	unsigned int		irqs_unhandled;
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	/* counter for wakeup irqs during sleep */
+	unsigned long hit_in_sleep;
+#endif
 	raw_spinlock_t		lock;
 #ifdef CONFIG_SMP
 	const struct cpumask	*affinity_hint;

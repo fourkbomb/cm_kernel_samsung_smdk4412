@@ -3698,15 +3698,17 @@ static int __devinit ipc_spi_platform_probe(struct platform_device *pdev)
 	pdata->cfg_gpio();
 
 #ifndef FEATURE_SAMSUNG_SPI
-	irq = gpio_to_irq(gpio_srdy);
-	r = request_irq(irq, ipc_spi_irq_handler, IRQF_TRIGGER_RISING, "IPC_SRDY", od);
-	if (r) {
-		dev_err(&pdev->dev, "(%d) Failed to allocate an interrupt: %d\n", __LINE__, irq);
+	if (lpcharge != 1) {
+		irq = gpio_to_irq(gpio_srdy);
+		r = request_irq(irq, ipc_spi_irq_handler, IRQF_TRIGGER_RISING, "IPC_SRDY", od);
+		if (r) {
+			dev_err(&pdev->dev, "(%d) Failed to allocate an interrupt: %d\n", __LINE__, irq);
 
-		goto err;
+			goto err;
+		}
+		od->irq = irq;
+		enable_irq_wake(irq);
 	}
-	od->irq = irq;
-	enable_irq_wake(irq);
 #endif
 
 	/* Init work structure */

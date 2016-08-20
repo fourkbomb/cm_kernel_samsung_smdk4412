@@ -18,8 +18,8 @@
 #define SPI_AINC            0x80
 #define CHIPID              (0 << 3)
 
-static int spi_bulkread(HANDLE hDevice, u16 addr
-, u8 command, u8 *data, u16 length)
+static int spi_bulkread(HANDLE hDevice, u16 addr, u8 command, \
+u8 *data, u16 length)
 {
 	/*unsigned char *cmd;
 
@@ -37,7 +37,7 @@ static int spi_bulkread(HANDLE hDevice, u16 addr
 	spi_cmd.dataSize		= length;
 
 	// Send Command and data through the SPI
-	if (SPID_SendCommand_ByteRead(&spid, &spi_cmd))
+	if(SPID_SendCommand_ByteRead(&spid, &spi_cmd))
 		return BBM_NOK;
 
 	memcpy(data, g_SpiData, length);*/
@@ -45,8 +45,8 @@ static int spi_bulkread(HANDLE hDevice, u16 addr
 	return BBM_OK;
 }
 
-static int spi_bulkwrite(HANDLE hDevice, u16 addr
-	, u8 command, u8 *data, u16 length)
+static int spi_bulkwrite(HANDLE hDevice, u16 addr, u8 command, \
+u8 *data, u16 length)
 {
 	/*unsigned char *cmd;
 
@@ -65,14 +65,14 @@ static int spi_bulkwrite(HANDLE hDevice, u16 addr
 	spi_cmd.dataSize		= length;
 
 	// Send Command and data through the SPI
-	if (SPID_SendCommand_ByteWrite(&spid, &spi_cmd))
+	if(SPID_SendCommand_ByteWrite(&spid, &spi_cmd))
 		return BBM_NOK;*/
 
 	return BBM_OK;
 }
 
-static int spi_dataread(HANDLE hDevice, u16 addr
-	, u8 command, u8 *data, u32 length)
+static int spi_dataread(HANDLE hDevice, u16 addr, u8 command, u8 *data,
+	u32 length)
 {
 	/*unsigned char *cmd;
 
@@ -90,7 +90,7 @@ static int spi_dataread(HANDLE hDevice, u16 addr
 	spi_cmd.dataSize		= length;
 
 	// Send Command and data through the SPI
-	if (SPID_SendCommand_ByteRead(&spid, &spi_cmd))
+	if(SPID_SendCommand_ByteRead(&spid, &spi_cmd))
 		return BBM_NOK;*/
 
 	return BBM_OK;

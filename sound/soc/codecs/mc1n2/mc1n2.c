@@ -29,6 +29,9 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/types.h>
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+#include <linux/pm_runtime.h>
+#endif
 #include <sound/hwdep.h>
 #include <sound/initval.h>
 #include <sound/pcm.h>
@@ -50,12 +53,6 @@
 #include "mc1n2_cfg_q1.h"
 #elif defined(CONFIG_MACH_U1_KOR_LGT)
 #include "mc1n2_cfg_lgt.h"
-#elif defined(CONFIG_MACH_PX)
-#include "mc1n2_cfg_px.h"
-#elif defined(CONFIG_TARGET_LOCALE_NA)
-#include "mcresctrl.h"
-#include "mcdefs.h"
-#include "mc1n2_cfg_SPR.h"
 #else
 #include "mc1n2_cfg.h"
 #endif
@@ -154,6 +151,9 @@ struct mc1n2_data {
 	UINT32 hdmicount;
 	UINT32 delay_mic1in;
 	UINT32 lineoutenable;
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	int suspended;
+#endif
 };
 
 struct mc1n2_info_store {
@@ -193,11 +193,14 @@ struct mc1n2_info_store mc1n2_info_store_tbl[] = {
 
 static int mc1n2_current_mode;
 
-#ifndef ALSA_VER_ANDROID_3_0
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+#define MC1N2_PM_RUNTIME_DELAY_MS 500
+#endif
+#if !defined(ALSA_VER_ANDROID_3_0) || defined(CONFIG_SND_SOC_PM_RUNTIME)
 static struct snd_soc_codec *mc1n2_codec;
 #endif
 
-#ifndef ALSA_VER_ANDROID_3_0
+#if !defined(ALSA_VER_ANDROID_3_0) || defined(CONFIG_SND_SOC_PM_RUNTIME)
 static struct snd_soc_codec *mc1n2_get_codec_data(void)
 {
 	return mc1n2_codec;
@@ -2490,12 +2493,20 @@ static int mc1n2_write_reg(struct snd_soc_codec *codec,
 {
 	int err;
 
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	pm_runtime_get_sync(codec->dev);
+#endif
+
 	if (reg < MC1N2_N_VOL_REG) {
 		err = write_reg_vol(codec, reg, value);
 	}
 	else {
 		err = write_reg_path(codec, reg, value);
 	}
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	pm_runtime_mark_last_busy(codec->dev);
+	pm_runtime_put_autosuspend(codec->dev);
+#endif
 
 	return err;
 }
@@ -3675,17 +3686,6 @@ static int mc1n2_hwdep_ioctl_set_ctrl(struct snd_soc_codec *codec,
 #endif
 	}
 
-#ifdef CONFIG_TARGET_LOCALE_NA
-	if (args->dCmd == MCDRV_SET_AUDIOENGINE) {
-		MCDRV_AE_INFO  sAeInfo;
-		UINT8  bReg;
-
-		McResCtrl_GetAeInfo(&sAeInfo);
-		bReg = McResCtrl_GetRegVal(MCDRV_PACKET_REGTYPE_A,
-				MCI_BDSP_ST);
-	}
-#endif
-
 	err = _McDrv_Ctrl(args->dCmd, info, args->dPrm);
 
 	kfree(info);
@@ -4100,6 +4100,15 @@ static int mc1n2_probe(struct platform_device *pdev)
 			goto error_set_mode;
 		}
 	}
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	pm_runtime_set_active(codec->dev);
+	pm_runtime_get_noresume(codec->dev);
+	pm_runtime_use_autosuspend(codec->dev);
+	pm_runtime_set_autosuspend_delay(codec->dev, MC1N2_PM_RUNTIME_DELAY_MS);
+	pm_runtime_enable(codec->dev);
+	pm_runtime_mark_last_busy(codec->dev);
+	pm_runtime_put_sync_autosuspend(codec->dev);
+#endif
 
 	return 0;
 
@@ -4193,7 +4202,22 @@ static int mc1n2_suspend(struct platform_device *pdev, pm_message_t state)
 
 	TRACE_FUNC();
 
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	if (state.event == PM_EVENT_SUSPEND)
+		dev_dbg(codec->dev, "Suspend From ASoC suspend\n");
+	else if (state.event == PM_EVENT_AUTO_SUSPEND)
+		dev_dbg(codec->dev, "Suspend From Runtime suspend\n");
+#endif
+
 	mutex_lock(&mc1n2->mutex);
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	if (mc1n2->suspended) {
+		dev_info(codec->dev, "Already suspended\n");
+		err = 0;
+		goto suspend_done;
+	} else
+		dev_info(codec->dev, "Suspending...\n");
+#endif
 
 	/* store parameters */
 	for (i = 0; i < MC1N2_N_INFO_STORE; i++) {
@@ -4227,12 +4251,16 @@ static int mc1n2_suspend(struct platform_device *pdev, pm_message_t state)
 
 	/* Suepend MCLK */
 	mc1n2_set_mclk_source(0);
-
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	mc1n2->suspended = 1;
+suspend_done:
+#endif
 error:
 	mutex_unlock(&mc1n2->mutex);
 
 	return err;
 }
+
 
 #ifdef ALSA_VER_ANDROID_3_0
 static int mc1n2_resume(struct snd_soc_codec *codec)
@@ -4261,6 +4289,14 @@ static int mc1n2_resume(struct platform_device *pdev)
 	TRACE_FUNC();
 
 	mutex_lock(&mc1n2->mutex);
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	if (!mc1n2->suspended) {
+		dev_info(codec->dev, "Already resumed\n");
+		err = 0;
+		goto resume_done;
+	} else
+		dev_info(codec->dev, "Resuming...\n");
+#endif
 
 	/* Resume MCLK */
 	mc1n2_set_mclk_source(1);
@@ -4294,12 +4330,50 @@ static int mc1n2_resume(struct platform_device *pdev)
 			}
 		}
 	}
-
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	mc1n2->suspended = 0;
+resume_done:
+#endif
 error:
 	mutex_unlock(&mc1n2->mutex);
 
 	return err;
 }
+
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+static int mc1n2_runtime_suspend(struct device *dev)
+{
+	struct snd_soc_codec *codec = mc1n2_get_codec_data();
+	int err = 0;
+
+	err = mc1n2_suspend(codec, PMSG_AUTO_SUSPEND);
+	if (err)
+		dev_err(dev, "%s failed\n", __func__);
+
+	return err;
+}
+
+static int mc1n2_runtime_resume(struct device *dev)
+{
+	struct snd_soc_codec *codec = mc1n2_get_codec_data();
+	int err = 0;
+
+	err = mc1n2_resume(codec);
+	if (err)
+		dev_err(dev, "%s failed\n", __func__);
+
+	return err;
+}
+
+static int mc1n2_set_bias_level(struct snd_soc_codec *codec,
+				enum snd_soc_bias_level level)
+{
+	/* just update bias level flag */
+	pr_info("MC1N2: bias_level: %d\n", level);
+	codec->dapm.bias_level = level;
+	return 0;
+}
+#endif
 
 #ifdef ALSA_VER_ANDROID_3_0
 struct snd_soc_codec_driver soc_codec_dev_mc1n2 = {
@@ -4311,7 +4385,10 @@ struct snd_soc_codec_driver soc_codec_dev_mc1n2 = {
 	.write = mc1n2_write_reg,
 	.reg_cache_size = MC1N2_N_REG,
 	.reg_word_size = sizeof(u16),
-	.reg_cache_step = 1
+	.reg_cache_step = 1,
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	.set_bias_level = mc1n2_set_bias_level,
+#endif
 };
 #else
 struct snd_soc_codec_device soc_codec_dev_mc1n2 = {
@@ -4385,6 +4462,9 @@ static int mc1n2_i2c_probe(struct i2c_client *client,
 
 #ifdef ALSA_VER_ANDROID_3_0
 	i2c_set_clientdata(client, mc1n2);
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	mc1n2_set_codec_data(codec);
+#endif
 #else
 	i2c_set_clientdata(client, codec);
 
@@ -4510,6 +4590,12 @@ static void mc1n2_i2c_shutdown(struct i2c_client *client)
 #endif
 
 	mutex_lock(&mc1n2->mutex);
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	if (mc1n2->suspended) {
+		err = 0;
+		goto error;
+	}
+#endif
 
 	/* store parameters */
 	for (i = 0; i < MC1N2_N_INFO_STORE; i++) {
@@ -4561,10 +4647,19 @@ static const struct i2c_device_id mc1n2_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, mc1n2_i2c_id);
 
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+static const struct dev_pm_ops mc1n2_i2c_pm_ops = {
+	.runtime_suspend = mc1n2_runtime_suspend,
+	.runtime_resume = mc1n2_runtime_resume,
+};
+#endif
 static struct i2c_driver mc1n2_i2c_driver = {
 	.driver = {
 		.name = MC1N2_NAME,
 		.owner = THIS_MODULE,
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+		.pm = &mc1n2_i2c_pm_ops,
+#endif
 	},
 	.probe = mc1n2_i2c_probe,
 	.remove = mc1n2_i2c_remove,

@@ -195,6 +195,8 @@ static inline void debug_rwsemaphore_up_log(struct rw_semaphore *sem)
 
 enum sec_debug_aux_log_idx {
 	SEC_DEBUG_AUXLOG_CPU_BUS_CLOCK_CHANGE,
+	SEC_DEBUG_AUXLOG_LOGBUF_LOCK_CHANGE,
+	SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
 	SEC_DEBUG_AUXLOG_ITEM_MAX,
 };
 

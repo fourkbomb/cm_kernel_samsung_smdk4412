@@ -30,4 +30,4 @@ extern int fc8150_i2c_deinit(HANDLE hDevice);
 }
 #endif
 
-#endif
+#endif /* __FC8150_I2C_H__ */

@@ -726,9 +726,9 @@ int ath6kl_wmi_set_roam_lrssi_cmd(struct wmi *wmi, u8 lrssi)
 	if (wmi->parent_dev->psminfo == 0)
 		cmd->info.params.lrssi_scan_period = 0xFFFF;
 	else
-		cmd->info.params.lrssi_scan_period = cpu_to_le16(DEF_LRSSI_SCAN_PERIOD);
+		cmd->info.params.lrssi_scan_period = a_cpu_to_sle16(DEF_LRSSI_SCAN_PERIOD);
 #else
-	cmd->info.params.lrssi_scan_period = cpu_to_le16(DEF_LRSSI_SCAN_PERIOD);
+	cmd->info.params.lrssi_scan_period = a_cpu_to_sle16(DEF_LRSSI_SCAN_PERIOD);
 #endif
 
 	cmd->info.params.lrssi_scan_threshold = a_cpu_to_sle16(lrssi +
@@ -1282,6 +1282,11 @@ static int ath6kl_wmi_neighbor_report_event_rx(struct wmi *wmi, u8 *datap,
 {
 	struct wmi_neighbor_report_event *ev;
 	u8 i;
+#ifdef CONFIG_MACH_PX
+	static int prev_num_aps = 0;
+	struct low_rssi_scan_params roam_ctrl;
+	bool need_adjust = false;
+#endif
 
 	if (len < sizeof(*ev))
 		return -EINVAL;
@@ -1292,6 +1297,32 @@ static int ath6kl_wmi_neighbor_report_event_rx(struct wmi *wmi, u8 *datap,
 			   "(num=%d len=%d)\n", ev->num_neighbors, len);
 		return -EINVAL;
 	}
+#ifdef CONFIG_MACH_PX
+	ath6kl_dbg(ATH6KL_DBG_WMI, "neighbor_report_event: numAps = %d, prev_numAps = %d\n", ev->num_neighbors, prev_num_aps);
+	if (prev_num_aps != 0 && ev->num_neighbors != prev_num_aps) {
+		memset(&roam_ctrl, 0, sizeof(struct low_rssi_scan_params));
+		need_adjust = true;
+		if (ev->num_neighbors < 2) {
+			roam_ctrl.lrssi_scan_period  = a_cpu_to_sle16(DEF_LRSSI_SCAN_PERIOD_30SEC);
+		} else if (ev->num_neighbors >= 2 && prev_num_aps < 2){
+			roam_ctrl.lrssi_scan_period  = a_cpu_to_sle16(DEF_LRSSI_SCAN_PERIOD);
+		} else
+			need_adjust = false;
+		if (need_adjust == true) {
+			roam_ctrl.lrssi_scan_threshold = a_cpu_to_sle16(DEF_LRSSI_ROAM_THRESHOLD +
+									   DEF_SCAN_FOR_ROAM_INTVL);
+			roam_ctrl.lrssi_roam_threshold = a_cpu_to_sle16(DEF_LRSSI_ROAM_THRESHOLD);
+			roam_ctrl.roam_rssi_floor = DEF_LRSSI_ROAM_FLOOR;
+			ath6kl_wmi_set_roam_lrssi_config_cmd(wmi, &roam_ctrl);
+			ath6kl_dbg(ATH6KL_DBG_WMI, "[adjustment] low rssi scan interval = %d, scan threshold = %d, roam threshold = %d, roam floor = %d\n",
+					 roam_ctrl.lrssi_scan_period ,
+					 roam_ctrl.lrssi_scan_threshold,
+					 roam_ctrl.lrssi_roam_threshold,
+					 roam_ctrl.roam_rssi_floor);
+		}
+	}
+	prev_num_aps = ev->num_neighbors;
+#endif
 	for (i = 0; i < ev->num_neighbors; i++) {
 		ath6kl_dbg(ATH6KL_DBG_WMI, "neighbor %d/%d - %s 0x%x\n",
 			   i + 1, ev->num_neighbors,
@@ -1950,7 +1981,11 @@ int ath6kl_wmi_startscan_cmd(struct wmi *wmi, u8 if_idx,
 {
 	struct sk_buff *skb;
 	struct wmi_start_scan_cmd *sc;
+#ifdef CONFIG_MACH_PX
+	unsigned int size;
+#else
 	s8 size;
+#endif
 	int i, ret;
 
 	size = sizeof(struct wmi_start_scan_cmd);

@@ -147,18 +147,14 @@ static void diag_hsic_read_complete_callback(void *ctxt, char *buf,
 /* Work function used to send zero cfg packet and receive ack */
 static void diag_zero_cfg_hsic_work_fn(struct work_struct *work)
 {
-	int index = driver->zero_cfg_packet_lens_index;
-	if (index >= ZERO_CFG_SUBPACKET_MAX)
-		return;
-
-	if (!driver->in_busy_hsic_write && !driver->in_busy_hsic_read) {
-		driver->in_busy_hsic_write = 1;
-		diag_bridge_write(&zero_cfg_buf[driver->zero_cfg_index],
-						zero_cfg_packet_lens[index]);
-		driver->in_busy_hsic_read = 1;
-		diag_bridge_read((char *)driver->buf_in_hsic,
-				IN_BUF_SIZE);
-	}
+		if (!driver->in_busy_hsic_write && !driver->in_busy_hsic_read) {
+			driver->in_busy_hsic_write = 1;
+			diag_bridge_write(&zero_cfg_buf[driver->zero_cfg_index],
+				zero_cfg_packet_lens[driver->zero_cfg_packet_lens_index]);
+			driver->in_busy_hsic_read = 1;
+			diag_bridge_read((char *)driver->buf_in_hsic,
+					IN_BUF_SIZE);
+		}
 }
 
 

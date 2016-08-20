@@ -66,6 +66,7 @@
 
 #ifdef __KERNEL__
 struct akm8975_platform_data {
+	int (*magnetic_get_position) (void);
 	int gpio_data_ready_int;
 };
 #endif

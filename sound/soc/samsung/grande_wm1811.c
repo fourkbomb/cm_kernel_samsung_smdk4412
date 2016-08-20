@@ -32,7 +32,6 @@
 #include <linux/mfd/wm8994/core.h>
 #include <linux/mfd/wm8994/registers.h>
 #include <linux/mfd/wm8994/pdata.h>
-#include <linux/mfd/wm8994/gpio.h>
 
 #if defined(CONFIG_SND_USE_MUIC_SWITCH)
 #include <linux/mfd/max77693-private.h>
@@ -68,7 +67,7 @@ static struct wm8958_micd_rate midas_det_rates[] = {
 static struct wm8958_micd_rate midas_jackdet_rates[] = {
 	{ MIDAS_DEFAULT_MCLK2,     true,  0,  0 },
 	{ MIDAS_DEFAULT_MCLK2,    false,  0,  0 },
-	{ MIDAS_DEFAULT_SYNC_CLK,  true, 11, 11 },
+	{ MIDAS_DEFAULT_SYNC_CLK,  true, 12, 12 },
 	{ MIDAS_DEFAULT_SYNC_CLK, false,  7,  8 },
 };
 
@@ -278,6 +277,17 @@ static int set_lineout_mode(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
 	lineout_mode = ucontrol->value.integer.value[0];
+
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	if (lineout_mode) {
+		wm8994_vmid_mode(codec, WM8994_VMID_FORCE);
+		gpio_set_value(GPIO_LINEOUT_EN, 1);
+	} else {
+		gpio_set_value(GPIO_LINEOUT_EN, 0);
+		msleep(50);
+		wm8994_vmid_mode(codec, WM8994_VMID_NORMAL);
+	}
+#endif
 	dev_dbg(codec->dev, "set lineout mode : %s\n",
 		lineout_mode_text[lineout_mode]);
 	return 0;
@@ -461,16 +471,6 @@ static int midas_lineout_switch(struct snd_soc_dapm_widget *w,
 	}
 #endif
 
-#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
-	switch (event) {
-	case SND_SOC_DAPM_POST_PMU:
-		gpio_set_value(GPIO_LINEOUT_EN, 1);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
-		gpio_set_value(GPIO_LINEOUT_EN, 0);
-		break;
-	}
-#endif
 	return 0;
 }
 
@@ -1474,6 +1474,16 @@ static int midas_card_suspend_pre(struct snd_soc_card *card)
 	struct snd_soc_codec *codec = card->rtd->codec;
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	if (lineout_mode == 1 &&
+		wm8994->vmid_mode == WM8994_VMID_FORCE) {
+		dev_dbg(codec->dev,
+			"%s: entering force vmid mode\n", __func__);
+		gpio_set_value(GPIO_LINEOUT_EN, 0);
+		msleep(50);
+		wm8994_vmid_mode(codec, WM8994_VMID_NORMAL);
+	}
+#endif
 #ifdef CONFIG_SEC_DEV_JACK
 	snd_soc_dapm_disable_pin(&codec->dapm, "AIF1CLK");
 #endif
@@ -1564,7 +1574,6 @@ static int midas_card_resume_post(struct snd_soc_card *card)
 {
 	struct snd_soc_codec *codec = card->rtd->codec;
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
-	int reg = 0;
 #if !defined(CONFIG_MACH_M0_DUOSCTC)
 	snd_soc_write(codec, 0x102, 0x3);
 	snd_soc_write(codec, 0xcb,  0x5151);
@@ -1577,18 +1586,15 @@ static int midas_card_resume_post(struct snd_soc_card *card)
 	snd_soc_write(codec, 0x3b,  0x9);
 	snd_soc_write(codec, 0x3c,  0x2);
 #endif
-
-	/* workaround for jack detection
-	 * sometimes WM8994_GPIO_1 type changed wrong function type
-	 * so if type mismatched, update to IRQ type
-	 */
-	reg = snd_soc_read(codec, WM8994_GPIO_1);
-
-	if ((reg & WM8994_GPN_FN_MASK) != WM8994_GP_FN_IRQ) {
-		dev_err(codec->dev, "%s: GPIO1 type 0x%x\n", __func__, reg);
-		snd_soc_write(codec, WM8994_GPIO_1, WM8994_GP_FN_IRQ);
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	if (lineout_mode == 1 &&
+		wm8994->vmid_mode == WM8994_VMID_NORMAL) {
+		dev_dbg(codec->dev,
+			"%s: entering normal vmid mode\n", __func__);
+		wm8994_vmid_mode(codec, WM8994_VMID_FORCE);
+		gpio_set_value(GPIO_LINEOUT_EN, 1);
 	}
-
+#endif
 #ifdef CONFIG_SEC_DEV_JACK
 	snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
 #endif

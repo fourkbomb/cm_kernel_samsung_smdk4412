@@ -114,6 +114,7 @@
 #include <linux/delay.h>
 #include <net/wext.h>
 #include <net/iw_handler.h>
+#include <net/kthook.h>
 #include <asm/current.h>
 #include <linux/audit.h>
 #include <linux/dmaengine.h>
@@ -2422,6 +2423,9 @@ int dev_queue_xmit(struct sk_buff *skb)
 	 * stops preemption for RCU.
 	 */
 	rcu_read_lock_bh();
+
+	kt_send_hook(get_classid_from_skb(skb),
+		skb->len, dev->ifindex);
 
 	txq = dev_pick_tx(dev, skb);
 	q = rcu_dereference_bh(txq->qdisc);

@@ -18,6 +18,9 @@
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
 
+#if defined(CONFIG_MACH_REDWOOD) || defined(CONFIG_MACH_SLP_PQ)
+#include <plat/cpu.h>
+#endif
 #include <plat/audio.h>
 #include <mach/map.h>
 #include <mach/regs-clock.h>
@@ -410,10 +413,21 @@ static inline void i2s_fifo(struct i2s_dai *i2s, u32 flush, int stream)
 	if (!i2s)
 		return;
 
-	if (is_secondary(i2s))
-		fic = i2s->addr + I2SFICS;
-	else
+#if defined(CONFIG_MACH_REDWOOD) || defined(CONFIG_MACH_SLP_PQ)
+	if (soc_is_exynos4412() || soc_is_exynos4212() || soc_is_exynos4210()) {
+		/* i2s Sec-Tx flush is combined with Pri-Tx FIC on Exynos4 */
+		if ((flush == FIC_TXFLUSH) && other_tx_active(i2s))
+			return;
+
 		fic = i2s->addr + I2SFIC;
+	} else
+#endif
+	{
+		if (is_secondary(i2s))
+			fic = i2s->addr + I2SFICS;
+		else
+			fic = i2s->addr + I2SFIC;
+	}
 
 	/* Flush the FIFO */
 	writel(readl(fic) | flush, fic);
@@ -977,10 +991,10 @@ static int i2s_trigger(struct snd_pcm_substream *substream,
 				goto exit_err;
 		}
 
-		spin_lock_irqsave(&lock, flags);
+		local_irq_save(flags);
 
 		if (config_setup(i2s)) {
-			spin_unlock_irqrestore(&lock, flags);
+			local_irq_restore(flags);
 			return -EINVAL;
 		}
 
@@ -989,12 +1003,12 @@ static int i2s_trigger(struct snd_pcm_substream *substream,
 		else
 			i2s_txctrl(i2s, 1, substream->stream);
 
-		spin_unlock_irqrestore(&lock, flags);
+		local_irq_restore(flags);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
-		spin_lock_irqsave(&lock, flags);
+		local_irq_save(flags);
 
 		if (capture)
 			i2s_rxctrl(i2s, 0);
@@ -1007,7 +1021,7 @@ static int i2s_trigger(struct snd_pcm_substream *substream,
 			if (!srp_active(i2s, IS_RUNNING))
 				i2s_fifo(i2s, FIC_TXFLUSH, substream->stream);
 		}
-		spin_unlock_irqrestore(&lock, flags);
+		local_irq_restore(flags);
 		break;
 	}
 

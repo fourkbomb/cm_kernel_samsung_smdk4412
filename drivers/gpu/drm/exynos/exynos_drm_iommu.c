@@ -117,9 +117,6 @@ void exynos_drm_iommu_unmap_gem(struct drm_gem_object *obj)
 	exynos_gem_obj = to_exynos_gem_obj(obj);
 	buf = exynos_gem_obj->buffer;
 
-	/* workaround */
-	usleep_range(15000, 20000);
-
 	mutex_lock(&iommu_mutex);
 
 	if (!buf->dev_addr) {

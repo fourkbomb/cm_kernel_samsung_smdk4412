@@ -7,12 +7,12 @@
 #define aid_300nit_260nit_B3_2nd	0x0A
 #define aid_250nit_190nit_B3_1st	0x00
 #define aid_250nit_190nit_B3_2nd	0x0A
-#define aid_188nit_186nit_B3_1st	0x00
-#define aid_184nit_182nit_B3_1st	0x01
-#define aid_188nit_B3_2nd		0x68
-#define aid_186nit_B3_2nd		0xCF
-#define aid_184nit_B3_2nd		0x37
-#define aid_182nit_B3_2nd		0x9F
+#define aid_188nit_B3_1st	0x00
+#define aid_186nit_182nit_B3_1st	0x01
+#define aid_188nit_B3_2nd		0x96
+#define aid_186nit_B3_2nd		0x11
+#define aid_184nit_B3_2nd		0x73
+#define aid_182nit_B3_2nd		0xC2
 #define aid_180nit_110nit_B3_1st	0x02
 #define aid_180nit_110nit_B3_2nd	0x06
 #define aid_102nit_B3_1st		0x00
@@ -21,32 +21,32 @@
 #define aid_106nit_B3_2nd		0x82
 #define aid_104nit_B3_2nd		0x40
 #define aid_102nit_B3_2nd		0xFE
-#define aid_100nit_B3_1st	0x00
-#define aid_90nit_80nit_B3_1st	0x01
-#define aid_70nit_60nit_B3_1st	0x02
-#define aid_50nit_30nit_B3_1st	0x03
+#define aid_100nit_90nit_B3_1st	0x00
+#define aid_80nit_70nit_B3_1st	0x01
+#define aid_60nit_50nit_B3_1st	0x02
+#define aid_40nit_30nit_B3_1st	0x03
 #define aid_20nit_B3_1st	0x04
-#define aid_100nit_B3_2nd		0xBC
-#define aid_90nit_B3_2nd		0x36
-#define aid_80nit_B3_2nd		0xAB
-#define aid_70nit_B3_2nd		0x25
-#define aid_60nit_B3_2nd		0x95
-#define aid_50nit_B3_2nd		0x0A
-#define aid_40nit_B3_2nd		0x74
-#define aid_30nit_B3_2nd		0xDF
-#define aid_20nit_B3_2nd		0x45
-#define AOR40_BASE_188		202
-#define AOR40_BASE_186		215
-#define AOR40_BASE_184		230
-#define AOR40_BASE_182		250
+#define aid_100nit_B3_2nd		0x71
+#define aid_90nit_B3_2nd		0xF6
+#define aid_80nit_B3_2nd		0x80
+#define aid_70nit_B3_2nd		0xF2
+#define aid_60nit_B3_2nd		0x66
+#define aid_50nit_B3_2nd		0xE2
+#define aid_40nit_B3_2nd		0x54
+#define aid_30nit_B3_2nd		0xC4
+#define aid_20nit_B3_2nd		0x35
+#define AOR40_BASE_188		207
+#define AOR40_BASE_186		224
+#define AOR40_BASE_184		241
+#define AOR40_BASE_182		258
 #define AOR40_BASE_180		275
 #define AOR40_BASE_170		260
 #define AOR40_BASE_160		246
-#define AOR40_BASE_150		230
+#define AOR40_BASE_150		231
 #define AOR40_BASE_140		217
 #define AOR40_BASE_130		202
-#define AOR40_BASE_120		184
-#define AOR40_BASE_110		169
+#define AOR40_BASE_120		188
+#define AOR40_BASE_110		173
 #define AOR40_BASE_108		154
 #define AOR40_BASE_106		141
 #define AOR40_BASE_104		130
@@ -54,8 +54,6 @@
 #define base_20to100			110
 
 static const struct rgb_offset_info aid_rgb_fix_table_SM2[] = {
-	{GAMMA_184CD, IV_11, CI_BLUE, 1},
-	{GAMMA_182CD, IV_11, CI_GREEN, -1}, {GAMMA_182CD, IV_11, CI_BLUE, 2},
 	{GAMMA_180CD, IV_11, CI_RED, -1}, {GAMMA_180CD, IV_11, CI_GREEN, -2}, {GAMMA_180CD, IV_11, CI_BLUE, 3},
 	{GAMMA_170CD, IV_11, CI_RED, -1}, {GAMMA_170CD, IV_11, CI_GREEN, -2}, {GAMMA_170CD, IV_11, CI_BLUE, 3},
 	{GAMMA_160CD, IV_11, CI_RED, -1}, {GAMMA_160CD, IV_11, CI_GREEN, -2}, {GAMMA_160CD, IV_11, CI_BLUE, 3},
@@ -64,29 +62,25 @@ static const struct rgb_offset_info aid_rgb_fix_table_SM2[] = {
 	{GAMMA_130CD, IV_11, CI_RED, -1}, {GAMMA_130CD, IV_11, CI_GREEN, -2}, {GAMMA_130CD, IV_11, CI_BLUE, 3},
 	{GAMMA_120CD, IV_11, CI_RED, -1}, {GAMMA_120CD, IV_11, CI_GREEN, -2}, {GAMMA_120CD, IV_11, CI_BLUE, 3},
 	{GAMMA_110CD, IV_11, CI_RED, -1}, {GAMMA_110CD, IV_11, CI_GREEN, -2}, {GAMMA_110CD, IV_11, CI_BLUE, 3},
-	{GAMMA_108CD, IV_11, CI_RED, -1}, {GAMMA_108CD, IV_11, CI_GREEN, -2}, {GAMMA_108CD, IV_11, CI_BLUE, 3},
-	{GAMMA_106CD, IV_11, CI_RED, -1}, {GAMMA_106CD, IV_11, CI_GREEN, -1}, {GAMMA_106CD, IV_11, CI_BLUE, 3},
-	{GAMMA_104CD, IV_11, CI_RED, -2}, {GAMMA_104CD, IV_11, CI_GREEN, -1}, {GAMMA_104CD, IV_11, CI_BLUE, 4},
-	{GAMMA_102CD, IV_11, CI_RED, -2}, {GAMMA_102CD, IV_11, CI_BLUE, 4},
-	{GAMMA_100CD, IV_11, CI_RED, -2}, {GAMMA_100CD, IV_11, CI_BLUE, 5},
-	{GAMMA_90CD, IV_11, CI_RED, -5},  {GAMMA_90CD, IV_11, CI_BLUE, 6},
-	{GAMMA_80CD, IV_11, CI_RED, -6},  {GAMMA_80CD, IV_11, CI_BLUE, 8},
-	{GAMMA_70CD, IV_11, CI_RED, -7},	{GAMMA_70CD, IV_11, CI_BLUE, 11},
-	{GAMMA_60CD, IV_11, CI_RED, -10}, {GAMMA_60CD, IV_11, CI_BLUE, 14},
-	{GAMMA_50CD, IV_11, CI_RED, -12}, {GAMMA_50CD, IV_11, CI_BLUE, 19},
-	{GAMMA_40CD, IV_11, CI_RED, -18}, {GAMMA_40CD, IV_11, CI_BLUE, 24},
-	{GAMMA_30CD, IV_11, CI_RED, -18}, {GAMMA_30CD, IV_11, CI_BLUE, 31},
-	{GAMMA_20CD, IV_11, CI_RED, -18}, {GAMMA_20CD, IV_11, CI_BLUE, 39},
-	{GAMMA_90CD, IV_23, CI_GREEN, -3},
-	{GAMMA_80CD, IV_23, CI_RED, -1}, {GAMMA_80CD, IV_23, CI_GREEN, -4},
-	{GAMMA_70CD, IV_23, CI_RED, -3}, {GAMMA_70CD, IV_23, CI_GREEN, -6},
-	{GAMMA_60CD, IV_23, CI_RED, -4}, {GAMMA_60CD, IV_23, CI_GREEN, -9},
-	{GAMMA_50CD, IV_23, CI_RED, -7}, {GAMMA_50CD, IV_23, CI_GREEN, -9},
-	{GAMMA_40CD, IV_23, CI_RED, -12}, {GAMMA_40CD, IV_23, CI_GREEN, -16},
-	{GAMMA_30CD, IV_23, CI_RED, -17}, {GAMMA_30CD, IV_23, CI_GREEN, -16}, {GAMMA_30CD, IV_23, CI_BLUE, 2},
-	{GAMMA_20CD, IV_23, CI_RED, -22}, {GAMMA_20CD, IV_23, CI_GREEN, -16}, {GAMMA_20CD, IV_23, CI_BLUE, 9},
-	{GAMMA_30CD, IV_35, CI_RED, -3}, {GAMMA_30CD, IV_35, CI_GREEN, -14},
-	{GAMMA_20CD, IV_35, CI_RED, -11}, {GAMMA_20CD, IV_35, CI_GREEN, -30},
+	{GAMMA_100CD, IV_11, CI_BLUE, 2},
+	{GAMMA_90CD, IV_11, CI_BLUE, 5},
+	{GAMMA_80CD, IV_11, CI_BLUE, 8},
+	{GAMMA_70CD, IV_11, CI_BLUE, 11},
+	{GAMMA_60CD, IV_11, CI_BLUE, 15},
+	{GAMMA_50CD, IV_11, CI_BLUE, 19},
+	{GAMMA_40CD, IV_11, CI_BLUE, 24},
+	{GAMMA_30CD, IV_11, CI_BLUE, 31},
+	{GAMMA_20CD, IV_11, CI_BLUE, 34},
+	{GAMMA_90CD, IV_23, CI_GREEN, -2},
+	{GAMMA_80CD, IV_23, CI_RED, -1}, {GAMMA_80CD, IV_23, CI_GREEN, -3},
+	{GAMMA_70CD, IV_23, CI_RED, -3}, {GAMMA_70CD, IV_23, CI_GREEN, -5},
+	{GAMMA_60CD, IV_23, CI_RED, -5}, {GAMMA_60CD, IV_23, CI_GREEN, -7},
+	{GAMMA_50CD, IV_23, CI_RED, -8}, {GAMMA_50CD, IV_23, CI_GREEN, -11},
+	{GAMMA_40CD, IV_23, CI_RED, -15}, {GAMMA_40CD, IV_23, CI_GREEN, -17},
+	{GAMMA_30CD, IV_23, CI_RED, -32}, {GAMMA_30CD, IV_23, CI_GREEN, -20},
+	{GAMMA_20CD, IV_23, CI_RED, -43}, {GAMMA_20CD, IV_23, CI_GREEN, -20}, {GAMMA_20CD, IV_23, CI_BLUE, 7},
+	{GAMMA_30CD, IV_35, CI_GREEN, -13},
+	{GAMMA_20CD, IV_35, CI_RED, -5}, {GAMMA_20CD, IV_35, CI_GREEN, -24},
 };
 
 static const struct rgb_offset_info aid_rgb_fix_table_M4[] = {
@@ -138,42 +132,42 @@ static unsigned char aid_command_20[] = {
 };
 
 static unsigned char aid_command_30[] = {
-	aid_50nit_30nit_B3_1st,
+	aid_40nit_30nit_B3_1st,
 	aid_30nit_B3_2nd,
 };
 
 static unsigned char aid_command_40[] = {
-	aid_50nit_30nit_B3_1st,
+	aid_40nit_30nit_B3_1st,
 	aid_40nit_B3_2nd,
 };
 
 static unsigned char aid_command_50[] = {
-	aid_50nit_30nit_B3_1st,
+	aid_60nit_50nit_B3_1st,
 	aid_50nit_B3_2nd,
 };
 
 static unsigned char aid_command_60[] = {
-	aid_70nit_60nit_B3_1st,
+	aid_60nit_50nit_B3_1st,
 	aid_60nit_B3_2nd,
 };
 
 static unsigned char aid_command_70[] = {
-	aid_70nit_60nit_B3_1st,
+	aid_80nit_70nit_B3_1st,
 	aid_70nit_B3_2nd,
 };
 
 static unsigned char aid_command_80[] = {
-	aid_90nit_80nit_B3_1st,
+	aid_80nit_70nit_B3_1st,
 	aid_80nit_B3_2nd,
 };
 
 static unsigned char aid_command_90[] = {
-	aid_90nit_80nit_B3_1st,
+	aid_100nit_90nit_B3_1st,
 	aid_90nit_B3_2nd,
 };
 
 static unsigned char aid_command_100[] = {
-	aid_100nit_B3_1st,
+	aid_100nit_90nit_B3_1st,
 	aid_100nit_B3_2nd,
 };
 
@@ -238,22 +232,22 @@ static unsigned char aid_command_180[] = {
 };
 
 static unsigned char aid_command_182[] = {
-	aid_184nit_182nit_B3_1st,
+	aid_186nit_182nit_B3_1st,
 	aid_182nit_B3_2nd,
 };
 
 static unsigned char aid_command_184[] = {
-	aid_184nit_182nit_B3_1st,
+	aid_186nit_182nit_B3_1st,
 	aid_184nit_B3_2nd,
 };
 
 static unsigned char aid_command_186[] = {
-	aid_188nit_186nit_B3_1st,
+	aid_186nit_182nit_B3_1st,
 	aid_186nit_B3_2nd,
 };
 
 static unsigned char aid_command_188[] = {
-	aid_188nit_186nit_B3_1st,
+	aid_188nit_B3_1st,
 	aid_188nit_B3_2nd,
 };
 

@@ -27,9 +27,11 @@
  */
 
 #include <linux/cgroup.h>
+#include <linux/cred.h>
 #include <linux/ctype.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
+#include <linux/init_task.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/mm.h>
@@ -61,7 +63,24 @@
 
 #include <asm/atomic.h>
 
+/*
+ * cgroup_mutex is the master lock.  Any modification to cgroup or its
+ * hierarchy must be performed while holding it.
+ *
+ * cgroup_root_mutex nests inside cgroup_mutex and should be held to modify
+ * cgroupfs_root of any cgroup hierarchy - subsys list, flags,
+ * release_agent_path and so on.  Modifying requires both cgroup_mutex and
+ * cgroup_root_mutex.  Readers can acquire either of the two.  This is to
+ * break the following locking order cycle.
+ *
+ *  A. cgroup_mutex -> cred_guard_mutex -> s_type->i_mutex_key -> namespace_sem
+ *  B. namespace_sem -> cgroup_mutex
+ *
+ * B happens only through cgroup_show_options() and using cgroup_root_mutex
+ * breaks it.
+ */
 static DEFINE_MUTEX(cgroup_mutex);
+static DEFINE_MUTEX(cgroup_root_mutex);
 
 /*
  * Generate an array of cgroup subsystem pointers. At boot time, this is
@@ -199,6 +218,8 @@ static DEFINE_SPINLOCK(hierarchy_id_lock);
 /* dummytop is a shorthand for the dummy hierarchy's top cgroup */
 #define dummytop (&rootnode.top_cgroup)
 
+static struct cgroup_name root_cgroup_name = { .name = "/" };
+
 /* This flag indicates whether tasks in the fork and exit paths should
  * check for fork/exit handlers to call. This avoids us having to do
  * extra work in the fork/exit path if none of the subsystems need to
@@ -268,33 +289,6 @@ static void cgroup_release_agent(struct work_struct *work);
 static DECLARE_WORK(release_agent_work, cgroup_release_agent);
 static void check_for_release(struct cgroup *cgrp);
 
-/*
- * A queue for waiters to do rmdir() cgroup. A tasks will sleep when
- * cgroup->count == 0 && list_empty(&cgroup->children) && subsys has some
- * reference to css->refcnt. In general, this refcnt is expected to goes down
- * to zero, soon.
- *
- * CGRP_WAIT_ON_RMDIR flag is set under cgroup's inode->i_mutex;
- */
-DECLARE_WAIT_QUEUE_HEAD(cgroup_rmdir_waitq);
-
-static void cgroup_wakeup_rmdir_waiter(struct cgroup *cgrp)
-{
-	if (unlikely(test_and_clear_bit(CGRP_WAIT_ON_RMDIR, &cgrp->flags)))
-		wake_up_all(&cgroup_rmdir_waitq);
-}
-
-void cgroup_exclude_rmdir(struct cgroup_subsys_state *css)
-{
-	css_get(css);
-}
-
-void cgroup_release_and_wakeup_rmdir(struct cgroup_subsys_state *css)
-{
-	cgroup_wakeup_rmdir_waiter(css->cgroup);
-	css_put(css);
-}
-
 /* Link structure for associating css_set objects with cgroups */
 struct cg_cgroup_link {
 	/*
@@ -354,62 +348,16 @@ static struct hlist_head *css_set_hash(struct cgroup_subsys_state *css[])
 	return &css_set_table[index];
 }
 
-static void free_css_set_work(struct work_struct *work)
-{
-	struct css_set *cg = container_of(work, struct css_set, work);
-	struct cg_cgroup_link *link;
-	struct cg_cgroup_link *saved_link;
-
-	write_lock(&css_set_lock);
-	list_for_each_entry_safe(link, saved_link, &cg->cg_links,
-				 cg_link_list) {
-		struct cgroup *cgrp = link->cgrp;
-		list_del(&link->cg_link_list);
-		list_del(&link->cgrp_link_list);
-
-                /*
-                 * We may not be holding cgroup_mutex, and if cgrp->count is
-                 * dropped to 0 the cgroup can be destroyed at any time, hence
-                 * rcu_read_lock is used to keep it alive.
-                 */
-                rcu_read_lock();
-		if (atomic_dec_and_test(&cgrp->count)) {
-			check_for_release(cgrp);
-			cgroup_wakeup_rmdir_waiter(cgrp);
-		}
-                rcu_read_unlock();
-
-		kfree(link);
-	}
-	write_unlock(&css_set_lock);
-
-	kfree(cg);
-}
-
-static void free_css_set_rcu(struct rcu_head *obj)
-{
-	struct css_set *cg = container_of(obj, struct css_set, rcu_head);
-
-	INIT_WORK(&cg->work, free_css_set_work);
-	schedule_work(&cg->work);
-}
-
 /* We don't maintain the lists running through each css_set to its
  * task until after the first call to cgroup_iter_start(). This
  * reduces the fork()/exit() overhead for people who have cgroups
  * compiled into their kernel but not actually in use */
 static int use_task_css_set_links __read_mostly;
 
-/*
- * refcounted get/put for css_set objects
- */
-static inline void get_css_set(struct css_set *cg)
+static void __put_css_set(struct css_set *cg, int taskexit)
 {
-	atomic_inc(&cg->refcount);
-}
-
-static void put_css_set(struct css_set *cg)
-{
+	struct cg_cgroup_link *link;
+	struct cg_cgroup_link *saved_link;
 	/*
 	 * Ensure that the refcount doesn't hit zero while any readers
 	 * can see it. Similar to atomic_dec_and_lock(), but for an
@@ -423,11 +371,53 @@ static void put_css_set(struct css_set *cg)
 		return;
 	}
 
+	/* This css_set is dead. unlink it and release cgroup refcounts */
 	hlist_del(&cg->hlist);
 	css_set_count--;
 
+	list_for_each_entry_safe(link, saved_link, &cg->cg_links,
+				 cg_link_list) {
+		struct cgroup *cgrp = link->cgrp;
+		list_del(&link->cg_link_list);
+		list_del(&link->cgrp_link_list);
+
+		/*
+		 * We may not be holding cgroup_mutex, and if cgrp->count is
+		 * dropped to 0 the cgroup can be destroyed at any time, hence
+		 * rcu_read_lock is used to keep it alive.
+		 */
+		rcu_read_lock();
+		if (atomic_dec_and_test(&cgrp->count) &&
+		    notify_on_release(cgrp)) {
+			if (taskexit)
+				set_bit(CGRP_RELEASABLE, &cgrp->flags);
+			check_for_release(cgrp);
+		}
+		rcu_read_unlock();
+
+		kfree(link);
+	}
+
 	write_unlock(&css_set_lock);
-	call_rcu(&cg->rcu_head, free_css_set_rcu);
+	kfree_rcu(cg, rcu_head);
+}
+
+/*
+ * refcounted get/put for css_set objects
+ */
+static inline void get_css_set(struct css_set *cg)
+{
+	atomic_inc(&cg->refcount);
+}
+
+static inline void put_css_set(struct css_set *cg)
+{
+	__put_css_set(cg, 0);
+}
+
+static inline void put_css_set_taskexit(struct css_set *cg)
+{
+	__put_css_set(cg, 1);
 }
 
 /*
@@ -759,9 +749,9 @@ static struct cgroup *task_cgroup_from_root(struct task_struct *task,
  * cgroup_attach_task(), which overwrites one tasks cgroup pointer with
  * another.  It does so using cgroup_mutex, however there are
  * several performance critical places that need to reference
- * task->cgroups without the expense of grabbing a system global
+ * task->cgroup without the expense of grabbing a system global
  * mutex.  Therefore except as noted below, when dereferencing or, as
- * in cgroup_attach_task(), modifying a task's cgroups pointer we use
+ * in cgroup_attach_task(), modifying a task'ss cgroup pointer we use
  * task_lock(), which acts on a spinlock (task->alloc_lock) already in
  * the task_struct routinely used for such matters.
  *
@@ -846,12 +836,61 @@ static int cgroup_call_pre_destroy(struct cgroup *cgrp)
 	return ret;
 }
 
+static struct cgroup_name *cgroup_alloc_name(struct dentry *dentry)
+{
+	struct cgroup_name *name;
+
+	name = kmalloc(sizeof(*name) + dentry->d_name.len + 1, GFP_KERNEL);
+	if (!name)
+		return NULL;
+	strcpy(name->name, dentry->d_name.name);
+	return name;
+}
+
+static void cgroup_free_fn(struct work_struct *work)
+{
+	struct cgroup *cgrp = container_of(work, struct cgroup, free_work);
+	struct cgroup_subsys *ss;
+
+	mutex_lock(&cgroup_mutex);
+	/*
+	 * Release the subsystem state objects.
+	 */
+	for_each_subsys(cgrp->root, ss)
+		ss->destroy(ss, cgrp);
+
+	cgrp->root->number_of_cgroups--;
+	mutex_unlock(&cgroup_mutex);
+
+	/*
+	 * Drop the active superblock reference that we took when we
+	 * created the cgroup
+	 */
+	deactivate_super(cgrp->root->sb);
+
+	/*
+	 * if we're getting rid of the cgroup, refcount should ensure
+	 * that there are no pidlists left.
+	 */
+	BUG_ON(!list_empty(&cgrp->pidlists));
+
+	kfree(rcu_dereference_raw(cgrp->name));
+	kfree(cgrp);
+}
+
+static void cgroup_free_rcu(struct rcu_head *head)
+{
+	struct cgroup *cgrp = container_of(head, struct cgroup, rcu_head);
+
+	schedule_work(&cgrp->free_work);
+}
+
 static void cgroup_diput(struct dentry *dentry, struct inode *inode)
 {
 	/* is dentry a directory ? if so, kfree() associated cgroup */
 	if (S_ISDIR(inode->i_mode)) {
 		struct cgroup *cgrp = dentry->d_fsdata;
-		struct cgroup_subsys *ss;
+
 		BUG_ON(!(cgroup_is_removed(cgrp)));
 		/* It's possible for external users to be holding css
 		 * reference counts on a cgroup; css_put() needs to
@@ -859,31 +898,7 @@ static void cgroup_diput(struct dentry *dentry, struct inode *inode)
 		 * the reference count in order to know if it needs to
 		 * queue the cgroup to be handled by the release
 		 * agent */
-		synchronize_rcu();
-
-		mutex_lock(&cgroup_mutex);
-		/*
-		 * Release the subsystem state objects.
-		 */
-		for_each_subsys(cgrp->root, ss)
-			ss->destroy(ss, cgrp);
-
-		cgrp->root->number_of_cgroups--;
-		mutex_unlock(&cgroup_mutex);
-
-		/*
-		 * Drop the active superblock reference that we took when we
-		 * created the cgroup
-		 */
-		deactivate_super(cgrp->root->sb);
-
-		/*
-		 * if we're getting rid of the cgroup, refcount should ensure
-		 * that there are no pidlists left.
-		 */
-		BUG_ON(!list_empty(&cgrp->pidlists));
-
-		kfree_rcu(cgrp, rcu_head);
+		call_rcu(&cgrp->rcu_head, cgroup_free_rcu);
 	}
 	iput(inode);
 }
@@ -951,6 +966,33 @@ static void cgroup_d_remove_dir(struct dentry *dentry)
 }
 
 /*
+ * A queue for waiters to do rmdir() cgroup. A tasks will sleep when
+ * cgroup->count == 0 && list_empty(&cgroup->children) && subsys has some
+ * reference to css->refcnt. In general, this refcnt is expected to goes down
+ * to zero, soon.
+ *
+ * CGRP_WAIT_ON_RMDIR flag is set under cgroup's inode->i_mutex;
+ */
+DECLARE_WAIT_QUEUE_HEAD(cgroup_rmdir_waitq);
+
+static void cgroup_wakeup_rmdir_waiter(struct cgroup *cgrp)
+{
+	if (unlikely(test_and_clear_bit(CGRP_WAIT_ON_RMDIR, &cgrp->flags)))
+		wake_up_all(&cgroup_rmdir_waitq);
+}
+
+void cgroup_exclude_rmdir(struct cgroup_subsys_state *css)
+{
+	css_get(css);
+}
+
+void cgroup_release_and_wakeup_rmdir(struct cgroup_subsys_state *css)
+{
+	cgroup_wakeup_rmdir_waiter(css->cgroup);
+	css_put(css);
+}
+
+/*
  * Call with cgroup_mutex held. Drops reference counts on modules, including
  * any duplicate ones that parse_cgroupfs_options took. If this function
  * returns an error, no reference counts are touched.
@@ -963,6 +1005,7 @@ static int rebind_subsystems(struct cgroupfs_root *root,
 	int i;
 
 	BUG_ON(!mutex_is_locked(&cgroup_mutex));
+	BUG_ON(!mutex_is_locked(&cgroup_root_mutex));
 
 	removed_bits = root->actual_subsys_bits & ~final_bits;
 	added_bits = final_bits & ~root->actual_subsys_bits;
@@ -1043,7 +1086,6 @@ static int rebind_subsystems(struct cgroupfs_root *root,
 		}
 	}
 	root->subsys_bits = root->actual_subsys_bits = final_bits;
-	synchronize_rcu();
 
 	return 0;
 }
@@ -1053,7 +1095,7 @@ static int cgroup_show_options(struct seq_file *seq, struct vfsmount *vfs)
 	struct cgroupfs_root *root = vfs->mnt_sb->s_fs_info;
 	struct cgroup_subsys *ss;
 
-	mutex_lock(&cgroup_mutex);
+	mutex_lock(&cgroup_root_mutex);
 	for_each_subsys(root, ss)
 		seq_printf(seq, ",%s", ss->name);
 	if (test_bit(ROOT_NOPREFIX, &root->flags))
@@ -1064,7 +1106,7 @@ static int cgroup_show_options(struct seq_file *seq, struct vfsmount *vfs)
 		seq_puts(seq, ",clone_children");
 	if (strlen(root->name))
 		seq_printf(seq, ",name=%s", root->name);
-	mutex_unlock(&cgroup_mutex);
+	mutex_unlock(&cgroup_root_mutex);
 	return 0;
 }
 
@@ -1279,6 +1321,7 @@ static int cgroup_remount(struct super_block *sb, int *flags, char *data)
 
 	mutex_lock(&cgrp->dentry->d_inode->i_mutex);
 	mutex_lock(&cgroup_mutex);
+	mutex_lock(&cgroup_root_mutex);
 
 	/* See what subsystems are wanted */
 	ret = parse_cgroupfs_options(data, &opts);
@@ -1307,6 +1350,7 @@ static int cgroup_remount(struct super_block *sb, int *flags, char *data)
  out_unlock:
 	kfree(opts.release_agent);
 	kfree(opts.name);
+	mutex_unlock(&cgroup_root_mutex);
 	mutex_unlock(&cgroup_mutex);
 	mutex_unlock(&cgrp->dentry->d_inode->i_mutex);
 	return ret;
@@ -1326,6 +1370,7 @@ static void init_cgroup_housekeeping(struct cgroup *cgrp)
 	INIT_LIST_HEAD(&cgrp->css_sets);
 	INIT_LIST_HEAD(&cgrp->release_list);
 	INIT_LIST_HEAD(&cgrp->pidlists);
+	INIT_WORK(&cgrp->free_work, cgroup_free_fn);
 	mutex_init(&cgrp->pidlist_mutex);
 	INIT_LIST_HEAD(&cgrp->event_list);
 	spin_lock_init(&cgrp->event_list_lock);
@@ -1338,6 +1383,7 @@ static void init_cgroup_root(struct cgroupfs_root *root)
 	INIT_LIST_HEAD(&root->root_list);
 	root->number_of_cgroups = 1;
 	cgrp->root = root;
+	cgrp->name = &root_cgroup_name;
 	cgrp->top_cgroup = cgrp;
 	init_cgroup_housekeeping(cgrp);
 }
@@ -1491,6 +1537,7 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 	int ret = 0;
 	struct super_block *sb;
 	struct cgroupfs_root *new_root;
+	struct inode *inode;
 
 	/* First find the desired set of subsystems */
 	mutex_lock(&cgroup_mutex);
@@ -1524,8 +1571,8 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 		/* We used the new root structure, so this is a new hierarchy */
 		struct list_head tmp_cg_links;
 		struct cgroup *root_cgrp = &root->top_cgroup;
-		struct inode *inode;
 		struct cgroupfs_root *existing_root;
+		const struct cred *cred;
 		int i;
 
 		BUG_ON(sb->s_root != NULL);
@@ -1537,18 +1584,14 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 
 		mutex_lock(&inode->i_mutex);
 		mutex_lock(&cgroup_mutex);
+		mutex_lock(&cgroup_root_mutex);
 
-		if (strlen(root->name)) {
-			/* Check for name clashes with existing mounts */
-			for_each_active_root(existing_root) {
-				if (!strcmp(existing_root->name, root->name)) {
-					ret = -EBUSY;
-					mutex_unlock(&cgroup_mutex);
-					mutex_unlock(&inode->i_mutex);
-					goto drop_new_super;
-				}
-			}
-		}
+		/* Check for name clashes with existing mounts */
+		ret = -EBUSY;
+		if (strlen(root->name))
+			for_each_active_root(existing_root)
+				if (!strcmp(existing_root->name, root->name))
+					goto unlock_drop;
 
 		/*
 		 * We're accessing css_set_count without locking
@@ -1558,18 +1601,13 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 		 * have some link structures left over
 		 */
 		ret = allocate_cg_links(css_set_count, &tmp_cg_links);
-		if (ret) {
-			mutex_unlock(&cgroup_mutex);
-			mutex_unlock(&inode->i_mutex);
-			goto drop_new_super;
-		}
+		if (ret)
+			goto unlock_drop;
 
 		ret = rebind_subsystems(root, root->subsys_bits);
 		if (ret == -EBUSY) {
-			mutex_unlock(&cgroup_mutex);
-			mutex_unlock(&inode->i_mutex);
 			free_cg_links(&tmp_cg_links);
-			goto drop_new_super;
+			goto unlock_drop;
 		}
 		/*
 		 * There must be no failure case after here, since rebinding
@@ -1605,7 +1643,10 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 		BUG_ON(!list_empty(&root_cgrp->children));
 		BUG_ON(root->number_of_cgroups != 1);
 
+		cred = override_creds(&init_cred);
 		cgroup_populate_dir(root_cgrp);
+		revert_creds(cred);
+		mutex_unlock(&cgroup_root_mutex);
 		mutex_unlock(&cgroup_mutex);
 		mutex_unlock(&inode->i_mutex);
 	} else {
@@ -1622,6 +1663,10 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 	kfree(opts.name);
 	return dget(sb->s_root);
 
+ unlock_drop:
+	mutex_unlock(&cgroup_root_mutex);
+	mutex_unlock(&cgroup_mutex);
+	mutex_unlock(&inode->i_mutex);
  drop_new_super:
 	deactivate_locked_super(sb);
  drop_modules:
@@ -1646,6 +1691,7 @@ static void cgroup_kill_sb(struct super_block *sb) {
 	BUG_ON(!list_empty(&cgrp->sibling));
 
 	mutex_lock(&cgroup_mutex);
+	mutex_lock(&cgroup_root_mutex);
 
 	/* Rebind all subsystems back to the default hierarchy */
 	ret = rebind_subsystems(root, 0);
@@ -1671,6 +1717,7 @@ static void cgroup_kill_sb(struct super_block *sb) {
 		root_count--;
 	}
 
+	mutex_unlock(&cgroup_root_mutex);
 	mutex_unlock(&cgroup_mutex);
 
 	kill_litter_super(sb);
@@ -1701,50 +1748,46 @@ static inline struct cftype *__d_cft(struct dentry *dentry)
  * @buf: the buffer to write the path into
  * @buflen: the length of the buffer
  *
- * Called with cgroup_mutex held or else with an RCU-protected cgroup
- * reference.  Writes path of cgroup into buf.  Returns 0 on success,
- * -errno on error.
+ * Writes path of cgroup into buf.  Returns 0 on success, -errno on error.
+ *
+ * We can't generate cgroup path using dentry->d_name, as accessing
+ * dentry->name must be protected by irq-unsafe dentry->d_lock or parent
+ * inode's i_mutex, while on the other hand cgroup_path() can be called
+ * with some irq-safe spinlocks held.
  */
 int cgroup_path(const struct cgroup *cgrp, char *buf, int buflen)
 {
+	int ret = -ENAMETOOLONG;
 	char *start;
-	struct dentry *dentry = rcu_dereference_check(cgrp->dentry,
-						      rcu_read_lock_held() ||
-						      cgroup_lock_is_held());
 
-	if (!dentry || cgrp == dummytop) {
-		/*
-		 * Inactive subsystems have no dentry for their root
-		 * cgroup
-		 */
-		strcpy(buf, "/");
-		return 0;
-	}
+	start = buf + buflen - 1;
 
-	start = buf + buflen;
+	*start = '\0';
 
-	*--start = '\0';
-	for (;;) {
-		int len = dentry->d_name.len;
+	rcu_read_lock();
+	while (cgrp) {
+		const char *name = cgroup_name(cgrp);
+		int len;
+
+		len = strlen(name);
 
 		if ((start -= len) < buf)
-			return -ENAMETOOLONG;
-		memcpy(start, dentry->d_name.name, len);
-		cgrp = cgrp->parent;
-		if (!cgrp)
-			break;
+			goto out;
+		memcpy(start, name, len);
 
-		dentry = rcu_dereference_check(cgrp->dentry,
-					       rcu_read_lock_held() ||
-					       cgroup_lock_is_held());
 		if (!cgrp->parent)
-			continue;
+			break;
 		if (--start < buf)
-			return -ENAMETOOLONG;
+			goto out;
 		*start = '/';
+
+		cgrp = cgrp->parent;
 	}
+	ret = 0;
 	memmove(buf, start, buf + buflen - start);
-	return 0;
+out:
+	rcu_read_unlock();
+	return ret;
 }
 EXPORT_SYMBOL_GPL(cgroup_path);
 
@@ -1762,14 +1805,14 @@ static int cgroup_task_migrate(struct cgroup *cgrp, struct cgroup *oldcgrp,
 	struct css_set *newcg;
 
 	/*
-	 * get old css_set. we need to take task_lock and refcount it, because
-	 * an exiting task can change its css_set to init_css_set and drop its
-	 * old one without taking cgroup_mutex.
+	 * get old css_set. We are synchronized through threadgroup_lock()
+	 * against PF_EXITING setting such that we can't race against
+	 * cgroup_exit() changing the css_set to init_css_set and dropping the
+	 * old one.
 	 */
-	task_lock(tsk);
+	WARN_ON_ONCE(tsk->flags & PF_EXITING);
 	oldcg = tsk->cgroups;
 	get_css_set(oldcg);
-	task_unlock(tsk);
 
 	/* locate or allocate a new css_set for this task. */
 	if (guarantee) {
@@ -1831,7 +1874,6 @@ int cgroup_attach_task(struct cgroup *cgrp, struct task_struct *tsk)
 	struct cgroup_subsys *ss, *failed_ss = NULL;
 	struct cgroup *oldcgrp;
 	struct cgroupfs_root *root = cgrp->root;
-	struct css_set *cg;
 
 	/* Nothing to do if the task is already in that cgroup */
 	oldcgrp = task_cgroup_from_root(tsk, root);
@@ -1861,11 +1903,6 @@ int cgroup_attach_task(struct cgroup *cgrp, struct task_struct *tsk)
 		}
 	}
 
-	task_lock(tsk);
-	cg = tsk->cgroups;
-	get_css_set(cg);
-	task_unlock(tsk);
-
 	retval = cgroup_task_migrate(cgrp, oldcgrp, tsk, false);
 	if (retval)
 		goto out;
@@ -1878,9 +1915,6 @@ int cgroup_attach_task(struct cgroup *cgrp, struct task_struct *tsk)
 		if (ss->attach)
 			ss->attach(ss, cgrp, oldcgrp, tsk);
 	}
-	set_bit(CGRP_RELEASABLE, &cgrp->flags);
-	/* put_css_set will not destroy cg until after an RCU grace period */
-	put_css_set(cg);
 
 	/*
 	 * wake up rmdir() waiter. the rmdir should fail since the cgroup
@@ -1950,23 +1984,17 @@ static bool css_set_check_fetched(struct cgroup *cgrp,
 
 	read_lock(&css_set_lock);
 	newcg = find_existing_css_set(cg, cgrp, template);
-	if (newcg)
-		get_css_set(newcg);
 	read_unlock(&css_set_lock);
 
 	/* doesn't exist at all? */
 	if (!newcg)
 		return false;
 	/* see if it's already in the list */
-	list_for_each_entry(cg_entry, newcg_list, links) {
-		if (cg_entry->cg == newcg) {
-			put_css_set(newcg);
+	list_for_each_entry(cg_entry, newcg_list, links)
+		if (cg_entry->cg == newcg)
 			return true;
-		}
-	}
 
 	/* not found */
-	put_css_set(newcg);
 	return false;
 }
 
@@ -2111,11 +2139,13 @@ int cgroup_attach_proc(struct cgroup *cgrp, struct task_struct *leader)
 		oldcgrp = task_cgroup_from_root(tsk, root);
 		if (cgrp == oldcgrp)
 			continue;
-		/* get old css_set pointer */
-		task_lock(tsk);
+		/*
+		 * get old css_set pointer. threadgroup is locked so this is
+		 * safe against concurrent cgroup_exit() changing this to
+		 * init_css_set.
+		 */
 		oldcg = tsk->cgroups;
 		get_css_set(oldcg);
-		task_unlock(tsk);
 		/* see if the new one for us is already in the list? */
 		if (css_set_check_fetched(cgrp, tsk, oldcg, &newcg_list)) {
 			/* was already there, nothing to do. */
@@ -2169,7 +2199,6 @@ int cgroup_attach_proc(struct cgroup *cgrp, struct task_struct *leader)
 	/*
 	 * step 5: success! and cleanup
 	 */
-	synchronize_rcu();
 	cgroup_wakeup_rmdir_waiter(cgrp);
 	retval = 0;
 out_list_teardown:
@@ -2200,24 +2229,6 @@ out_cancel_attach:
 out_free_group_list:
 	flex_array_free(group);
 	return retval;
-}
-
-static int cgroup_allow_attach(struct cgroup *cgrp, struct task_struct *tsk)
-{
-	struct cgroup_subsys *ss;
-	int ret;
-
-	for_each_subsys(cgrp->root, ss) {
-		if (ss->allow_attach) {
-			ret = ss->allow_attach(cgrp, tsk);
-			if (ret)
-				return ret;
-		} else {
-			return -EACCES;
-		}
-	}
-
-	return 0;
 }
 
 /*
@@ -2265,16 +2276,9 @@ static int attach_task_by_pid(struct cgroup *cgrp, u64 pid, bool threadgroup)
 		if (cred->euid &&
 		    cred->euid != tcred->uid &&
 		    cred->euid != tcred->suid) {
-			/*
-			 * if the default permission check fails, give each
-			 * cgroup a chance to extend the permission check
-			 */
-			ret = cgroup_allow_attach(cgrp, tsk);
-			if (ret) {
-				rcu_read_unlock();
-				cgroup_unlock();
-				return ret;
-			}
+			rcu_read_unlock();
+			cgroup_unlock();
+			return -EACCES;
 		}
 		get_task_struct(tsk);
 		rcu_read_unlock();
@@ -2343,7 +2347,9 @@ static int cgroup_release_agent_write(struct cgroup *cgrp, struct cftype *cft,
 		return -EINVAL;
 	if (!cgroup_lock_live_group(cgrp))
 		return -ENODEV;
+	mutex_lock(&cgroup_root_mutex);
 	strcpy(cgrp->root->release_agent_path, buffer);
+	mutex_unlock(&cgroup_root_mutex);
 	cgroup_unlock();
 	return 0;
 }
@@ -2580,13 +2586,40 @@ static int cgroup_file_release(struct inode *inode, struct file *file)
 static int cgroup_rename(struct inode *old_dir, struct dentry *old_dentry,
 			    struct inode *new_dir, struct dentry *new_dentry)
 {
+	int ret;
+	struct cgroup_name *name, *old_name;
+	struct cgroup *cgrp;
+
+	/*
+	 * It's convinient to use parent dir's i_mutex to protected
+	 * cgrp->name.
+	 */
+	lockdep_assert_held(&old_dir->i_mutex);
+
 	if (!S_ISDIR(old_dentry->d_inode->i_mode))
 		return -ENOTDIR;
 	if (new_dentry->d_inode)
 		return -EEXIST;
 	if (old_dir != new_dir)
 		return -EIO;
-	return simple_rename(old_dir, old_dentry, new_dir, new_dentry);
+
+	cgrp = __d_cgrp(old_dentry);
+
+	name = cgroup_alloc_name(new_dentry);
+	if (!name)
+		return -ENOMEM;
+
+	ret = simple_rename(old_dir, old_dentry, new_dir, new_dentry);
+	if (ret) {
+		kfree(name);
+		return ret;
+	}
+
+	old_name = cgrp->name;
+	rcu_assign_pointer(cgrp->name, name);
+
+	kfree_rcu(old_name, rcu_head);
+	return 0;
 }
 
 static const struct file_operations cgroup_file_operations = {
@@ -2809,6 +2842,14 @@ static void cgroup_enable_task_cg_lists(void)
 	struct task_struct *p, *g;
 	write_lock(&css_set_lock);
 	use_task_css_set_links = 1;
+	/*
+	 * We need tasklist_lock because RCU is not safe against
+	 * while_each_thread(). Besides, a forking task that has passed
+	 * cgroup_post_fork() without seeing use_task_css_set_links = 1
+	 * is not guaranteed to have its child immediately visible in the
+	 * tasklist if we walk through it with RCU.
+	 */
+	read_lock(&tasklist_lock);
 	do_each_thread(g, p) {
 		task_lock(p);
 		/*
@@ -2820,6 +2861,7 @@ static void cgroup_enable_task_cg_lists(void)
 			list_add(&p->cg_list, &p->cgroups->tasks);
 		task_unlock(p);
 	} while_each_thread(g, p);
+	read_unlock(&tasklist_lock);
 	write_unlock(&css_set_lock);
 }
 
@@ -3479,7 +3521,12 @@ static void cgroup_event_remove(struct work_struct *work)
 			remove);
 	struct cgroup *cgrp = event->cgrp;
 
+	remove_wait_queue(event->wqh, &event->wait);
+
 	event->cft->unregister_event(cgrp, event->cft, event->eventfd);
+
+	/* Notify userspace the event is going away. */
+	eventfd_signal(event->eventfd, 1);
 
 	eventfd_ctx_put(event->eventfd);
 	kfree(event);
@@ -3500,15 +3547,25 @@ static int cgroup_event_wake(wait_queue_t *wait, unsigned mode,
 	unsigned long flags = (unsigned long)key;
 
 	if (flags & POLLHUP) {
-		__remove_wait_queue(event->wqh, &event->wait);
-		spin_lock(&cgrp->event_list_lock);
-		list_del(&event->list);
-		spin_unlock(&cgrp->event_list_lock);
 		/*
-		 * We are in atomic context, but cgroup_event_remove() may
-		 * sleep, so we have to call it in workqueue.
+		 * If the event has been detached at cgroup removal, we
+		 * can simply return knowing the other side will cleanup
+		 * for us.
+		 *
+		 * We can't race against event freeing since the other
+		 * side will require wqh->lock via remove_wait_queue(),
+		 * which we hold.
 		 */
-		schedule_work(&event->remove);
+		spin_lock(&cgrp->event_list_lock);
+		if (!list_empty(&event->list)) {
+			list_del_init(&event->list);
+			/*
+			 * We are in atomic context, but cgroup_event_remove()
+			 * may sleep, so we have to call it in workqueue.
+			 */
+			schedule_work(&event->remove);
+		}
+		spin_unlock(&cgrp->event_list_lock);
 	}
 
 	return 0;
@@ -3711,6 +3768,7 @@ static int cgroup_populate_dir(struct cgroup *cgrp)
 {
 	int err;
 	struct cgroup_subsys *ss;
+	LIST_HEAD(tmp_list);
 
 	/* First clear out any existing files */
 	cgroup_clear_directory(cgrp->dentry);
@@ -3800,6 +3858,7 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 			     mode_t mode)
 {
 	struct cgroup *cgrp;
+	struct cgroup_name *name;
 	struct cgroupfs_root *root = parent->root;
 	int err = 0;
 	struct cgroup_subsys *ss;
@@ -3808,6 +3867,11 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 	cgrp = kzalloc(sizeof(*cgrp), GFP_KERNEL);
 	if (!cgrp)
 		return -ENOMEM;
+
+	name = cgroup_alloc_name(dentry);
+	if (!name)
+		goto err_free_cgrp;
+	rcu_assign_pointer(cgrp->name, name);
 
 	/* Grab a reference on the superblock so the hierarchy doesn't
 	 * get deleted on unmount if there are child cgroups.  This
@@ -3857,8 +3921,6 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 	if (err < 0)
 		goto err_remove;
 
-	set_bit(CGRP_RELEASABLE, &parent->flags);
-
 	/* The cgroup directory was pre-locked for us */
 	BUG_ON(!mutex_is_locked(&cgrp->dentry->d_inode->i_mutex));
 
@@ -3889,6 +3951,9 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 	/* Release the reference count that we took on the superblock */
 	deactivate_super(sb);
 
+	kfree(rcu_dereference_raw(cgrp->name));
+
+ err_free_cgrp:
 	kfree(cgrp);
 	return err;
 }
@@ -3990,21 +4055,6 @@ static int cgroup_clear_css_refs(struct cgroup *cgrp)
 	return !failed;
 }
 
-/* checks if all of the css_sets attached to a cgroup have a refcount of 0.
- * Must be called with css_set_lock held */
-static int cgroup_css_sets_empty(struct cgroup *cgrp)
-{
-	struct cg_cgroup_link *link;
-
-	list_for_each_entry(link, &cgrp->css_sets, cgrp_link_list) {
-		struct css_set *cg = link->cg;
-		if (atomic_read(&cg->refcount) > 0)
-			return 0;
-	}
-
-	return 1;
-}
-
 static int cgroup_rmdir(struct inode *unused_dir, struct dentry *dentry)
 {
 	struct cgroup *cgrp = dentry->d_fsdata;
@@ -4017,7 +4067,7 @@ static int cgroup_rmdir(struct inode *unused_dir, struct dentry *dentry)
 	/* the vfs holds both inode->i_mutex already */
 again:
 	mutex_lock(&cgroup_mutex);
-	if (!cgroup_css_sets_empty(cgrp)) {
+	if (atomic_read(&cgrp->count) != 0) {
 		mutex_unlock(&cgroup_mutex);
 		return -EBUSY;
 	}
@@ -4050,7 +4100,7 @@ again:
 
 	mutex_lock(&cgroup_mutex);
 	parent = cgrp->parent;
-	if (!cgroup_css_sets_empty(cgrp) || !list_empty(&cgrp->children)) {
+	if (atomic_read(&cgrp->count) || !list_empty(&cgrp->children)) {
 		clear_bit(CGRP_WAIT_ON_RMDIR, &cgrp->flags);
 		mutex_unlock(&cgroup_mutex);
 		return -EBUSY;
@@ -4090,18 +4140,17 @@ again:
 	cgroup_d_remove_dir(d);
 	dput(d);
 
+	set_bit(CGRP_RELEASABLE, &parent->flags);
 	check_for_release(parent);
 
 	/*
 	 * Unregister events and notify userspace.
 	 * Notify userspace about cgroup removing only after rmdir of cgroup
-	 * directory to avoid race between userspace and kernelspace
+	 * directory to avoid race between userspace and kernelspace.
 	 */
 	spin_lock(&cgrp->event_list_lock);
 	list_for_each_entry_safe(event, tmp, &cgrp->event_list, list) {
-		list_del(&event->list);
-		remove_wait_queue(event->wqh, &event->wait);
-		eventfd_signal(event->eventfd, 1);
+		list_del_init(&event->list);
 		schedule_work(&event->remove);
 	}
 	spin_unlock(&cgrp->event_list_lock);
@@ -4605,6 +4654,17 @@ void cgroup_fork_callbacks(struct task_struct *child)
  */
 void cgroup_post_fork(struct task_struct *child)
 {
+	/*
+	 * use_task_css_set_links is set to 1 before we walk the tasklist
+	 * under the tasklist_lock and we read it here after we added the child
+	 * to the tasklist under the tasklist_lock as well. If the child wasn't
+	 * yet in the tasklist when we walked through it from
+	 * cgroup_enable_task_cg_lists(), then use_task_css_set_links value
+	 * should be visible now due to the paired locking and barriers implied
+	 * by LOCK/UNLOCK: it is written before the tasklist_lock unlock
+	 * in cgroup_enable_task_cg_lists() and read here after the tasklist_lock
+	 * lock on fork.
+	 */
 	if (use_task_css_set_links) {
 		write_lock(&css_set_lock);
 		task_lock(child);
@@ -4689,7 +4749,7 @@ void cgroup_exit(struct task_struct *tsk, int run_callbacks)
 	task_unlock(tsk);
 
 	if (cg)
-		put_css_set(cg);
+		put_css_set_taskexit(cg);
 }
 
 /**
@@ -4743,14 +4803,6 @@ static void check_for_release(struct cgroup *cgrp)
 }
 
 /* Caller must verify that the css is not for root cgroup */
-void __css_get(struct cgroup_subsys_state *css, int count)
-{
-	atomic_add(count, &css->refcnt);
-	set_bit(CGRP_RELEASABLE, &css->cgroup->flags);
-}
-EXPORT_SYMBOL_GPL(__css_get);
-
-/* Caller must verify that the css is not for root cgroup */
 void __css_put(struct cgroup_subsys_state *css, int count)
 {
 	struct cgroup *cgrp = css->cgroup;
@@ -4758,7 +4810,10 @@ void __css_put(struct cgroup_subsys_state *css, int count)
 	rcu_read_lock();
 	val = atomic_sub_return(count, &css->refcnt);
 	if (val == 1) {
-		check_for_release(cgrp);
+		if (notify_on_release(cgrp)) {
+			set_bit(CGRP_RELEASABLE, &cgrp->flags);
+			check_for_release(cgrp);
+		}
 		cgroup_wakeup_rmdir_waiter(cgrp);
 	}
 	rcu_read_unlock();
@@ -4881,8 +4936,7 @@ unsigned short css_id(struct cgroup_subsys_state *css)
 	 * on this or this is under rcu_read_lock(). Once css->id is allocated,
 	 * it's unchanged until freed.
 	 */
-	cssid = rcu_dereference_check(css->id,
-			rcu_read_lock_held() || atomic_read(&css->refcnt));
+	cssid = rcu_dereference_check(css->id, atomic_read(&css->refcnt));
 
 	if (cssid)
 		return cssid->id;
@@ -4894,8 +4948,7 @@ unsigned short css_depth(struct cgroup_subsys_state *css)
 {
 	struct css_id *cssid;
 
-	cssid = rcu_dereference_check(css->id,
-			rcu_read_lock_held() || atomic_read(&css->refcnt));
+	cssid = rcu_dereference_check(css->id, atomic_read(&css->refcnt));
 
 	if (cssid)
 		return cssid->depth;

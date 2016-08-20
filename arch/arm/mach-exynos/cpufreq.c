@@ -322,6 +322,11 @@ int exynos_cpufreq_lock(unsigned int nId,
 	freq_old = policy->cur;
 	freq_new = freq_table[cpufreq_level].frequency;
 
+#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD) ||\
+	defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_GC1)
+	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
+			"%s +: cpufreq: %d ", __func__, freq_old);
+#endif
 	if (freq_old < freq_new) {
 		/* Find out current level index */
 		for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
@@ -355,6 +360,11 @@ int exynos_cpufreq_lock(unsigned int nId,
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 	}
 
+#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD) ||\
+	defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_GC1)
+	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
+		"%s -: cpufreq: %d ", __func__, freq_new);
+#endif
 	mutex_unlock(&set_freq_lock);
 
 	return ret;
@@ -478,6 +488,12 @@ int exynos_cpufreq_upper_limit(unsigned int nId,
 	freq_old = policy->cur;
 	freq_new = freq_table[cpufreq_level].frequency;
 
+#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD) ||\
+	defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_GC1)
+	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
+			"%s +: cpufreq: %d ", __func__, freq_old);
+#endif
+
 	if (freq_old > freq_new) {
 		/* Find out current level index */
 		for (i = 0; i <= exynos_info->min_support_idx; i++) {
@@ -510,6 +526,12 @@ int exynos_cpufreq_upper_limit(unsigned int nId,
 
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 	}
+
+#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD) ||\
+	defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_GC1)
+	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
+			"%s -: cpufreq: %d ", __func__, freq_new);
+#endif
 
 	mutex_unlock(&set_freq_lock);
 
@@ -709,8 +731,6 @@ static struct notifier_block exynos_cpufreq_policy_notifier = {
 
 static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
-	int ret;
-
 	policy->cur = policy->min = policy->max = exynos_getspeed(policy->cpu);
 
 	cpufreq_frequency_table_get_attr(exynos_info->freq_table, policy->cpu);
@@ -731,25 +751,8 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 		cpumask_setall(policy->cpus);
 	}
 
-	ret = cpufreq_frequency_table_cpuinfo(policy, exynos_info->freq_table);
-	if (ret)
-		return ret;
-
-	cpufreq_frequency_table_get_attr(exynos_info->freq_table, policy->cpu);
-
-	return 0;
+	return cpufreq_frequency_table_cpuinfo(policy, exynos_info->freq_table);
 }
-
-static int exynos_cpufreq_cpu_exit(struct cpufreq_policy *policy)
-{
-	cpufreq_frequency_table_put_attr(policy->cpu);
-	return 0;
-}
-
-static struct freq_attr *exynos_cpufreq_attr[] = {
-	&cpufreq_freq_attr_scaling_available_freqs,
-	NULL,
-};
 
 static int exynos_cpufreq_reboot_notifier_call(struct notifier_block *this,
 				   unsigned long code, void *_cmd)
@@ -774,9 +777,7 @@ static struct cpufreq_driver exynos_driver = {
 	.target		= exynos_target,
 	.get		= exynos_getspeed,
 	.init		= exynos_cpufreq_cpu_init,
-	.exit		= exynos_cpufreq_cpu_exit,
 	.name		= "exynos_cpufreq",
-	.attr		= exynos_cpufreq_attr,
 #ifdef CONFIG_PM
 	.suspend	= exynos_cpufreq_suspend,
 	.resume		= exynos_cpufreq_resume,

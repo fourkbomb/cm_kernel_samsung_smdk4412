@@ -1968,10 +1968,6 @@ static void sdhci_tasklet_finish(unsigned long param)
 		   controllers do not like that. */
 		sdhci_reset(host, SDHCI_RESET_CMD);
 		sdhci_reset(host, SDHCI_RESET_DATA);
-#ifdef CONFIG_MACH_PX
-		printk(KERN_DEBUG "%s: Controller is resetted!\n",
-			mmc_hostname(host->mmc));
-#endif
 	}
 
 	host->mrq = NULL;
@@ -2068,10 +2064,6 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 
 	if (host->cmd->error) {
 		tasklet_schedule(&host->finish_tasklet);
-#ifdef CONFIG_MACH_PX
-		printk(KERN_DEBUG "%s: finish tasklet schedule\n",
-			mmc_hostname(host->mmc));
-#endif
 		return;
 	}
 
@@ -2415,13 +2407,6 @@ int sdhci_resume_host(struct sdhci_host *host)
 	    (host->tuning_mode == SDHCI_TUNING_MODE_1))
 		host->flags |= SDHCI_NEEDS_RETUNING;
 
-#ifdef CONFIG_MACH_PX
-	/* host has a card and the card is SDIO type */
-	if (host->mmc->card && mmc_card_sdio(host->mmc->card)) {
-		/* enable sdio interrupt */
-		sdhci_enable_sdio_irq(host->mmc, 1);
-	}
-#endif
 	return ret;
 }
 
@@ -2692,9 +2677,6 @@ int sdhci_add_host(struct sdhci_host *host)
 		mmc->caps |= MMC_CAP_DRIVER_TYPE_C;
 	if (caps[1] & SDHCI_DRIVER_TYPE_D)
 		mmc->caps |= MMC_CAP_DRIVER_TYPE_D;
-
-	if (mmc->pm_flags & MMC_PM_IGNORE_SUSPEND_RESUME)
-		mmc->pm_caps |= MMC_PM_KEEP_POWER;
 
 	/*
 	 * If Power Off Notify capability is enabled by the host,

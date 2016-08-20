@@ -33,8 +33,8 @@ struct fci_ringbuffer {
 
 #define FCI_RINGBUFFER_PKTHDRSIZE 3
 
-extern void fci_ringbuffer_init(struct fci_ringbuffer *rbuf
-	, void *data, size_t len);
+extern void fci_ringbuffer_init(struct fci_ringbuffer *rbuf, \
+void *data, size_t len);
 
 extern int fci_ringbuffer_empty(struct fci_ringbuffer *rbuf);
 
@@ -48,42 +48,42 @@ extern void fci_ringbuffer_flush(struct fci_ringbuffer *rbuf);
 
 extern void fci_ringbuffer_flush_spinlock_wakeup(struct fci_ringbuffer *rbuf);
 
-#define FCI_RINGBUFFER_PEEK(rbuf, offs)	\
-	((rbuf)->data[((rbuf)->pread+(offs)) % (rbuf)->size])
+#define FCI_RINGBUFFER_PEEK(rbuf, offs) \
+	((rbuf)->data[((rbuf)->pread+(offs))%(rbuf)->size])
 
-#define FCI_RINGBUFFER_SKIP(rbuf, num)	\
-	((rbuf)->pread = ((rbuf)->pread+(num)) % (rbuf)->size)
+#define FCI_RINGBUFFER_SKIP(rbuf, num) \
+	((rbuf)->pread = ((rbuf)->pread+(num))%(rbuf)->size)
 
-extern ssize_t fci_ringbuffer_read_user(struct fci_ringbuffer *rbuf
-, u8 __user *buf, size_t len);
+extern ssize_t fci_ringbuffer_read_user(struct fci_ringbuffer *rbuf, \
+u8 __user *buf, size_t len);
 
-extern void fci_ringbuffer_read(struct fci_ringbuffer *rbuf
-	, u8 *buf, size_t len);
+extern void fci_ringbuffer_read(struct fci_ringbuffer *rbuf, u8 *buf, \
+	size_t len);
 
 
-#define FCI_RINGBUFFER_WRITE_BYTE(rbuf, byte)	\
-		{ (rbuf)->data[(rbuf)->pwrite] = (byte); \
-			(rbuf)->pwrite = ((rbuf)->pwrite + 1) % (rbuf)->size; }
+#define FCI_RINGBUFFER_WRITE_BYTE(rbuf, byte) { \
+	(rbuf)->data[(rbuf)->pwrite] = (byte); \
+	(rbuf)->pwrite = ((rbuf)->pwrite+1)%(rbuf)->size; }
 
-extern ssize_t fci_ringbuffer_write(struct fci_ringbuffer *rbuf
-	, const u8 *buf, size_t len);
+extern ssize_t fci_ringbuffer_write(struct fci_ringbuffer *rbuf, \
+	const u8 *buf, size_t len);
 
-extern ssize_t fci_ringbuffer_pkt_write(struct fci_ringbuffer *rbuf
-	, u8 *buf, size_t len);
+extern ssize_t fci_ringbuffer_pkt_write(struct fci_ringbuffer *rbuf, \
+	u8 *buf, size_t len);
 
-extern ssize_t fci_ringbuffer_pkt_read_user(struct fci_ringbuffer *rbuf
-	, size_t idx, int offset, u8 __user *buf, size_t len);
+extern ssize_t fci_ringbuffer_pkt_read_user(struct fci_ringbuffer *rbuf, \
+	size_t idx, int offset, u8 __user *buf, size_t len);
 
-extern ssize_t fci_ringbuffer_pkt_read(struct fci_ringbuffer *rbuf
-	, size_t idx, int offset, u8 *buf, size_t len);
+extern ssize_t fci_ringbuffer_pkt_read(struct fci_ringbuffer *rbuf, \
+	size_t idx, int offset, u8 *buf, size_t len);
 
 extern void fci_ringbuffer_pkt_dispose(struct fci_ringbuffer *rbuf, size_t idx);
 
-extern ssize_t fci_ringbuffer_pkt_next(struct fci_ringbuffer *rbuf
-	, size_t idx, size_t *pktlen);
+extern ssize_t fci_ringbuffer_pkt_next(struct fci_ringbuffer *rbuf, \
+	size_t idx, size_t *pktlen);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* __FCI_RINGBUFFER_H__*/

@@ -22,7 +22,6 @@
 #include <mach/irqs.h>
 #include <plat/gpio-cfg.h>
 #include <asm/gpio.h>
-#include <mach/gpio-midas.h>
 #include "grande_download.h"
 
 #define _3_TOUCH_SDA_28V GPIO_3_TOUCH_SDA
@@ -38,7 +37,7 @@
 //============================================================
 
 #define MCS5000_CHIP		0x93
-#define MCS5080_CHIP		0x3
+#define MCS5080_CHIP		0x03
 
 static UINT8 MCS_VERSION;
 
@@ -489,8 +488,14 @@ void melfas_send_download_enable_command(void)
 //============================================================
 //#include "MCS5080_SAMPLE_FIRMWARE_R01_V00_bin.c"
 //#include "MMH_SVESTA_R00_V02_bin.c"  //1 include bin file
+#ifdef CONFIG_MACH_GRANDE
+#define BINARY_FIRMWARE_VERSION 0x03
+#include "MCH_SW889_R02_V03_bin.c"
+#endif
+#ifdef CONFIG_MACH_IRON
 #define BINARY_FIRMWARE_VERSION 0x01
-#include "MCH_SW889_R01_V01_bin.c"
+#include "B9388_R00_V01_bin.c"
+#endif
 
 //============================================================
 //

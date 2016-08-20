@@ -143,7 +143,7 @@ static ssize_t backlight_show_dimming(struct device *dev,
 }
 
 static ssize_t backlight_show_power(struct device *dev,
-		struct device_attribute *attr,char *buf)
+		struct device_attribute *attr, char *buf)
 {
 	struct backlight_device *bd = to_backlight_device(dev);
 
@@ -211,7 +211,7 @@ static ssize_t backlight_store_brightness(struct device *dev,
 	}
 	mutex_unlock(&bd->ops_lock);
 
-	/* backlight_generate_event(bd, BACKLIGHT_UPDATE_SYSFS); */
+	backlight_generate_event(bd, BACKLIGHT_UPDATE_SYSFS);
 
 	return rc;
 }
@@ -282,6 +282,49 @@ static void bl_device_release(struct device *dev)
 	kfree(bd);
 }
 
+static ssize_t backlight_show_min_brightness(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct backlight_device *bd = to_backlight_device(dev);
+
+	return sprintf(buf, "%d\n",  bd->ops->get_minbrightness(bd));
+}
+
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+static ssize_t backlight_show_overheating(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct backlight_device *bd = to_backlight_device(dev);
+
+	return sprintf(buf, "%d\n", bd->props.overheating);
+}
+
+static ssize_t backlight_store_overheating(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc;
+	struct backlight_device *bd = to_backlight_device(dev);
+	unsigned long iop;
+
+	rc = strict_strtoul(buf, 0, &iop);
+	if (rc)
+		return rc;
+
+	rc = -ENXIO;
+
+	mutex_lock(&bd->ops_lock);
+	if (bd->ops) {
+		pr_debug("backlight: set iop to %lu\n",
+			 iop);
+		bd->props.overheating = iop;
+		backlight_set_overheating_protection(bd);
+	}
+	mutex_unlock(&bd->ops_lock);
+
+	return count;
+}
+#endif
+
 static struct device_attribute bl_device_attributes[] = {
 	__ATTR(dimming, 0644, backlight_show_dimming, backlight_store_dimming),
 	__ATTR(bl_power, 0644, backlight_show_power, backlight_store_power),
@@ -291,6 +334,12 @@ static struct device_attribute bl_device_attributes[] = {
 		     NULL),
 	__ATTR(max_brightness, 0444, backlight_show_max_brightness, NULL),
 	__ATTR(type, 0444, backlight_show_type, NULL),
+	__ATTR(min_brightness, S_IRUGO,
+			backlight_show_min_brightness, NULL),
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+	__ATTR(overheating, 0644, backlight_show_overheating,
+			backlight_store_overheating),
+#endif
 	__ATTR_NULL,
 };
 

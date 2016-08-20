@@ -181,8 +181,9 @@ int vt_waitactive(int n)
 			break;
 		vw.event.event = VT_EVENT_SWITCH;
 		vt_event_wait(&vw);
-		if (vw.done == 0)
+		if (vw.done == 0) {
 			return -EINTR;
+		}
 	} while (vw.event.newev != n);
 	return 0;
 }

@@ -72,8 +72,6 @@ struct android_usb_platform_data {
 	 * (anywhere from 1 to FSG_MAX_LUNS which is 8).
 	 */
 	unsigned int            nluns;
-	/* cdfs supprot : verizon require */
-	unsigned int		cdfs_support;
 };
 
 /* Platform data for "usb_mass_storage" driver. */

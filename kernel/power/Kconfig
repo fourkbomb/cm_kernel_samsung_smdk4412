@@ -7,6 +7,10 @@ config SUSPEND
 	  powered and thus its contents are preserved, such as the
 	  suspend-to-RAM state (e.g. the ACPI S3 state).
 
+config PARTIALSUSPEND_SLP
+	bool "Partial suspend feature for SLP"
+	default n
+
 config SUSPEND_FREEZER
 	bool "Enable freezer for suspend to RAM/standby" \
 		if ARCH_WANTS_FREEZER_CONTROL || BROKEN
@@ -237,6 +241,11 @@ config PM_ADVANCED_DEBUG
 	fields of device objects from user space.  If you are not a kernel
 	developer interested in debugging/testing Power Management, say "no".
 
+config SLP_WAKEUP_COUNT
+        bool "Wakeup sources hit-counts during system sleep"
+        def_bool n
+        depends on PM && SLP
+
 config PM_TEST_SUSPEND
 	bool "Test suspend/resume and wakealarm during bootup"
 	depends on SUSPEND && PM_DEBUG && RTC_CLASS=y
@@ -338,7 +347,3 @@ config SUSPEND_TIME
 	  Prints the time spent in suspend in the kernel log, and
 	  keeps statistics on the time spent in suspend in
 	  /sys/kernel/debug/suspend_time
-
-config CPU_PM
-	bool
-	depends on SUSPEND || CPU_IDLE

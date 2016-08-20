@@ -48,6 +48,15 @@ config DRM_EXYNOS_HDMI
 	help
 	  Choose this option if you want to use Samsung HDMI for DRM.
 
+config DRM_EXYNOS_HDCP
+	bool "Samsung DRM HDCP"
+	depends on DRM_EXYNOS_HDMI
+	help
+	  This option enables HDCP in HDMI for DRM.
+	  It can support contents protection HDMI streaming packet.
+	  HDCP is stand for High-bandwidth Digital Content Protection.
+	  supports version HDCP v1.1.
+
 config DRM_EXYNOS_VIDI
 	bool "Samsung DRM Virtual Display"
 	depends on DRM_EXYNOS

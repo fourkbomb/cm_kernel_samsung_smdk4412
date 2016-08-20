@@ -19,6 +19,7 @@ obj-$(CONFIG_PHANTOM)		+= phantom.o
 obj-$(CONFIG_SENSORS_BH1780)	+= bh1780gli.o
 obj-$(CONFIG_SENSORS_BH1770)	+= bh1770glc.o
 obj-$(CONFIG_SENSORS_APDS990X)	+= apds990x.o
+obj-$(CONFIG_ANDROID_PMEM)	+= pmem.o
 obj-$(CONFIG_SGI_IOC4)		+= ioc4.o
 obj-$(CONFIG_ENCLOSURE_SERVICES) += enclosure.o
 obj-$(CONFIG_KGDB_TESTS)	+= kgdbts.o
@@ -59,10 +60,13 @@ obj-$(CONFIG_USBHUB_USB3803)	+= usb3803.o
 ifeq ($(CONFIG_SEC_MODEM_P8LTE),y)
 obj-$(CONFIG_SEC_MODEM)         += modem_if_na/
 else
-ifeq ($(CONFIG_MACH_U1),y)
-obj-$(CONFIG_SEC_MODEM)		+= modem_if_u1/
+ifeq ($(CONFIG_SEC_MODEM_TIZEN),y)
+obj-$(CONFIG_SEC_MODEM)         += modem_if_tizen/
 else
 obj-$(CONFIG_SEC_MODEM)		+= modem_if/
+endif
+ifeq ($CONFIG_SEC_MODEM_IRON_TD),y)
+obj-$(CONFIG_SEC_MODEM_IRON_TD)		+= modem_if/
 endif
 endif
 obj-$(CONFIG_MFD_MAX77693)	+= max77693-muic.o
@@ -83,10 +87,10 @@ obj-y				+= 2mic/
 
 obj-$(CONFIG_SLP_PROCESS_MON)	+= slp_process_monitor.o
 obj-$(CONFIG_SLP_LOWMEM_NOTIFY)	+= slp_lowmem_notify.o
+obj-$(CONFIG_SLP_GLOBAL_LOCK)	+= slp_global_lock.o
 
 obj-$(CONFIG_MACH_M0_CTC)   += cw_tty.o
 
 # Secure OS Mobicore Interface
-CFLAGS_tzic.o :=$(call as-instr,.arch_extension sec,-DREQUIRES_SEC=1)
 obj-$(CONFIG_MOBICORE_SUPPORT)  += tzic.o
-obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
+CFLAGS_tzic.o :=$(call as-instr,.arch_extension sec,-DREQUIRES_SEC=1)

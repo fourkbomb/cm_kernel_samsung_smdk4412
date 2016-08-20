@@ -414,7 +414,6 @@ static int fimc_is_probe(struct platform_device *pdev)
 		dev->pdata->clk_get(pdev);
 	} else {
 		err("#### failed to Get Clock####\n");
-		ret = -EINVAL;
 		goto p_err_init_mem;
 	}
 	/* Init v4l2 sub device */

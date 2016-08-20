@@ -265,32 +265,55 @@ static int max17047_get_rawsoc(struct i2c_client *client)
 static int max17047_get_soc(struct i2c_client *client)
 {
 	struct max17047_fuelgauge_data *fg_data = i2c_get_clientdata(client);
-	int rawsoc, soc, fullsoc, empty;
+	int rawsoc, soc;
 	pr_debug("%s\n", __func__);
 
 	rawsoc = max17047_get_rawsoc(fg_data->client);
 
-#if defined(CONFIG_MACH_C1)
-	empty = 0;
-#else	/* M0, T0,,, */
-	empty = 29;
-#endif
-
+#if defined(CONFIG_MACH_C1_KOR_SKT) || \
+	defined(CONFIG_MACH_C1_KOR_KT) || \
+	defined(CONFIG_MACH_C1_KOR_LGT)
 	if (fg_data->full_soc <= 0)
 		fg_data->full_soc = FULL_SOC_DEFAULT;
-	fullsoc = fg_data->full_soc - empty;
-	rawsoc -= empty;
-
-/* adjust fullsoc value for fast termination */
-#if defined(USE_2STEP_TERM) && !defined(CONFIG_TARGET_LOCALE_KOR)
-	fullsoc *= 99;
-	fullsoc /= 100;
-#endif
 
 	soc = fg_data->soc =
-		((rawsoc < empty) ? 0 : (min((rawsoc * 100 / fullsoc), 100)));
+		((rawsoc < 0) ? 0 : (min((rawsoc * 100 /
+				fg_data->full_soc), 100)));
+#elif defined(CONFIG_MACH_M0_KOR_SKT) || \
+	defined(CONFIG_MACH_M0_KOR_KT)
+	if (fg_data->full_soc <= 0)
+		fg_data->full_soc = FULL_SOC_DEFAULT;
 
-	pr_info("%s: SOC(%d, %d / %d)\n", __func__, soc, rawsoc, fullsoc);
+	soc = fg_data->soc =
+		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
+				(fg_data->full_soc - 29)), 100)));
+#elif defined(CONFIG_MACH_T0_KOR_SKT) || \
+	defined(CONFIG_MACH_T0_KOR_KT) || \
+	defined(CONFIG_MACH_T0_KOR_LGT)
+	if (fg_data->full_soc <= 0)
+		fg_data->full_soc = FULL_SOC_DEFAULT;
+
+	soc = fg_data->soc =
+		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
+				(fg_data->full_soc - 29)), 100)));
+#elif defined(CONFIG_MACH_M0_CTC)
+	if (fg_data->full_soc <= 0)
+		fg_data->full_soc = FULL_SOC_DEFAULT;
+
+	soc = fg_data->soc =
+		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
+				(fg_data->full_soc - 29)), 100)));
+#else
+	/* M0 */
+	if (fg_data->full_soc <= 0)
+		fg_data->full_soc = FULL_SOC_DEFAULT;
+
+	soc = fg_data->soc =
+		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
+				(fg_data->full_soc - 29)), 100)));
+#endif
+
+	pr_debug("%s: SOC(%d, %d)\n", __func__, soc, rawsoc);
 	return soc;
 }
 
@@ -353,8 +376,8 @@ static void max17047_adjust_fullsoc(struct i2c_client *client)
 	}
 
 	if (prev_full_soc != fg_data->full_soc)
-		pr_info("%s : p_full_soc(%d), full_soc(%d), keep_soc(%d)\n",
-			__func__, prev_full_soc, fg_data->full_soc, keep_soc);
+		pr_info("%s : full_soc = %d, keep_soc = %d\n", __func__,
+			fg_data->full_soc, keep_soc);
 }
 
 /* SOC% alert, disabled(0xFF00) */
@@ -926,7 +949,9 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 					max17047_polling_work);
 	schedule_delayed_work(&fg_data->polling_work, 0);
 #else
+#ifndef CONFIG_SLP
 	max17047_test_read(fg_data);
+#endif
 #endif
 
 	pr_info("%s: probe complete\n", __func__);
@@ -949,6 +974,9 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 #endif
 #endif
 
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	device_init_wakeup_setirq(&fg_data->client->dev, fg_data->irq);
+#endif
 	return 0;
 
 err_enable_irq:

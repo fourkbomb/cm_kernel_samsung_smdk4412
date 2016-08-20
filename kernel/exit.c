@@ -68,7 +68,6 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 		detach_pid(p, PIDTYPE_SID);
 
 		list_del_rcu(&p->tasks);
-		delete_from_adj_tree(p);
 		list_del_init(&p->sibling);
 		__this_cpu_dec(process_counts);
 	}
@@ -86,7 +85,6 @@ static void __exit_signal(struct task_struct *tsk)
 	struct tty_struct *uninitialized_var(tty);
 
 	sighand = rcu_dereference_check(tsk->sighand,
-					rcu_read_lock_held() ||
 					lockdep_tasklist_lock_is_held());
 	spin_lock(&sighand->siglock);
 

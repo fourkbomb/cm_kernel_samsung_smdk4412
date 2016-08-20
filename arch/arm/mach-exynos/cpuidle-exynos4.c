@@ -10,7 +10,6 @@
 
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/cpu_pm.h>
 #include <linux/cpuidle.h>
 #include <linux/io.h>
 #include <linux/suspend.h>
@@ -342,12 +341,10 @@ static int check_usb_op(void)
 #endif
 }
 
-#if defined (CONFIG_MACH_U1_NA_SPR) || (CONFIG_MACH_U1_NA_USCC)
-#include "../../../sound/soc/samsung/srp-types.h"
-#include "../../../sound/soc/samsung/idma.h"
-#endif
-
 #ifdef CONFIG_SND_SAMSUNG_RP
+#if defined(CONFIG_MACH_U1_NA_SPR)
+#include "../../../sound/soc/samsung/srp-types.h"
+#endif
 extern int srp_get_op_level(void);	/* By srp driver */
 #endif
 
@@ -373,30 +370,14 @@ static inline int check_gps_uart_op(void)
 	return gps_is_running;
 }
 
-#if defined(CONFIG_INTERNAL_MODEM_IF) || defined(CONFIG_SAMSUNG_PHONE_TTY)
+#ifdef CONFIG_INTERNAL_MODEM_IF
 static int check_idpram_op(void)
 {
 	/* This pin is high when CP might be accessing dpram */
-#ifdef CONFIG_MACH_U1_NA_SPR
-	int cp_int = __raw_readl(S5P_VA_GPIO2 + 0xC24) & 4;
-#else
 	int cp_int = gpio_get_value(GPIO_CP_AP_DPRAM_INT);
-#endif
 	if (cp_int != 0)
 		pr_info("%s cp_int is high.\n", __func__);
 	return cp_int;
-}
-#endif
-
-#if defined(CONFIG_ISDBT)
-static int check_isdbt_op(void)
-{
-	/* This pin is high when isdbt is working */
-	int isdbt_is_running = gpio_get_value(GPIO_ISDBT_EN);
-
-	if (isdbt_is_running != 0)
-		printk(KERN_INFO "isdbt_is_running is high\n");
-	return isdbt_is_running;
 }
 #endif
 
@@ -429,28 +410,21 @@ static int exynos4_check_operation(void)
 #ifdef CONFIG_SND_SAMSUNG_RP
 	if (srp_get_op_level())
 		return 1;
-#endif
-
-#if defined (CONFIG_MACH_U1_NA_SPR) || (CONFIG_MACH_U1_NA_USCC)
-#ifdef CONFIG_SND_SAMSUNG_RP
+#if defined(CONFIG_MACH_U1_NA_SPR)
 	if (!srp_get_status(IS_RUNNING))
 		return 1;
-#elif defined(CONFIG_SND_SAMSUNG_ALP)
-	if (!idma_is_running())
-		return 1;
 #endif
 #endif
-
 	if (check_usb_op())
 		return 1;
 
-#if defined(CONFIG_ISDBT)
-	if (check_isdbt_op())
+#if defined(CONFIG_BT)
+	if (check_bt_op())
 		return 1;
 #endif
 
-#if defined(CONFIG_BT)
-	if (check_bt_op())
+#ifdef CONFIG_INTERNAL_MODEM_IF
+	if (check_idpram_op())
 		return 1;
 #endif
 
@@ -465,10 +439,6 @@ static int exynos4_check_operation(void)
 		return 1;
 	}
 
-#ifdef CONFIG_INTERNAL_MODEM_IF
-	if (check_idpram_op())
-		return 1;
-#endif
 	return 0;
 }
 
@@ -514,40 +484,6 @@ static struct sleep_save exynos4_set_clksrc[] = {
 static struct sleep_save exynos4210_set_clksrc[] = {
 	{ .reg = EXYNOS4_CLKSRC_MASK_LCD1		, .val = 0x00001111, },
 };
-
-
-static DEFINE_SPINLOCK(online_lock);
-static int n_onlining_cpus_impl;
-
-static void add_onlininig_cpu(void)
-{
-	spin_lock(&online_lock);
-	++n_onlining_cpus_impl;
-	spin_unlock(&online_lock);
-}
-
-static void remove_onlininig_cpu(void)
-{
-	spin_lock(&online_lock);
-	--n_onlining_cpus_impl;
-	spin_unlock(&online_lock);
-}
-
-static void init_onlining_cpus(void)
-{
-	spin_lock(&online_lock);
-	n_onlining_cpus_impl = num_online_cpus();
-	spin_unlock(&online_lock);
-}
-
-static int is_only_onlining_cpu(void)
-{
-	int result;
-	spin_lock(&online_lock);
-	result = n_onlining_cpus_impl == 1;
-	spin_unlock(&online_lock);
-	return result;
-}
 
 static int exynos4_check_enter(void)
 {
@@ -602,8 +538,6 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 #endif
 
 	local_irq_disable();
-
-	cpu_pm_enter();
 
 	if (log_en)
 		pr_info("+++aftr\n");
@@ -667,8 +601,6 @@ early_wakeup:
 	if (log_en)
 		pr_info("---aftr\n");
 
-	cpu_pm_exit();
-
 	local_irq_enable();
 	idle_time = (after.tv_sec - before.tv_sec) * USEC_PER_SEC +
 		    (after.tv_usec - before.tv_usec);
@@ -702,14 +634,12 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 #endif
 	local_irq_disable();
 
-	cpu_pm_enter();
-
-#if defined(CONFIG_INTERNAL_MODEM_IF) || defined(CONFIG_SAMSUNG_PHONE_TTY)
+#ifdef CONFIG_INTERNAL_MODEM_IF
 	gpio_set_value(GPIO_PDA_ACTIVE, 0);
 #endif
 
 	if (log_en)
-		pr_debug("+++lpa\n");
+		pr_info("+++lpa\n");
 
 	do_gettimeofday(&before);
 
@@ -782,7 +712,7 @@ early_wakeup:
 			       ARRAY_SIZE(exynos4_lpa_save));
 
 #ifdef CONFIG_EXYNOS4_CPUFREQ
-	if (!soc_is_exynos4210()) {
+	if ((exynos_result_of_asv > 1) && !soc_is_exynos4210()) {
 		exynos4x12_set_abb_member(ABB_ARM, abb_val);
 		exynos4x12_set_abb_member(ABB_INT, abb_val_int);
 	}
@@ -799,12 +729,10 @@ early_wakeup:
 	do_gettimeofday(&after);
 
 	if (log_en)
-		pr_debug("---lpa\n");
-#if defined(CONFIG_INTERNAL_MODEM_IF) || defined(CONFIG_SAMSUNG_PHONE_TTY)
+		pr_info("---lpa\n");
+#ifdef CONFIG_INTERNAL_MODEM_IF
 	gpio_set_value(GPIO_PDA_ACTIVE, 1);
 #endif
-
-	cpu_pm_exit();
 
 	local_irq_enable();
 	idle_time = (after.tv_sec - before.tv_sec) * USEC_PER_SEC +
@@ -874,7 +802,7 @@ static int exynos4_enter_idle(struct cpuidle_device *dev,
 		spin_lock(&idle_lock);
 		cpu_core |= (1 << cpu);
 
-		if ((cpu_core == 0x3) || is_only_onlining_cpu()) {
+		if ((cpu_core == 0x3) || (cpu_online(1) == 0)) {
 			old_div = __raw_readl(EXYNOS4_CLKDIV_CPU);
 			tmp = old_div;
 			tmp |= ((0x7 << 28) | (0x7 << 0));
@@ -892,7 +820,7 @@ static int exynos4_enter_idle(struct cpuidle_device *dev,
 
 		spin_lock(&idle_lock);
 
-		if ((cpu_core == 0x3) || is_only_onlining_cpu()) {
+		if ((cpu_core == 0x3) || (cpu_online(1) == 0)) {
 			__raw_writel(old_div, EXYNOS4_CLKDIV_CPU);
 
 			do {
@@ -948,12 +876,7 @@ static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 	int ret;
 
 	/* This mode only can be entered when only Core0 is online */
-	if (use_clock_down == SW_CLK_DWN) {
-		enter_mode = is_only_onlining_cpu();
-	} else {
-		enter_mode = num_online_cpus() == 1;
-	}
-	if (!enter_mode) {
+	if (num_online_cpus() != 1) {
 		BUG_ON(!dev->safe_state);
 		new_state = dev->safe_state;
 	}
@@ -1012,31 +935,6 @@ static int exynos4_cpuidle_notifier_event(struct notifier_block *this,
 
 static struct notifier_block exynos4_cpuidle_notifier = {
 	.notifier_call = exynos4_cpuidle_notifier_event,
-};
-
-static int exynos4_cpuidle_cpu_notifier_event(struct notifier_block *this,
-					      unsigned long event,
-					      void *hcpu)
-{
-	switch (event) {
-	case CPU_UP_PREPARE:
-	case CPU_UP_PREPARE_FROZEN:
-		add_onlininig_cpu();
-		break;
-
-	case CPU_UP_CANCELED:
-	case CPU_UP_CANCELED_FROZEN:
-	case CPU_DEAD:
-	case CPU_DEAD_FROZEN:
-		remove_onlininig_cpu();
-		break;
-	}
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block exynos4_cpuidle_cpu_notifier = {
-	.notifier_call = exynos4_cpuidle_cpu_notifier_event,
 };
 
 #ifdef CONFIG_EXYNOS4_ENABLE_CLOCK_DOWN
@@ -1211,16 +1109,7 @@ static int __init exynos4_init_cpuidle(void)
 		return -EINVAL;
 	}
 #endif
-
 	register_pm_notifier(&exynos4_cpuidle_notifier);
-
-	if (use_clock_down == SW_CLK_DWN) {
-		get_online_cpus();
-		init_onlining_cpus();
-		register_cpu_notifier(&exynos4_cpuidle_cpu_notifier);
-		put_online_cpus();
-	}
-
 	sys_pwr_conf_addr = (unsigned long)S5P_CENTRAL_SEQ_CONFIGURATION;
 
 	/* Save register value for SCU */

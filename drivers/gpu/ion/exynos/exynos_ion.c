@@ -416,8 +416,7 @@ static int ion_exynos_contig_heap_allocate(struct ion_heap *heap,
 {
 	buffer->priv_phys = cma_alloc(exynos_ion_dev, NULL, len, align);
 
-#ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_DEBUG
-	if (1) {
+	if (0) {
 		/* Print debug MSG */
 		struct cma_info mem_info;
 		struct rb_node *n=NULL;
@@ -432,28 +431,24 @@ static int ion_exynos_contig_heap_allocate(struct ion_heap *heap,
 			pr_err("%s: get cma info failed\n", __func__);
 			return (int)buffer->priv_phys;
 		}
-		printk(KERN_INFO "[ION_EXYNOS_CONTIG_HEAP] addr: %x ~ %x, "
-				"total size: 0x%x, free size: 0x%x\n",
-				mem_info.lower_bound, mem_info.upper_bound,
-				mem_info.total_size, mem_info.free_size);
-		for (n = rb_first(&ion_exynos->buffers); n; n = rb_next(n)) {
-			struct ion_buffer *buffer =
-					rb_entry(n, struct ion_buffer, node);
+		printk("[ION_EXYNOS_CONTIG_HEAP] addr: %x ~ %x, total size: 0x%x, free size: 0x%x\n",
+			mem_info.lower_bound, mem_info.upper_bound,
+			mem_info.total_size, mem_info.free_size);
+		for(n = rb_first(&ion_exynos->buffers); n; n = rb_next(n)) {
+			struct ion_buffer *buffer = rb_entry(n, struct ion_buffer, node);
 			if (buffer->heap->type == ION_HEAP_TYPE_EXYNOS_CONTIG) {
-				printk(KERN_INFO "[%d] 0x%x ~ 0x%x, size:0x%x\n",
-				buffer_cnt, (unsigned int)buffer->priv_phys,
-				(unsigned int)buffer->priv_phys+buffer->size,
-				buffer->size);
+				printk("[%d] 0x%x ~ 0x%x, size:0x%x\n",
+					buffer_cnt, (unsigned int)buffer->priv_phys,
+					(unsigned int)buffer->priv_phys+buffer->size, buffer->size);
 				size += buffer->size;
 				buffer_cnt++;
 			}
 		}
-		printk(KERN_INFO "[%d] 0x%x ~ 0x%x, size:0x%x\n",
+		printk("[%d] 0x%x ~ 0x%x, size:0x%x\n",
 				buffer_cnt, (unsigned int)curr_phy,
 				(unsigned int)curr_phy+curr_size, curr_size);
-		printk(KERN_INFO "usage size: 0x%x\n", size);
+		printk("usage size: 0x%x\n", size);
 	}
-#endif
 
 	if (IS_ERR_VALUE(buffer->priv_phys)) {
 		struct cma_info mem_info;
@@ -487,28 +482,16 @@ static int ion_exynos_contig_heap_allocate(struct ion_heap *heap,
 	}
 
 	buffer->flags = flags;
-#ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_DEBUG
-	printk(KERN_INFO "[ION] alloc: 0x%x\n",
-		(unsigned int)buffer->priv_phys);
-#endif
 
 	return 0;
 }
 
 static void ion_exynos_contig_heap_free(struct ion_buffer *buffer)
 {
-	int ret = 0;
-#ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_DEBUG
-	if (1)
-		printk(KERN_INFO "free addr: 0x%x\n",
-			(unsigned int)buffer->priv_phys);
-#endif
+	if (0)
+		printk("free addr: 0x%x\n", (unsigned int)buffer->priv_phys);
 
-	ret = cma_free(buffer->priv_phys);
-#ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_DEBUG
-	printk(KERN_INFO "[ION] free: 0x%x, [0x%x]\n",
-		(unsigned int)buffer->priv_phys, ret);
-#endif
+	cma_free(buffer->priv_phys);
 }
 
 static int ion_exynos_contig_heap_phys(struct ion_heap *heap,
@@ -548,8 +531,6 @@ static int ion_exynos_contig_heap_map_user(struct ion_heap *heap,
 	if (buffer->flags & ION_EXYNOS_NONCACHE_MASK)
 		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
-	/* Set User Permission */
-	vma->vm_page_prot = pte_mkdirty(vma->vm_page_prot);
 	return remap_pfn_range(vma, vma->vm_start, pfn + vma->vm_pgoff,
 			       vma->vm_end - vma->vm_start,
 			       vma->vm_page_prot);

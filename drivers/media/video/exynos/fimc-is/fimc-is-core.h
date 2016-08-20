@@ -63,7 +63,7 @@
 #define FIMC_IS_A5_MEM_SIZE		0x00A00000
 #define FIMC_IS_REGION_SIZE		0x5000
 
-#define FIMC_IS_DEBUG_REGION_ADDR	0x0084B000
+#define FIMC_IS_DEBUG_REGION_ADDR	0x00840000
 #define FIMC_IS_SHARED_REGION_ADDR	0x008C0000
 #define FIMC_IS_FW_INFO_LENGTH		32
 #define FIMC_IS_FW_VERSION_LENGTH	7
@@ -77,23 +77,13 @@
 
 #define GED_FD_RANGE			1000
 
-#ifdef CONFIG_MACH_T0
-#define BUS_LOCK_FREQ_L0	440293
-#define BUS_LOCK_FREQ_L1	440220
-#define BUS_LOCK_FREQ_L2	293220
-#define BUS_LOCK_FREQ_L3	293176
-#define BUS_LOCK_FREQ_L4	176176
-#define BUS_LOCK_FREQ_L5	147147
-#define BUS_LOCK_FREQ_L6	110110
-#else
-#define BUS_LOCK_FREQ_L0	400266
-#define BUS_LOCK_FREQ_L1	400200
-#define BUS_LOCK_FREQ_L2	267200
-#define BUS_LOCK_FREQ_L3	267160
-#define BUS_LOCK_FREQ_L4	160160
-#define BUS_LOCK_FREQ_L5	133133
-#define BUS_LOCK_FREQ_L6	100100
-#endif
+#define BUS_LOCK_FREQ_L0	400200
+#define BUS_LOCK_FREQ_L1	267200
+#define BUS_LOCK_FREQ_L2	267160
+#define BUS_LOCK_FREQ_L3	160160
+#define BUS_LOCK_FREQ_L4	133133
+#define BUS_LOCK_FREQ_L5	100100
+
 /* A5 debug message setting */
 #define FIMC_IS_DEBUG_MSG	0x3F
 #define FIMC_IS_DEBUG_LEVEL	3
@@ -101,8 +91,13 @@
 #define SDCARD_FW
 
 #ifdef SDCARD_FW
+#ifdef CONFIG_SLP
+#define FIMC_IS_FW_SDCARD	"/opt/media/fimc_is_fw.bin"
+#define FIMC_IS_SETFILE_SDCARD	"/opt/media/setfile.bin"
+#else
 #define FIMC_IS_FW_SDCARD	"/sdcard/fimc_is_fw.bin"
 #define FIMC_IS_SETFILE_SDCARD	"/sdcard/setfile.bin"
+#endif
 #endif
 #define FIMC_IS_FW		"fimc_is_fw.bin"
 #define FIMC_IS_SETFILE		"setfile.bin"

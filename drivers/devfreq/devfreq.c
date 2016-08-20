@@ -182,9 +182,6 @@ static int devfreq_qos_notifier_call(struct notifier_block *nb,
 	case PM_QOS_BUS_DMA_THROUGHPUT:
 		default_value = PM_QOS_BUS_DMA_THROUGHPUT_DEFAULT_VALUE;
 		break;
-	case PM_QOS_DISPLAY_FREQUENCY:
-		default_value = PM_QOS_DISPLAY_FREQUENCY_DEFAULT_VALUE;
-		break;
 	default:
 		/* Won't do any check to detect "default" state */
 		break;

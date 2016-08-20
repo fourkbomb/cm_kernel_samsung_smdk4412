@@ -871,10 +871,10 @@ static void s5p_hdmi_print_phy_config(void)
 
 	printk(KERN_WARNING "read buffer :\n");
 
-	for (i = 0; i < size; i++) {
+	for (i = 1; i < size; i++) {
 		printk("0x%02x", read_buffer[i]);
 
-		if ((i+1) % 8)
+		if (i % 8)
 			printk(" ");
 		else
 			printk("\n");

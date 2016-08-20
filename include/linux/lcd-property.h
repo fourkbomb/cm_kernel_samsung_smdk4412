@@ -24,11 +24,21 @@ enum lcd_property_flip {
  * A structure for lcd property.
  *
  * @flip: flip information for each lcd.
- * @dynamic_refresh: enable/disable dynamic refresh.
+ * @esd_irq: LCD ESD detection irq.
+ * @esd_level: esd level state.
+ * @get_esd_level: get function of esd pin state.
+ * @esd_gpio_suspend: suspend function of esd_gpio.
+ * @esd_gpio_resume: resume function of esd_gpio.
+ * @reset_low: LCD reset low function.
  */
 struct lcd_property {
 	enum lcd_property_flip flip;
-	bool	dynamic_refresh;
+	int esd_irq;
+	int esd_level;
+	int (*get_esd_level)(void);
+	void (*esd_gpio_suspend)(void);
+	void (*esd_gpio_resume)(void);
+	void (*reset_low)(void);
 };
 
 #endif /* LCD_PROPERTY_H */

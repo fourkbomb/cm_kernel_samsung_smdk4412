@@ -14,15 +14,15 @@ extern "C" {
 #endif
 
 #ifndef HANDLE
-#define	HANDLE void *
+typedef void *HANDLE;
 #endif
 
-#define BBM_HPI		0
-#define BBM_SPI		1
-#define BBM_USB		2
-#define BBM_I2C		3
-#define BBM_PPI		4
-#define BBM_SPIB	5
+#define BBM_HPI		0		/* EBI2 */
+#define BBM_SPI		1		/* SPI */
+#define BBM_USB		2		/* USB */
+#define BBM_I2C		3		/* I2C+TSIF */
+#define BBM_PPI		4		/* PPI */
+#define BBM_SPIB	5		/* SPI Byte */
 
 #define s8          signed char
 #define s16         signed short int
@@ -58,4 +58,9 @@ extern "C" {
 }
 #endif
 
-#endif
+int fc8150_bypass_read(HANDLE hDevice, u8 chip,
+	u8 addr, u8 *data, u16 length);
+int fc8150_bypass_write(HANDLE hDevice, u8 chip,
+	u8 addr, u8 *data, u16 length);
+
+#endif /* __FCI_TYPES_H__ */

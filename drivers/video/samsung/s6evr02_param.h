@@ -68,11 +68,6 @@ static const unsigned char SEQ_SLEEP_OUT[] = {
 	0x00, 0x00
 };
 
-static const unsigned char SEQ_SLEEP_IN[] = {
-	0x10,
-	0x00, 0x00
-};
-
 static const unsigned char SEQ_GAMMA_CONDITION_SET[] = {
 	0xCA,
 	0x00, 0xFF, 0x01, 0x1C, 0x01, 0x2C, 0xDA, 0xD7, 0xDA, 0xD5,
@@ -129,6 +124,15 @@ static const unsigned char SEQ_DISPLAY_OFF[] = {
 	0x00, 0x00
 };
 
+static const unsigned char SEQ_ACL_ON[] = {
+	0x55, 0x01,
+	0x00
+};
+
+static const unsigned char SEQ_ACL_OFF[] = {
+	0x55, 0x00,
+	0x00
+};
 
 enum {
 	ELVSS_STATUS_20,
@@ -313,18 +317,12 @@ static const unsigned char *ELVSS_CONTROL_TABLE[ELVSS_STATUS_MAX] = {
 	elvss_control_set_300
 };
 
-
 enum {
 	ACL_STATUS_0P = 0,
 	ACL_STATUS_33P,
 	ACL_STATUS_40P,
 	ACL_STATUS_50P,
 	ACL_STATUS_MAX
-};
-
-static const unsigned char SEQ_ACL_OFF[] = {
-	0x55, 0x00,
-	0x00
 };
 
 static const unsigned char acl_cutoff_33[] = {

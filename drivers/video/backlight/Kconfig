@@ -418,18 +418,22 @@ config BACKLIGHT_PCF50633
 	  If you have a backlight driven by a NXP PCF50633 MFD, say Y here to
 	  enable its driver.
 
+config BL_OVERHEATING_PROTECTION
+	tristate "Backlight driver feature for Intelligent Overheating Protection"
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  If you want to control the backlight under overheating condition,
+	  Say Y to enable the Intelligent Overheating Protection Feature.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here.
+
 config BACKLIGHT_SMART_DIMMING
 	bool "SLP Backlight driver feature for smart dimming"
 	depends on (MACH_SLP_MIDAS || MACH_SLP_T0_LTE || MACH_SLP_PQ_LTE || MACH_SLP_PQ || MACH_TRATS)
 	help
 	  Say Y to enable the Smart Dimming Feature.
-
-config BACKLIGHT_LP855X
-	tristate "Backlight driver for TI LP855X"
-	depends on BACKLIGHT_CLASS_DEVICE && I2C
-	help
-	  This supports TI LP8550, LP8551, LP8552, LP8553 and LP8556
-	  backlight driver.
 
 endif # BACKLIGHT_CLASS_DEVICE
 

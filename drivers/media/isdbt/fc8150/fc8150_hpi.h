@@ -30,4 +30,4 @@ extern int fc8150_hpi_deinit(HANDLE hDevice);
 }
 #endif
 
-#endif
+#endif /* __FC8150_HPI_H__*/

@@ -24,7 +24,7 @@
 #include <linux/sched.h>
 #include <linux/platform_device.h>
 
-#include "modem.h"
+#include <linux/platform_data/modem.h>
 #include "modem_prj.h"
 #include <linux/regulator/consumer.h>
 
@@ -156,8 +156,13 @@ int esc6270_boot_on(struct modem_ctl *mc)
 			gpio_get_value(mc->gpio_cp_on),
 			gpio_get_value(mc->gpio_cp_reset));
 
+#if defined(CONFIG_SEC_MODEM_IRON_TD)
+	gpio_set_value(mc->gpio_cp_uart_sel, 1);
+	gpio_set_value(mc->gpio_pda_active, 1);
+#endif
+
 #if defined(CONFIG_LINK_DEVICE_PLD)
-	gpio_direction_output(mc->gpio_fpga_cs_n, 1);
+	gpio_direction_output(mc->gpio_fpga1_cs_n, 1);
 #endif
 
 	mc->iod->modem_state_changed(mc->iod, STATE_BOOTING);
@@ -176,6 +181,10 @@ static int esc6270_boot_off(struct modem_ctl *mc)
 	}
 
 	gpio_set_value(mc->gpio_flm_uart_sel, 0);
+
+#if defined(CONFIG_SEC_MODEM_IRON_TD)
+	gpio_set_value(mc->gpio_cp_uart_sel, 0);
+#endif
 
 	mc->iod->modem_state_changed(mc->iod, STATE_OFFLINE);
 
@@ -211,7 +220,7 @@ static irqreturn_t phone_active_irq_handler(int irq, void *arg)
 			mc->iod->modem_state_changed(mc->iod, phone_state);
 	} else if (phone_reset && !phone_active) {
 		if (mc->phone_state == STATE_ONLINE) {
-				phone_state = STATE_CRASH_EXIT;
+			phone_state = STATE_CRASH_EXIT;
 			if (mc->iod && mc->iod->modem_state_changed)
 				mc->iod->modem_state_changed(mc->iod,
 							     phone_state);
@@ -234,9 +243,11 @@ static irqreturn_t phone_active_irq_handler(int irq, void *arg)
 }
 
 #if defined(CONFIG_SIM_DETECT)
-static irqreturn_t sim_detect_irq_handler(int irq, void *_mc)
+#if defined(CONFIG_MACH_GRANDE)
+static void sim_detect_work(struct work_struct *work)
 {
-	struct modem_ctl *mc = (struct modem_ctl *)_mc;
+	struct modem_ctl *mc =
+		container_of(work, struct modem_ctl, sim_det_dwork.work);
 
 	pr_info("[MODEM_IF:ESC] <%s> gpio_sim_detect = %d\n",
 		__func__, gpio_get_value(mc->gpio_sim_detect));
@@ -244,7 +255,27 @@ static irqreturn_t sim_detect_irq_handler(int irq, void *_mc)
 	if (mc->iod && mc->iod->sim_state_changed)
 		mc->iod->sim_state_changed(mc->iod,
 		!gpio_get_value(mc->gpio_sim_detect));
+}
+#endif
+static irqreturn_t sim_detect_irq_handler(int irq, void *_mc)
+{
+	struct modem_ctl *mc = (struct modem_ctl *)_mc;
 
+	pr_info("[MODEM_IF:ESC] <%s> gpio_sim_detect = %d\n",
+		__func__, gpio_get_value(mc->gpio_sim_detect));
+
+#if defined(CONFIG_MACH_GRANDE)
+	if (gpio_get_value(mc->gpio_sim_detect))
+		irq_set_irq_type(mc->irq_sim_detect, IRQ_TYPE_LEVEL_LOW);
+	else
+		irq_set_irq_type(mc->irq_sim_detect, IRQ_TYPE_LEVEL_HIGH);
+
+	schedule_delayed_work(&mc->sim_det_dwork, msecs_to_jiffies(1000));
+#else
+	if (mc->iod && mc->iod->sim_state_changed)
+		mc->iod->sim_state_changed(mc->iod,
+		!gpio_get_value(mc->gpio_sim_detect));
+#endif
 	return IRQ_HANDLED;
 }
 #endif
@@ -273,18 +304,16 @@ int esc6270_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	mc->gpio_cp_warm_reset = pdata->gpio_cp_warm_reset;
 	mc->gpio_sim_detect = pdata->gpio_sim_detect;
 
-#if defined(CONFIG_LINK_DEVICE_PLD)
-	mc->gpio_fpga_cs_n = pdata->gpio_fpga1_cs_n;
+#if defined(CONFIG_SEC_MODEM_IRON_TD)
+	mc->gpio_cp_uart_sel = pdata->gpio_cp_uart_sel;
+	mc->gpio_fpga1_cs_n = pdata->gpio_fpga1_cs_n;
 #endif
 
 	gpio_set_value(mc->gpio_cp_reset, 0);
 	gpio_set_value(mc->gpio_cp_on, 0);
 
-	mc->irq_phone_active = pdata->irq_phone_active;
-	if (!mc->irq_phone_active) {
-		mif_err("%s: ERR! get irq_phone_active fail\n", mc->name);
-		return -1;
-	}
+	pdev = to_platform_device(mc->dev);
+	mc->irq_phone_active = platform_get_irq_byname(pdev, "cp_active_irq");
 	pr_info("[MODEM_IF:ESC] <%s> PHONE_ACTIVE IRQ# = %d\n",
 		__func__, mc->irq_phone_active);
 
@@ -312,7 +341,10 @@ int esc6270_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	}
 
 #if defined(CONFIG_SIM_DETECT)
-	mc->irq_sim_detect = pdata->irq_sim_detect;
+#if defined(CONFIG_MACH_GRANDE)
+	INIT_DELAYED_WORK(&mc->sim_det_dwork, sim_detect_work);
+#endif
+	mc->irq_sim_detect = platform_get_irq_byname(pdev, "sim_irq");
 	pr_info("[MODEM_IF:ESC] <%s> SIM_DECTCT IRQ# = %d\n",
 		__func__, mc->irq_sim_detect);
 

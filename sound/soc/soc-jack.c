@@ -86,6 +86,9 @@ void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 	struct snd_soc_jack_pin *pin;
 	int enable;
 	int oldstatus;
+#ifdef CONFIG_JACK_MON
+	static bool earkey_press;
+#endif
 
 #ifdef CONFIG_SWITCH
 	if (mask & SND_JACK_HEADSET) {
@@ -98,6 +101,11 @@ void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 	}
 #endif
 
+	trace_snd_soc_jack_report(jack, mask, status);
+
+	if (!jack)
+		return;
+
 #ifdef CONFIG_JACK_MON
 	if (mask & SND_JACK_HEADSET) {
 		if (status & SND_JACK_MICROPHONE)
@@ -107,12 +115,18 @@ void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 		else
 			jack_event_handler("earjack", 0);
 	}
+
+	if (mask & SND_JACK_BTN_0) {
+		if (status & SND_JACK_BTN_0) {
+			earkey_press = true;
+			jack_event_handler("earkey", earkey_press);
+		} else if (!status && earkey_press) {
+			earkey_press = false;
+			jack_event_handler("earkey", earkey_press);
+		}
+		/* ignore other earkey event */
+	}
 #endif
-
-	trace_snd_soc_jack_report(jack, mask, status);
-
-	if (!jack)
-		return;
 
 	codec = jack->codec;
 	dapm =  &codec->dapm;

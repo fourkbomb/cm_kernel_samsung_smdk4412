@@ -57,8 +57,6 @@
 #include "mdnie_table_p4note.h"
 #elif defined(CONFIG_FB_S5P_S6D6AA1)
 #include "mdnie_table_gc1.h"
-#elif defined(CONFIG_FB_S5P_LMS501XX)
-#include "mdnie_table_baffin.h"
 #else
 #include "mdnie_table_4412.h"
 #endif
@@ -494,11 +492,11 @@ static ssize_t scenario_store(struct device *dev,
 	dev_info(dev, "%s :: value=%d\n", __func__, value);
 
 	if (!SCENARIO_IS_VALID(value))
-		value = CYANOGENMOD_MODE;
+		value = UI_MODE;
 
 #if defined(CONFIG_FB_MDNIE_PWM)
 	if (value >= SCENARIO_MAX)
-		value = CYANOGENMOD_MODE;
+		value = UI_MODE;
 #endif
 
 	mutex_lock(&mdnie->lock);
@@ -875,7 +873,7 @@ static int mdnie_probe(struct platform_device *pdev)
 		dev_err(&mdnie->bd->dev, "failed to add sysfs entries, %d\n", __LINE__);
 #endif
 
-	mdnie->scenario = CYANOGENMOD_MODE;
+	mdnie->scenario = UI_MODE;
 	mdnie->mode = STANDARD;
 	mdnie->tone = TONE_NORMAL;
 	mdnie->outdoor = OUTDOOR_OFF;

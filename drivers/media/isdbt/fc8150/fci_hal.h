@@ -34,4 +34,4 @@ extern int bbm_data(HANDLE hDevice, u16 addr, u8 *data, u32 length);
 }
 #endif
 
-#endif
+#endif		/* __FCI_HAL_H__ */

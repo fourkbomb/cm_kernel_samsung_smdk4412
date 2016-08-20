@@ -221,7 +221,7 @@ static void complete_rx(struct s3c_udc *dev, u8 ep_num)
 		xfer_size = (ep_tsr & 0x7f);
 
 	else
-		xfer_size = (ep_tsr & 0x7fff);
+		xfer_size = (ep_tsr & 0x7ffff);
 
 	__dma_single_cpu_to_dev(req->req.buf, req->req.length, DMA_FROM_DEVICE);
 	xfer_length = req->req.length - xfer_size;
@@ -284,7 +284,7 @@ static void complete_tx(struct s3c_udc *dev, u8 ep_num)
 	if (ep_num == EP0_CON)
 		xfer_size = (ep_tsr & 0x7f);
 	else
-		xfer_size = (ep_tsr & 0x7fff);
+		xfer_size = (ep_tsr & 0x7ffff);
 
 	req->req.actual = req->req.length - xfer_size;
 	xfer_length = req->req.length - xfer_size;
@@ -1341,6 +1341,8 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 		DEBUG_SETUP("============================================\n");
 		DEBUG_SETUP("%s: USB_REQ_SET_CONFIGURATION (%d)\n",
 				__func__, usb_ctrl->wValue);
+		/* After SET_CONFIGURATION, packet can be send by set_alt() */
+		set_conf_done = 1;
 
 		if (usb_ctrl->bRequestType == USB_RECIP_DEVICE) {
 			reset_available = 1;

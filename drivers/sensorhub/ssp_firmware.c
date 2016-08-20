@@ -14,14 +14,14 @@
  */
 #include "ssp.h"
 
-#define SSP_FIRMWARE_REVISION		92800
+#define SSP_FIRMWARE_REVISION		72700
 
 /* Bootload mode cmd */
 #define BL_FW_NAME			"ssp.fw"
-#define BL_CRASHED_FW_NAME		"ssp_crashed.fw"
-
 #define APP_SLAVE_ADDR			0x18
 #define BOOTLOADER_SLAVE_ADDR		0x26
+
+#define SSP_SW_RESET_TIME		3000
 
 /* Bootloader mode status */
 #define BL_WAITING_BOOTLOAD_CMD		0xc0	/* valid 7 6 bit only */
@@ -164,7 +164,8 @@ static int load_fw_bootmode(struct i2c_client *client, const char *pFn)
 				goto out;
 			} else {
 				pr_err("[SSP]: %s - F/W data_error %d, retry\n",
-					__func__, iCheckWatingFrameDataError);
+					__func__,
+					iCheckWatingFrameDataError);
 				continue;
 			}
 		}
@@ -173,7 +174,7 @@ static int load_fw_bootmode(struct i2c_client *client, const char *pFn)
 			*(fw->data + uPos + 1));
 
 		/* We should add 2 at frame size as the the firmware data is not
-		*  included the CRC bytes.
+		* included the CRC bytes.
 		*/
 		uFrameSize += 2;
 
@@ -219,64 +220,6 @@ static void change_to_bootmode(struct ssp_data *data)
 	msleep(50);
 }
 
-void toggle_mcu_reset(struct ssp_data *data)
-{
-	u8 uBuf[2];
-
-	uBuf[0] = 0x00;
-	uBuf[1] = 0x00;
-
-	data->set_mcu_reset(0);
-	udelay(10);
-	data->set_mcu_reset(1);
-	mdelay(50);
-
-	data->client->addr = BOOTLOADER_SLAVE_ADDR;
-
-	if (i2c_master_send(data->client, uBuf, 2) != 2)
-		pr_err("[SSP]: %s - ssp_Normal Mode\n", __func__);
-	else
-		pr_err("[SSP]: %s - ssp_load_fw_bootmode\n", __func__);
-
-	data->client->addr = APP_SLAVE_ADDR;
-}
-
-int update_mcu_bin(struct ssp_data *data)
-{
-	int iRet = 0;
-
-	pr_info("[SSP] ssp_change_to_bootmode\n");
-	change_to_bootmode(data);
-	data->client->addr = BOOTLOADER_SLAVE_ADDR;
-	iRet = load_fw_bootmode(data->client, BL_FW_NAME);
-
-	msleep(SSP_SW_RESET_TIME);
-
-	data->client->addr = APP_SLAVE_ADDR;
-
-	if (iRet < 0)
-		data->bSspShutdown = true;
-	else
-		data->bSspShutdown = false;
-
-	return iRet;
-}
-
-int update_crashed_mcu_bin(struct ssp_data *data)
-{
-	int iRet = 0;
-	pr_info("[SSP] ssp_change_to_bootmode\n");
-	change_to_bootmode(data);
-	data->client->addr = BOOTLOADER_SLAVE_ADDR;
-	iRet = load_fw_bootmode(data->client, BL_CRASHED_FW_NAME);
-
-	msleep(SSP_SW_RESET_TIME);
-
-	data->client->addr = APP_SLAVE_ADDR;
-	data->bSspShutdown = true;
-	return iRet;
-}
-
 void check_fwbl(struct ssp_data *data)
 {
 	int iRet;
@@ -288,18 +231,23 @@ void check_fwbl(struct ssp_data *data)
 		pr_info("[SSP] ssp_load_fw_bootmode\n");
 		load_fw_bootmode(data->client, BL_FW_NAME);
 		msleep(SSP_SW_RESET_TIME);
+		data->client->addr = APP_SLAVE_ADDR;
+		data->uCurFirmRev = get_firmware_rev(data);
+		pr_info("[SSP] MPU Firm Rev. : Old = %8u, New = %8u\n",
+			data->uCurFirmRev, SSP_FIRMWARE_REVISION);
 	} else {
 		data->client->addr = APP_SLAVE_ADDR;
 		data->uCurFirmRev = get_firmware_rev(data);
+		pr_info("[SSP] MPU Firm Rev. : Old = %8u, New = %8u\n",
+			data->uCurFirmRev, SSP_FIRMWARE_REVISION);
 		if (data->uCurFirmRev != SSP_FIRMWARE_REVISION) {
-			pr_info("[SSP] MPU Firm Rev. : Old = %8u, New = %8u\n",
-				data->uCurFirmRev, SSP_FIRMWARE_REVISION);
-			update_mcu_bin(data);
-		}
-	}
+			pr_info("[SSP] ssp_change_to_bootmode\n");
+			change_to_bootmode(data);
 
-	data->client->addr = APP_SLAVE_ADDR;
-	data->uCurFirmRev = get_firmware_rev(data);
-	pr_info("[SSP] MPU Firm Rev. : Old = %8u, New = %8u\n",
-		data->uCurFirmRev, SSP_FIRMWARE_REVISION);
+			data->client->addr = BOOTLOADER_SLAVE_ADDR;
+			load_fw_bootmode(data->client, BL_FW_NAME);
+			msleep(SSP_SW_RESET_TIME);
+		}
+		data->client->addr = APP_SLAVE_ADDR;
+	}
 }

@@ -171,6 +171,11 @@ static void data_bridge_process_rx(struct work_struct *work)
 		return;
 #endif
 
+#ifdef CONFIG_MDM_HSIC_PM
+	/* wakelock for fast dormancy */
+	fast_dormancy_wakelock(rmnet_pm_dev);
+#endif
+
 	while (!rx_throttled(brdg) && (skb = skb_dequeue(&dev->rx_done))) {
 #ifdef CONFIG_MDM_HSIC_PM
 		/* if the bridge is open or not, resume to consume mdm request
@@ -233,11 +238,6 @@ static void data_bridge_read_cb(struct urb *urb)
 		spin_lock(&dev->rx_done.lock);
 		__skb_queue_tail(&dev->rx_done, skb);
 		spin_unlock(&dev->rx_done.lock);
-#ifdef CONFIG_MDM_HSIC_PM
-		/* wakelock for fast dormancy */
-		if (urb->actual_length)
-			fast_dormancy_wakelock(rmnet_pm_dev);
-#endif
 		break;
 
 	/*do not resubmit*/

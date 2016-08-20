@@ -28,10 +28,23 @@
 #ifndef _EXYNOS_HDMI_H_
 #define _EXYNOS_HDMI_H_
 
-void hdmi_attach_ddc_client(struct i2c_client *ddc);
-void hdmi_attach_hdmiphy_client(struct i2c_client *hdmiphy);
+struct exynos_hdcp_ops {
+	/* manager */
+	void (*dpms)(void *ctx, int mode);
+	void (*commit)(void *ctx);
+};
 
-extern struct i2c_driver hdmiphy_driver;
-extern struct i2c_driver ddc_driver;
+struct exynos_cec_ops {
+	/* manager */
+	void (*dpms)(void *ctx, int mode);
+};
+
+void exynos_hdmi_attach_ddc_client(struct i2c_client *ddc);
+void exynos_hdmi_attach_hdmiphy_client(struct i2c_client *hdmiphy);
+void exynos_hdcp_ops_register(struct exynos_hdcp_ops *ops);
+void exynos_cec_ops_register(struct exynos_cec_ops *ops);
+
+extern struct i2c_driver hdmi_phy_driver;
+extern struct i2c_driver hdmi_ddc_driver;
 
 #endif

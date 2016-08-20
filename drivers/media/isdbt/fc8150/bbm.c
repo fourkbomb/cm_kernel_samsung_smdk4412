@@ -152,7 +152,7 @@ int BBM_I2C_INIT(HANDLE hDevice, u32 type)
 {
 	int res;
 
-	res = tuner_ctrl_select(hDevice, type);
+	res = tuner_ctrl_select(hDevice, (i2c_type) type);
 
 	return res;
 }
@@ -252,8 +252,8 @@ int BBM_HOSTIF_DESELECT(HANDLE hDevice)
 	return res;
 }
 
-int BBM_TS_CALLBACK_REGISTER(u32 userdata
-	, int (*callback)(u32 userdata, u8 *data, int length))
+int BBM_TS_CALLBACK_REGISTER(u32 userdata, \
+	int (*callback)(u32 userdata, u8 *data, int length))
 {
 	gTSUserData = userdata;
 	pTSCallback = callback;
@@ -269,8 +269,8 @@ int BBM_TS_CALLBACK_DEREGISTER(void)
 	return BBM_OK;
 }
 
-int BBM_AC_CALLBACK_REGISTER(u32 userData
-	, int (*callback)(u32 userdata, u8 *data, int length))
+int BBM_AC_CALLBACK_REGISTER(u32 userData, \
+	int (*callback)(u32 userdata, u8 *data, int length))
 {
 	gACUserData = userData;
 	pACCallback = callback;

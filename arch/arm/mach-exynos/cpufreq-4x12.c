@@ -370,6 +370,7 @@ static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
 	{  925000,  912500,  900000,  900000,  900000,  900000,	 900000,  900000,  887500,  875000,  875000,  862500 },
 };
 
+#if 1
 /* 20120725 DVFS table for pega prime */
 static const unsigned int asv_voltage_step_12_5_rev2[CPUFREQ_LEVEL_END][13] = {
 	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11    ASV12 */
@@ -389,7 +390,29 @@ static const unsigned int asv_voltage_step_12_5_rev2[CPUFREQ_LEVEL_END][13] = {
 	{  937500,  925000,  925000,  925000,  912500,  900000,  887500,  887500,  887500,  887500,  875000,  875000,  875000 },	/* L13 */
 	{  925000,  912500,  912500,  912500,  900000,  887500,  887500,  887500,  887500,  887500,  875000,  875000,  875000 },	/* L14 */
 };
+#else
+/* 20120705 DVFS table for pega prime */
+static const unsigned int asv_voltage_step_12_5_rev2[CPUFREQ_LEVEL_END][12] = {
+	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
+	{ 1325000, 1312500, 1300000, 1287500, 1312500, 1300000, 1287500, 1275000, 1300000, 1287500, 1275000, 1262500 },	/* L0 */
+	{ 1275000, 1262500, 1250000, 1237500, 1262500, 1250000,	1237500, 1225000, 1250000, 1237500, 1225000, 1212500 },	/* L1 */
+	{ 1237500, 1225000, 1212500, 1200000, 1225000, 1212500, 1200000, 1187500, 1212500, 1200000, 1187500, 1175000 },	/* L2 */
+	{ 1187500, 1175000, 1162500, 1150000, 1175000, 1162500, 1150000, 1137500, 1162500, 1150000, 1137500, 1125000 },	/* L3 */
+	{ 1162500, 1150000, 1137500, 1125000, 1150000, 1137500, 1125000, 1112500, 1137500, 1125000, 1112500, 1100000 },	/* L4 */
+	{ 1112500, 1100000, 1087500, 1075000, 1100000, 1087500, 1075000, 1062500, 1087500, 1075000, 1062500, 1050000 },	/* L5 */
+	{ 1087500, 1075000, 1062500, 1050000, 1075000, 1062500, 1050000, 1037500, 1062500, 1050000, 1037500, 1025000 },	/* L6 */
+	{ 1062500, 1050000, 1037500, 1025000, 1050000, 1037500, 1025000, 1012500, 1037500, 1025000, 1012500, 1000000 },	/* L7 */
+	{ 1037500, 1025000, 1012500, 1000000, 1025000, 1012500, 1000000,  987500, 1012500, 1000000,  987500,  975000 },	/* L8 */
+	{ 1000000,  987500,  975000,  962500,  987500,  975000,  962500,  950000,  975000,  962500,  950000,  937500 },	/* L9 */
+	{  975000,  962500,  950000,  937500,  962500,  950000,  937500,  925000,  950000,  937500,  925000,  912500 },	/* L10 */
+	{  950000,  937500,  925000,  912500,  937500,  925000,  912500,  900000,  925000,  912500,  900000,  900000 },	/* L11 */
+	{  937500,  925000,  912500,  900000,  925000,  912500,  900000,  900000,  912500,  900000,  900000,  887500 },	/* L12 */
+	{  925000,  912500,  900000,  900000,  912500,  900000,  900000,  887500,  900000,  900000,  887500,  875000 },	/* L13 */
+	{  912500,  900000,  900000,  887500,  900000,  900000,  887500,  875000,  900000,  887500,  875000,  862500 },	/* L14 */
+};
+#endif
 
+#ifdef CONFIG_EXYNOS4X12_1000MHZ_SUPPORT
 static const unsigned int asv_voltage_step_1ghz[CPUFREQ_LEVEL_END][12] = {
 	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
 	{	0,       0,	  0,	   0,	    0,	     0,	      0,       0,       0,       0,	  0,       0 },	/* L0 - Not used */
@@ -408,6 +431,7 @@ static const unsigned int asv_voltage_step_1ghz[CPUFREQ_LEVEL_END][12] = {
 	{  975000,  975000,  975000,  975000,  950000,  950000,	 950000,  925000,  925000,  925000,  925000,  887500 },
 	{  975000,  975000,  975000,  975000,  937500,  937500,	 937500,  925000,  925000,  925000,  925000,  887500 },
 };
+#endif
 
 static void set_clkdiv(unsigned int div_index)
 {
@@ -511,12 +535,6 @@ static void exynos4x12_set_frequency(unsigned int old_index,
 				need_dynamic_ema)
 				__raw_writel(0x101, EXYNOS4_EMA_CONF);
 
-		if ((samsung_rev() >= EXYNOS4412_REV_2_0)
-			&& (exynos_result_of_asv > 2)
-			&& (old_index > L8) && (new_index <= L8)) {
-			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_130V);
-		}
-
 		if (!exynos4x12_pms_change(old_index, new_index)) {
 			/* 1. Change the system clock divider values */
 			set_clkdiv(new_index);
@@ -549,19 +567,23 @@ static void exynos4x12_set_frequency(unsigned int old_index,
 			/* 2. Change the system clock divider values */
 			set_clkdiv(new_index);
 		}
-		if ((samsung_rev() >= EXYNOS4412_REV_2_0)
-			&& (exynos_result_of_asv > 2)
-			&& (old_index <= L8) && (new_index > L8)) {
-			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_100V);
-		}
 		if (exynos4x12_volt_table[new_index] < 950000 &&
 				need_dynamic_ema)
 			__raw_writel(0x404, EXYNOS4_EMA_CONF);
 	}
 
+	/* if pega-prime, ABB value is changed in below case */
+	if (samsung_rev() >= EXYNOS4412_REV_2_0) {
+		if (new_index <= L9)
+			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_100V);
+		else
+			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_130V);
+
+		return;
+	}
+
 	/* ABB value is changed in below case */
-	if (soc_is_exynos4412() && (exynos_result_of_asv > 3)
-		&& (samsung_rev() < EXYNOS4412_REV_2_0)) {
+	if (soc_is_exynos4412() && (exynos_result_of_asv > 3)) {
 		if (new_index == L14)
 			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_100V);
 		else
@@ -572,20 +594,15 @@ static void exynos4x12_set_frequency(unsigned int old_index,
 /* Get maximum cpufreq index of chip */
 static unsigned int get_max_cpufreq_idx(void)
 {
-	unsigned int index;
 
-	/* exynos4x12 prime supports 1.6GHz */
+/* exynos4x12 supports only 1.4GHz and 1.1GHz */
+#ifdef CONFIG_EXYNOS4X12_1000MHZ_SUPPORT
+	return L6;
+#endif
 	if (samsung_rev() >= EXYNOS4412_REV_2_0)
-		index = L0;
-	else {
-	/* exynos4x12 supports only 1.4GHz and 1.1GHz */
-		if (exynos_armclk_max != 1400000)
-			index = L6;
-		else
-			index = L2;
-	}
-
-	return index;
+		return L0;
+	else
+		return L2;
 }
 
 static void __init set_volt_table(void)
@@ -613,15 +630,15 @@ static void __init set_volt_table(void)
 					exynos4x12_volt_table[i] =
 						asv_voltage_step_12_5_rev2[i][exynos_result_of_asv];
 			} else {
-				if (exynos_armclk_max == 1000000) {
-					for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
-						exynos4x12_volt_table[i] =
-							asv_voltage_step_1ghz[i][exynos_result_of_asv];
-				} else {
-					for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
-						exynos4x12_volt_table[i] =
-							asv_voltage_step_12_5[i][exynos_result_of_asv];
-				}
+#ifdef CONFIG_EXYNOS4X12_1000MHZ_SUPPORT
+				for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
+					exynos4x12_volt_table[i] =
+						asv_voltage_step_1ghz[i][exynos_result_of_asv];
+#else
+				for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
+					exynos4x12_volt_table[i] =
+						asv_voltage_step_12_5[i][exynos_result_of_asv];
+#endif
 			}
 		} else {
 			pr_err("%s: Can't find SoC type \n", __func__);

@@ -705,46 +705,48 @@ static int __devinit modemctl_probe(struct platform_device *pdev)
 
 	mc->ops->modem_cfg_gpio();
 
-	irq = gpio_to_irq(pdata->gpio_phone_active);
-	error = request_irq(irq, modemctl_irq_handler,
-			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-			"phone_active", mc);
-	if (error) {
-		dev_err(dev, "Failed to allocate an interrupt(%d)\n", irq);
-		goto fail;
-	}
-	mc->irq[0] = irq;
-	enable_irq_wake(irq);
+	if (lpcharge != 1) {
+		irq = gpio_to_irq(pdata->gpio_phone_active);
+		error = request_irq(irq, modemctl_irq_handler,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"phone_active", mc);
+		if (error) {
+			dev_err(dev, "Failed to allocate an interrupt(%d)\n", irq);
+			goto fail;
+		}
+		mc->irq[0] = irq;
+		enable_irq_wake(irq);
 #if !defined(CONFIG_CHN_CMCC_SPI_SPRD)
-	irq = gpio_to_irq(pdata->gpio_ipc_host_wakeup);
+		irq = gpio_to_irq(pdata->gpio_ipc_host_wakeup);
 
-	error = request_threaded_irq(irq, NULL, modemctl_resume_thread,
-			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-			"IPC_HOST_WAKEUP", mc);
+		error = request_threaded_irq(irq, NULL, modemctl_resume_thread,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"IPC_HOST_WAKEUP", mc);
 
-	if (error) {
-		dev_err(dev, "Failed to allocate an interrupt(%d)\n", irq);
-		goto fail;
-	}
-	mc->irq[1] = irq;
-	enable_irq_wake(irq);
+		if (error) {
+			dev_err(dev, "Failed to allocate an interrupt(%d)\n", irq);
+			goto fail;
+		}
+		mc->irq[1] = irq;
+		enable_irq_wake(irq);
 #endif
-	irq = gpio_to_irq(pdata->gpio_cp_dump_int);
+		irq = gpio_to_irq(pdata->gpio_cp_dump_int);
 #if defined(CONFIG_CHN_CMCC_SPI_SPRD)
-	error = request_irq(irq, modemctl_irq_handler,
-			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-			"CP_DUMP_INT", mc);
+		error = request_irq(irq, modemctl_irq_handler,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"CP_DUMP_INT", mc);
 #else
-	error = request_irq(irq, modemctl_cpdump_irq,
-			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-			"CP_DUMP_INT", mc);
+		error = request_irq(irq, modemctl_cpdump_irq,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"CP_DUMP_INT", mc);
 #endif
-	if (error) {
-		dev_err(dev, "Failed to allocate an interrupt(%d)\n", irq);
-		goto fail;
+		if (error) {
+			dev_err(dev, "Failed to allocate an interrupt(%d)\n", irq);
+			goto fail;
+		}
+		mc->irq[2] = irq;
+		enable_irq_wake(irq);
 	}
-	mc->irq[2] = irq;
-	enable_irq_wake(irq);
 	mc->debug_cnt = 0;
 
 	device_init_wakeup(&pdev->dev, pdata->wakeup);

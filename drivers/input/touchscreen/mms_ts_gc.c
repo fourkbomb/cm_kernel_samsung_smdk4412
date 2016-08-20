@@ -18,7 +18,7 @@
 #define SHOW_COORD		1
 #define FW_UPDATABLE		1
 #define ISC_DL_MODE		1
-#define TOUCH_BOOSTER		1
+#define TOUCH_BOOSTER		0
 #define SEC_TSP_FACTORY_TEST	1
 /* #define ESD_DEBUG */
 
@@ -62,12 +62,9 @@
 #define MMS_COMPAT_GROUP	0xF2
 #define MMS_FW_VERSION		0xF3
 
-#define MMS_TA_REG	0x60
-#define MMS_TA_OFF	0x00
-#define MMS_TA_ON	0x01
-#define MMS_NOISE_REG	0x61
-#define MMS_NOISE_OFF	0x00
-#define MMS_NOISE_ON	0x01
+#define MMS_TA_REG	0x60 /* GC Bring-up */
+#define MMS_TA_OFF	0x00 /* GC Bring-up */
+#define MMS_TA_ON	0x01 /* GC Bring-up */
 
 #if FW_UPDATABLE
 #include "GC_BOOT.h"
@@ -1028,11 +1025,10 @@ static void change_dvfs_lock(struct work_struct *work)
 						TOUCH_BOOSTER_BUS_CLK_266);
 
 	if (ret < 0)
-		dev_err(&info->client->dev,
-					"%s dev change bud lock failed(%d)\n",\
-					__func__, __LINE__);
+		pr_err("melfas-ts : %s dev change bud lock failed(%d)\n",\
+				__func__, __LINE__);
 	else
-		dev_notice(&info->client->dev, "Change dvfs lock");
+		pr_info("melfas-ts : change_dvfs_lock");
 	mutex_unlock(&info->dvfs_lock);
 }
 static void set_dvfs_off(struct work_struct *work)
@@ -1046,12 +1042,12 @@ static void set_dvfs_off(struct work_struct *work)
 
 	ret = dev_unlock(info->bus_dev, info->sec_touchscreen);
 	if (ret < 0)
-		dev_err(&info->client->dev, " %s: dev unlock failed(%d)\n",
-							__func__, __LINE__);
+		pr_err("melfas-ts : %s: dev unlock failed(%d)\n",
+			       __func__, __LINE__);
 
 	exynos_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
 	info->dvfs_lock_status = false;
-	dev_notice(&info->client->dev, "dvfs off!");
+	pr_info("melfas-ts : DVFS Off!");
 	mutex_unlock(&info->dvfs_lock);
 }
 
@@ -1098,7 +1094,7 @@ static void set_dvfs_lock(struct mms_ts_info *info, uint32_t mode)
 				msecs_to_jiffies(TOUCH_BOOSTER_CHG_TIME));
 
 			info->dvfs_lock_status = true;
-			dev_notice(&info->client->dev, "dvfs on[%d]",
+			dev_notice(&info->client->dev, "DVFS On[%d]",
 							info->cpufreq_level);
 		}
 	} else if (mode == TOUCH_BOOSTER_QUICK_OFF) {
@@ -1115,7 +1111,7 @@ static void release_all_fingers(struct mms_ts_info *info)
 {
 	int i;
 
-	dev_notice(&info->client->dev, "%s\n", __func__);
+	printk(KERN_DEBUG "[TSP] %s\n", __func__);
 
 	for (i = 0; i < MAX_FINGERS; i++) {
 		input_mt_slot(info->input_dev, i);
@@ -1132,7 +1128,7 @@ static void release_all_fingers(struct mms_ts_info *info)
 
 #if TOUCH_BOOSTER
 	set_dvfs_lock(info, TOUCH_BOOSTER_QUICK_OFF);
-	dev_notice(&info->client->dev, "dvfs lock free.\n");
+	dev_notice(&info->client->dev, "[TSP] dvfs_lock free.\n");
 #endif
 }
 
@@ -1159,14 +1155,7 @@ static void reset_mms_ts(struct mms_ts_info *info)
 	if (info->ta_status) {
 		dev_notice(&client->dev, "TA or USB connect!!!\n");
 		i2c_smbus_write_byte_data(info->client, MMS_TA_REG, MMS_TA_ON);
-
-		if (info->noise_mode) {
-			i2c_smbus_write_byte_data(info->client, MMS_NOISE_REG,
-								MMS_NOISE_ON);
-			dev_notice(&client->dev, "reset & noise mode on!\n");
-		}
-	} else
-		info->noise_mode = false;
+	}
 
 	enable_irq(info->irq);
 	info->enabled = true;
@@ -1187,19 +1176,9 @@ static void melfas_ta_cb(struct tsp_callbacks *cb, bool ta_status)
 		if (info->ta_status)
 			i2c_smbus_write_byte_data(info->client,
 							MMS_TA_REG, MMS_TA_ON);
-		else {
+		else
 			i2c_smbus_write_byte_data(info->client,
 							MMS_TA_REG, MMS_TA_OFF);
-
-			if (info->noise_mode) {
-				info->noise_mode = false;
-				i2c_smbus_write_byte_data(info->client,
-								MMS_NOISE_REG,
-								MMS_NOISE_OFF);
-				dev_notice(&client->dev,
-						"ta_cb & noise mode off!\n");
-			}
-		}
 	}
 }
 
@@ -1247,41 +1226,22 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 			reset_mms_ts(info);
 			return IRQ_HANDLED;
 		}
-		dev_err(&client->dev, "success read touch info data\n");
 	}
 	if (sz == 0)
 		return IRQ_HANDLED;
 
 	if (sz > MAX_FINGERS*finger_event_sz || sz%finger_event_sz) {
-		dev_err(&client->dev, "abnormal data inputed & reset IC[%d]\n",
-									sz);
-		reset_mms_ts(info);
+		dev_err(&client->dev, "abnormal data inputed[%d]\n", sz);
 		return IRQ_HANDLED;
 	}
 
 	msg[1].len = sz;
 	ret = i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
-
 	if (ret != ARRAY_SIZE(msg)) {
 		dev_err(&client->dev,
 			"failed to read %d bytes of touch data (%d)\n",
 			sz, ret);
-
-		for (i = 0; i < 5; i++) {
-			ret = i2c_transfer(client->adapter, msg,
-							ARRAY_SIZE(msg));
-			if (ret == ARRAY_SIZE(msg))
-				break;
-		}
-
-		if (i == 5) {
-			dev_err(&client->dev,
-				"failed to read touch data & reset IC[%d]\n",
-									ret);
-			reset_mms_ts(info);
-			return IRQ_HANDLED;
-		}
-		dev_err(&client->dev, "success read touch data\n");
+		return IRQ_HANDLED;
 	}
 
 	if (buf[0] == 0x0F) {	/* ESD */
@@ -1292,11 +1252,10 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 
 	if (buf[0] == 0x0E) { /* NOISE MODE */
 		dev_dbg(&client->dev, "Noise mode enter!!\n");
-
-		info->noise_mode = true;
-		i2c_smbus_write_byte_data(info->client, MMS_NOISE_REG,
-							MMS_NOISE_ON);
-		dev_notice(&client->dev, "interrupt & noise mode on!\n");
+		info->noise_mode = 1 ;
+		/* GC Not support yet!
+		mms_set_noise_mode(info);
+		*/
 		return IRQ_HANDLED;
 	}
 
@@ -3032,14 +2991,11 @@ static int mms_ts_resume(struct device *dev)
 	if (info->ta_status) {
 		dev_notice(&client->dev, "TA or USB connect!!!\n");
 		i2c_smbus_write_byte_data(info->client, MMS_TA_REG, MMS_TA_ON);
+	}
 
-		if (info->noise_mode) {
-			i2c_smbus_write_byte_data(info->client, MMS_NOISE_REG,
-								MMS_NOISE_ON);
-			dev_notice(&client->dev, "resume & noise mode on!\n");
-		}
-	} else
-		info->noise_mode = false;
+	/* GC Not support yet!
+	mms_set_noise_mode(info);
+	*/
 
 	/* Because irq_type by EXT_INTxCON register is changed to low_level
 	 *  after wakeup, irq_type set to falling edge interrupt again.

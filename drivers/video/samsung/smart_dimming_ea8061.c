@@ -56,7 +56,7 @@ static const unsigned char gamma_300cd_02[] = {
 	0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
 	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01, 0x03, 0x02
+	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x03, 0x01, 0x02
 };
 
 static const unsigned char *gamma_300cd_list[GAMMA_300CD_MAX] = {
@@ -376,16 +376,9 @@ int init_table_info_ea8061(struct str_smart_dim *smart)
 
 	smart->flooktbl = flookup_table;
 	smart->g300_gra_tbl = gamma_300_gra_table;
-	smart->gamma_table[G_21] = GAMMA_CONTROL_TABLE[G_21];
-	smart->gamma_table[G_213] = GAMMA_CONTROL_TABLE[G_213];
-	smart->gamma_table[G_215] = GAMMA_CONTROL_TABLE[G_215];
-	smart->gamma_table[G_218] = GAMMA_CONTROL_TABLE[G_218];
-	smart->gamma_table[G_22] = GAMMA_CONTROL_TABLE[G_22];
-	smart->gamma_table[G_221] = GAMMA_CONTROL_TABLE[G_221];
-	smart->gamma_table[G_222] = GAMMA_CONTROL_TABLE[G_222];
-	smart->gamma_table[G_223] = GAMMA_CONTROL_TABLE[G_223];
-	smart->gamma_table[G_224] = GAMMA_CONTROL_TABLE[G_224];
-	smart->gamma_table[G_225] = GAMMA_CONTROL_TABLE[G_225];
+	smart->gamma_table[G_21] = gamma_21_table;
+	smart->gamma_table[G_212] = gamma_212_table;
+	smart->gamma_table[G_22] = gamma_22_table;
 
 	for (i = 0; i < GAMMA_300CD_MAX; i++) {
 		if (smart->panelid[2] == gamma_id_list[i])
@@ -593,7 +586,7 @@ static u32 calc_v151_reg(int ci, u32 dv[CI_MAX][IV_MAX], u32 adjust_volt[CI_MAX]
 
 	t1 = (vt - v151) << 10;
 	t2 = (vt - v203) ? (vt - v203) : (vt) ? vt : 1;
-	ret = (320 * (t1/t2)) - (64 << 10);
+	ret = (320 * (t1/t2)) - (65 << 10);
 	ret >>= 10;
 
 	return ret;
@@ -722,7 +715,7 @@ for (i = IV_VT; i < IV_255; i++)  {
 return 0;
 }
 
-u32 calc_gamma_table_190_ea8061(struct str_smart_dim *smart, u32 gv, u8 result[], u8 gamma_curve, const u8 *mtp)
+u32 calc_gamma_table_215_190_ea8061(struct str_smart_dim *smart, u32 gv, u8 result[], u8 gamma_curve, const u8 *mtp)
 {
 	u32 i, c, t1;
 	u32 temp;
@@ -750,12 +743,9 @@ u32 calc_gamma_table_190_ea8061(struct str_smart_dim *smart, u32 gv, u8 result[]
 #endif
 
 	for (i = IV_3; i < IV_MAX; i++) {
-		if (i ==  IV_151) {
+		if (i ==  IV_23) {
 			temp = (smart->gamma_table[gamma_curve][dv_value[i]] * gv)/1000;
-			lidx_215_190 = lookup_vtbl_idx(smart, temp)-1;
-		} else if ((i ==  IV_203) || (i ==  IV_255)) {
-			temp = (smart->gamma_table[gamma_curve][dv_value[i]] * gv)/1000;
-			lidx_215_190 = lookup_vtbl_idx(smart, temp)-2;
+			lidx_215_190 = lookup_vtbl_idx(smart, temp)+1;
 		} else {
 			temp = (smart->gamma_table[gamma_curve][dv_value[i]] * gv)/1000;
 			lidx_215_190 = lookup_vtbl_idx(smart, temp);
@@ -815,102 +805,6 @@ u32 calc_gamma_table_190_ea8061(struct str_smart_dim *smart, u32 gv, u8 result[]
 		printk("V Level : %d - ", i);
 		for (c = CI_RED; c < CI_MAX; c++)
 				printk("2.15Gamma %c : %3d, 0x%2x", color_name[c], gamma_215_190[c][i], gamma_215_190[c][i]);
-		printk("\n");
-	}
-#endif
-	return 0;
-}
-
-u32 calc_gamma_table_20_100_ea8061(struct str_smart_dim *smart, u32 gv, u8 result[], u8 gamma_curve, const u8 *mtp)
-{
-	u32 i, c, t1;
-	u32 temp;
-	u32 lidx_110;
-	u32 dv[CI_MAX][IV_MAX];
-	s16 gamma_110[CI_MAX][IV_MAX];
-	u16 offset;
-	u32(*calc_reg[IV_MAX])(int ci, u32 dv[CI_MAX][IV_MAX], u32 adjust_volt[CI_MAX][AD_IVMAX]) = {
-		calc_vt_reg,
-		calc_v3_reg,
-		calc_v11_reg,
-		calc_v23_reg,
-		calc_v35_reg,
-		calc_v51_reg,
-		calc_v87_reg,
-		calc_v151_reg,
-		calc_v203_reg,
-		calc_v255_reg,
-	};
-	memset(gamma_110, 0, sizeof(gamma_110));
-
-#if 0
-	for (c = CI_RED; c < CI_MAX; c++)
-		dv[c][IV_1] = smart->ve[AD_IV1].v[c];
-#endif
-
-	for (i = IV_3; i < IV_MAX; i++) {
-		if (i ==  IV_11) {
-			temp = (smart->gamma_table[gamma_curve][dv_value[i]] * gv)/1000;
-			lidx_110 = lookup_vtbl_idx(smart, temp)-1;
-		} else {
-			temp = (smart->gamma_table[gamma_curve][dv_value[i]] * gv)/1000;
-			lidx_110 = lookup_vtbl_idx(smart, temp);
-		}
-
-		for (c = CI_RED; c < CI_MAX; c++)
-			dv[c][i] = smart->ve[lidx_110].v[c];
-	}
-
-	for (c = CI_RED; c < CI_MAX; c++) {
-		offset = c*2;
-		t1 = s9_to_s16(mtp[offset]<<8|mtp[offset+1]);
-		smart->mtp[c][IV_255] = t1;
-	}
-
-	for (i = 1; i < 10; i++) {
-		for (c = CI_RED; c < CI_MAX; c++) {
-			t1 = (s8)mtp[CI_MAX*(i + 1)+c];
-			smart->mtp[c][IV_255 - i] = t1;
-		}
-	}
-
-	/* for IV1 does not calculate value */
-	/* just use default gamma value (IV1) */
-#if 0
-	for (c = CI_RED; c < CI_MAX; c++)
-		gamma_210_110[c][IV_VT] = smart->default_gamma[c];
-#endif
-
-	for (i = IV_3; i < IV_MAX; i++) {
-		for (c = CI_RED; c < CI_MAX; c++)
-			gamma_110[c][i] = (s16)calc_reg[i](c, dv, smart->adjust_volt) - smart->mtp[c][i];
-	}
-
-	for (c = CI_RED; c < CI_MAX; c++) {
-		offset = IV_255*CI_MAX+c*2;
-		result[offset+1] = gamma_110[c][IV_255] & 0xff;
-		result[offset] = (u8)((gamma_110[c][IV_255] >> 8) & 0xff);
-	}
-
-	for (c = CI_RED; c < CI_MAX; c++) {
-		for (i = IV_VT; i < IV_255; i++)
-			result[(CI_MAX*i)+c] = gamma_110[c][i];
-	}
-
-#if 0
-	printk(KERN_INFO "\n\n++++++++++++++++++++++++++++++ FOUND VOLTAGE ++++++++++++++++++++++++++++++\n");
-	for (i = IV_VT; i < IV_MAX; i++) {
-		printk("V Level : %d - ", i);
-		for (c = CI_RED; c < CI_MAX; c++)
-			printk("%c : %04dV", color_name[c], dv[c][i]);
-		printk("\n");
-	}
-
-	printk(KERN_INFO "\n\n++++++++++++++++++++++++++++++ FOUND REG ++++++++++++++++++++++++++++++\n");
-	for (i = IV_VT; i < IV_MAX; i++) {
-		printk("V Level : %d - ", i);
-		for (c = CI_RED; c < CI_MAX; c++)
-			printk("2.15Gamma %c : %3d, 0x%2x", color_name[c], gamma_110[c][i], gamma_210_110[c][i]);
 		printk("\n");
 	}
 #endif

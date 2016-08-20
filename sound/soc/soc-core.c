@@ -32,6 +32,9 @@
 #include <linux/platform_device.h>
 #include <linux/ctype.h>
 #include <linux/slab.h>
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+#include <linux/pm_runtime.h>
+#endif
 #include <sound/ac97_codec.h>
 #include <sound/core.h>
 #include <sound/jack.h>
@@ -541,6 +544,11 @@ static int soc_pcm_open(struct snd_pcm_substream *substream)
 	struct snd_soc_dai_driver *codec_dai_drv = codec_dai->driver;
 	int ret = 0;
 
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	pm_runtime_get_sync(cpu_dai->dev);
+	pm_runtime_get_sync(codec_dai->dev);
+	pm_runtime_get_sync(platform->dev);
+#endif
 	mutex_lock(&pcm_mutex);
 
 	/* startup the audio subsystem */
@@ -691,6 +699,11 @@ platform_err:
 		cpu_dai->driver->ops->shutdown(substream, cpu_dai);
 out:
 	mutex_unlock(&pcm_mutex);
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	pm_runtime_put(platform->dev);
+	pm_runtime_put(codec_dai->dev);
+	pm_runtime_put(cpu_dai->dev);
+#endif
 	return ret;
 }
 
@@ -782,6 +795,12 @@ static int soc_codec_close(struct snd_pcm_substream *substream)
 	}
 
 	mutex_unlock(&pcm_mutex);
+
+#ifdef CONFIG_SND_SOC_PM_RUNTIME
+	pm_runtime_put(platform->dev);
+	pm_runtime_put(codec_dai->dev);
+	pm_runtime_put(cpu_dai->dev);
+#endif
 	return 0;
 }
 

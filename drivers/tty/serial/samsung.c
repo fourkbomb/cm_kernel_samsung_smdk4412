@@ -42,6 +42,7 @@
 #include <linux/delay.h>
 #include <linux/clk.h>
 #include <linux/cpufreq.h>
+#include <linux/spinlock.h>
 
 #include <asm/irq.h>
 
@@ -54,6 +55,9 @@
 
 #include <mach/gpio.h>
 #include <plat/gpio-cfg.h>
+
+static DEFINE_SPINLOCK(tx_lock);
+
 /* UART name and device definitions */
 
 #define S3C24XX_SERIAL_NAME	"ttySAC"
@@ -138,7 +142,10 @@ static void s3c24xx_serial_rx_disable(struct uart_port *port)
 
 static void s3c24xx_serial_stop_tx(struct uart_port *port)
 {
+	unsigned long flags;
 	struct s3c24xx_uart_port *ourport = to_ourport(port);
+
+	spin_lock_irqsave(&tx_lock, flags);
 
 	if (tx_enabled(port)) {
 		disable_irq_nosync(ourport->tx_irq);
@@ -146,11 +153,16 @@ static void s3c24xx_serial_stop_tx(struct uart_port *port)
 		if (port->flags & UPF_CONS_FLOW)
 			s3c24xx_serial_rx_enable(port);
 	}
+
+	spin_unlock_irqrestore(&tx_lock, flags);
 }
 
 static void s3c24xx_serial_start_tx(struct uart_port *port)
 {
+	unsigned long flags;
 	struct s3c24xx_uart_port *ourport = to_ourport(port);
+
+	spin_lock_irqsave(&tx_lock, flags);
 
 	if (!tx_enabled(port)) {
 		if (port->flags & UPF_CONS_FLOW)
@@ -159,6 +171,9 @@ static void s3c24xx_serial_start_tx(struct uart_port *port)
 		enable_irq(ourport->tx_irq);
 		tx_enabled(port) = 1;
 	}
+
+	spin_unlock_irqrestore(&tx_lock, flags);
+
 }
 
 
@@ -483,14 +498,10 @@ static void s3c24xx_serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 		} else {
 			umcon &= ~S3C2410_UMCOM_AFC;
 		}
-	}
-#if !defined(CONFIG_MACH_KONA_EUR_LTE) && !defined(CONFIG_MACH_KONALTE_USA_ATT)
-	else if (port->line == CONFIG_GPS_S3C_UART) {
-		umcon |= S3C2410_UMCOM_AFC;
-	} 
-#endif
-	else {
 
+	} else if (port->line == CONFIG_GPS_S3C_UART) {
+		umcon |= S3C2410_UMCOM_AFC;
+	} else {
 		umcon &= ~S3C2410_UMCOM_AFC;
 	}
 

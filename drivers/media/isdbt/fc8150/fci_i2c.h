@@ -16,14 +16,14 @@ extern "C" {
 #endif
 
 extern int fci_i2c_init(HANDLE hDevice, int speed, int slaveaddr);
-extern int fci_i2c_read(HANDLE hDevice, u8 chip, u8 addr
-	, u8 alen, u8 *data, u8 len);
-extern int fci_i2c_write(HANDLE hDevice, u8 chip, u8 addr
-	, u8 alen, u8 *data, u8 len);
+extern int fci_i2c_read(HANDLE hDevice, u8 chip, u8 addr, \
+	u8 alen, u8 *data, u8 len);
+extern int fci_i2c_write(HANDLE hDevice, u8 chip, u8 addr, \
+	u8 alen, u8 *data, u8 len);
 extern int fci_i2c_deinit(HANDLE hDevice);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif		/* __FCI_I2C_H__ */

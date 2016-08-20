@@ -22,7 +22,6 @@
 struct ssp_platform_data {
 	int (*wakeup_mcu)(void);
 	int (*check_mcu_ready)(void);
-	int (*check_mcu_busy)(void);
 	int (*set_mcu_reset)(int);
 	int (*check_ap_rev)(void);
 };

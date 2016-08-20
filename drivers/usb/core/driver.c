@@ -1181,19 +1181,6 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 			udev->state == USB_STATE_SUSPENDED)
 		goto done;
 
-#ifdef CONFIG_MDM_HSIC_PM
-	/* when additional device attached at ehci hub, interface driver will
-	 * goes to suspend , but hub will not goes to suspend.
-	 * in hsic case, device modem cannot notice this change on host, so
-	 * it does not try to send packet to host
-	 *
-	 * prevent suspend_both when it's parent has more child
-	 */
-	if (udev->dev.parent) {
-		if (atomic_read(&udev->dev.parent->power.child_count) != 1)
-			return -EBUSY;
-	}
-#endif
 	/* Suspend all the interfaces and then udev itself */
 	if (udev->actconfig) {
 		n = udev->actconfig->desc.bNumInterfaces;

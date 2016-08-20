@@ -168,8 +168,6 @@ static int fimg2d_open(struct inode *inode, struct file *file)
 			ctx, (unsigned long *)ctx->mm->pgd,
 			(unsigned long *)init_mm.pgd);
 
-	ctx->pgd_clone = kzalloc(L1_DESCRIPTOR_SIZE, GFP_KERNEL);
-
 	fimg2d_add_context(info, ctx);
 	return 0;
 }
@@ -187,7 +185,6 @@ static int fimg2d_release(struct inode *inode, struct file *file)
 	}
 	fimg2d_del_context(info, ctx);
 
-	kfree(ctx->pgd_clone);
 	kfree(ctx);
 	return 0;
 }
@@ -261,7 +258,6 @@ static long fimg2d_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 #endif
 
 		if (info->fault_addr) {
-			printk(KERN_INFO "Return by G2D fault handler");
 			info->fault_addr = 0;
 			ret = -EFAULT;
 		}
@@ -416,20 +412,12 @@ static int fimg2d_probe(struct platform_device *pdev)
 	fimg2d_debug("device name: %s base address: 0x%lx\n",
 			pdev->name, (unsigned long)res->start);
 
-	/* Clock setup */
-	ret = fimg2d_clk_setup(info);
-	if (ret) {
-		printk(KERN_ERR "FIMG2D failed to setup clk\n");
-		ret = -ENOENT;
-		goto err_clk;
-	}
-
 	/* irq */
 	info->irq = platform_get_irq(pdev, 0);
 	if (!info->irq) {
 		printk(KERN_ERR "FIMG2D failed to get irq resource\n");
 		ret = -ENOENT;
-		goto err_irq;
+		goto err_map;
 	}
 	fimg2d_debug("irq: %d\n", info->irq);
 
@@ -438,6 +426,13 @@ static int fimg2d_probe(struct platform_device *pdev)
 		printk(KERN_ERR "FIMG2D failed to request irq\n");
 		ret = -ENOENT;
 		goto err_irq;
+	}
+
+	ret = fimg2d_clk_setup(info);
+	if (ret) {
+		printk(KERN_ERR "FIMG2D failed to setup clk\n");
+		ret = -ENOENT;
+		goto err_clk;
 	}
 
 #ifdef CONFIG_PM_RUNTIME
@@ -465,20 +460,19 @@ static int fimg2d_probe(struct platform_device *pdev)
 	return 0;
 
 err_reg:
-	free_irq(info->irq, NULL);
-
-err_irq:
 	fimg2d_clk_release(info);
 
 err_clk:
+	free_irq(info->irq, NULL);
+
+err_irq:
 	iounmap(info->regs);
 
 err_map:
-	release_mem_region(res->start, resource_size(res));
 	kfree(info->mem);
 
 err_region:
-	release_resource(res);
+	release_resource(info->mem);
 
 err_res:
 	destroy_workqueue(info->work_q);

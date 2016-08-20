@@ -645,13 +645,11 @@ struct signal_struct {
 	struct rw_semaphore threadgroup_fork_lock;
 #endif
 
-	int oom_adj;            /* OOM kill score adjustment (bit shift) */
-	short oom_score_adj;	/* OOM kill score adjustment */
-	short oom_score_adj_min;/* OOM kill score adjustment min value.
+	int oom_adj;		/* OOM kill score adjustment (bit shift) */
+	int oom_score_adj;	/* OOM kill score adjustment */
+	int oom_score_adj_min;	/* OOM kill score adjustment minimum value.
 				 * Only settable by CAP_SYS_RESOURCE. */
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-	struct rb_node adj_node;
-#endif
+
 	struct mutex cred_guard_mutex;	/* guard against foreign influences on
 					 * credential calculations
 					 * (notably. ptrace) */
@@ -707,7 +705,6 @@ struct user_struct {
 	unsigned long mq_bytes;	/* How many bytes can be allocated to mqueue? */
 #endif
 	unsigned long locked_shm; /* How many pages of mlocked shm ? */
-	atomic_long_t pipe_bufs;  /* how many pages are allocated in pipe buffers */
 
 #ifdef CONFIG_KEYS
 	struct key *uid_keyring;	/* UID specific keyring */
@@ -1284,9 +1281,6 @@ struct task_struct {
 #endif
 
 	struct list_head tasks;
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-	struct rb_node adj_node;
-#endif
 #ifdef CONFIG_SMP
 	struct plist_node pushable_tasks;
 #endif
@@ -1626,13 +1620,6 @@ static inline struct pid *task_tgid(struct task_struct *task)
 	return task->group_leader->pids[PIDTYPE_PID].pid;
 }
 
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-extern void add_2_adj_tree(struct task_struct *task);
-extern void delete_from_adj_tree(struct task_struct *task);
-#else
-static inline void add_2_adj_tree(struct task_struct *task) { }
-static inline void delete_from_adj_tree(struct task_struct *task) { }
-#endif
 /*
  * Without tasklist or rcu lock it is not safe to dereference
  * the result of task_pgrp/task_session even if task == current,

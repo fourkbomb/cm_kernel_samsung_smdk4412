@@ -59,6 +59,9 @@
 
 struct mutex	s3cfb_lock;
 struct s3cfb_fimd_desc		*fbfimd;
+#ifdef CONFIG_FB_S5P_PREVENTESD
+bool s3cfb_esd_detected = false;
+#endif
 
 inline struct s3cfb_global *get_fimd_global(int id)
 {
@@ -660,7 +663,9 @@ void s3cfb_lcd0_pmu_off(void)
 void s3cfb_switch_dual_lcd(int lcd_sel)
 {
 	struct s3cfb_global *fbdev = fbfimd->fbdev[0];
-	int prev_lcd_sel = s5p_dsim_get_lcd_sel_value();
+	int prev_lcd_sel;
+	mutex_lock(&s3cfb_lock);
+	prev_lcd_sel = s5p_dsim_get_lcd_sel_value();
 
 	printk(KERN_DEBUG "%s, switching lcd_sel from:%s to:%s\n",
 		__func__, prev_lcd_sel ? "SUB-LCD" : "MAIN-LCD",
@@ -668,10 +673,10 @@ void s3cfb_switch_dual_lcd(int lcd_sel)
 	if (prev_lcd_sel == lcd_sel) {
 		printk(KERN_DEBUG "%s, ignore switching lcd_sel\n",
 			__func__);
+		mutex_unlock(&s3cfb_lock);
 		return;
 	}
 
-	mutex_lock(&s3cfb_lock);
 	if (fbdev->system_state == POWER_OFF) {
 		s5p_dsim_select_lcd(lcd_sel);
 		mutex_unlock(&s3cfb_lock);
@@ -679,9 +684,10 @@ void s3cfb_switch_dual_lcd(int lcd_sel)
 	}
 
 	s6e63m0_early_suspend();
-	s3cfb_display_off(fbdev);
+	s5p_dsim_set_main_stand_by(0);
 	s5p_dsim_select_lcd(lcd_sel);
-	s3cfb_display_on(fbdev);
+	msleep(20);
+	s5p_dsim_set_main_stand_by(1);
 	s6e63m0_late_resume();
 	mutex_unlock(&s3cfb_lock);
 	return;
@@ -691,6 +697,26 @@ EXPORT_SYMBOL(s3cfb_switch_dual_lcd);
 
 #ifdef CONFIG_PM
 #ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_FB_S5P_PREVENTESD
+void s3cfb_reinitialize_lcd(void)
+{
+	s6e63m0_early_suspend();
+	s5p_dsim_early_suspend();
+	msleep(10);
+	s5p_dsim_late_resume();
+	if (s5p_dsim_fifo_clear() == 0) {
+		s5p_dsim_early_suspend();
+		msleep(10);
+		s5p_dsim_late_resume();
+		if (s5p_dsim_fifo_clear() == 0)
+			pr_info("dsim resume fail!!!\n");
+	}
+	msleep(10);
+	s6e63m0_late_resume();
+	printk(KERN_INFO "%s, re-initialize LCD - Done\n", __func__);
+}
+#endif
+
 void s3cfb_early_suspend(struct early_suspend *h)
 {
 	struct s3cfb_global *info = container_of(h, struct s3cfb_global, early_suspend);
@@ -789,7 +815,9 @@ void s3cfb_late_resume(struct early_suspend *h)
 	printk(KERN_DEBUG "s3cfb - enable power domain\n");
 	pm_runtime_get_sync(&pdev->dev);
 #endif
-
+#ifdef CONFIG_FB_S5P_PREVENTESD
+	s3cfb_esd_detected = false;
+#endif
 #ifdef CONFIG_FB_S5P_MIPI_DSIM
 #if defined(CONFIG_FB_S5P_S6E63M0)
 #if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)

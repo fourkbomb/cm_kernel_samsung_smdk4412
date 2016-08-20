@@ -56,6 +56,14 @@ struct backlight_ops {
 	   return 0 if not, !=0 if it is. If NULL, backlight always matches the fb. */
 	int (*check_fb)(struct backlight_device *, struct fb_info *);
 	int (*set_dimming)(struct backlight_device *);
+	/* Return the minumux backlight brightness value */
+	int (*get_minbrightness)(struct backlight_device *);
+	/* Configuration for overheating protection enable */
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+	/* If System notify overheating condition,
+	   Set the overheating protection backlight brightness */
+	int (*set_overheating_protection)(struct backlight_device *);
+#endif
 };
 
 /* This structure defines all the properties of a backlight */
@@ -76,6 +84,11 @@ struct backlight_properties {
 	/* Flags used to signal drivers of state changes */
 	/* Upper 4 bits are reserved for driver internal use */
 	unsigned int state;
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+	/* Intelligent Overheating Protection active
+	   (1 : limit brightness, 0 : normal) */
+	int overheating;
+#endif
 
 #define BL_CORE_SUSPENDED	(1 << 0)	/* backlight is suspended */
 #define BL_CORE_FBBLANK		(1 << 1)	/* backlight is under an fb blank event */
@@ -117,6 +130,15 @@ static inline void backlight_set_dimming(struct backlight_device *bd)
 {
 	if (bd->ops && bd->ops->set_dimming)
 		bd->ops->set_dimming(bd);
+}
+
+static inline void backlight_set_overheating_protection(
+	struct backlight_device *bd)
+{
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+	if (bd->ops && bd->ops->set_overheating_protection)
+		bd->ops->set_overheating_protection(bd);
+#endif
 }
 
 extern struct backlight_device *backlight_device_register(const char *name,

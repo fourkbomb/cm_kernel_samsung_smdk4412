@@ -185,78 +185,6 @@ void s5p_fimd_lite_get_vsync_interrupt(struct s5p_fimd_lite *fimd_lite,
 	writel(cfg, fimd_lite->iomem_base + S5P_VIDINTCON0);
 }
 
-static void s5p_change_dynamic_refresh(struct s5p_fimd_dynamic_refresh
-		*fimd_refresh, struct s5p_fimd_ext_device *fx_dev)
-{
-	unsigned int cfg = 0, ret = 0;
-	struct s5p_fimd_lite *fimd_lite = fimd_ext_get_drvdata(fx_dev);
-	struct exynos_drm_fimd_pdata *lcd;
-	struct fb_videomode timing;
-	unsigned long flags;
-	u32 vclk, src_clk, refresh;
-
-	lcd = fimd_lite->lcd;
-	timing = lcd->panel.timing;
-
-	cfg = readl(fimd_lite->iomem_base + S5P_VIDCON0);
-	cfg &= ~(S5P_VIDCON0_CLKVALUP_START_FRAME | S5P_VIDCON0_CLKVAL_F(0xFF));
-	cfg |= (S5P_VIDCON0_CLKVALUP_ALWAYS | S5P_VIDCON0_VCLKEN_NORMAL);
-	cfg |= S5P_VIDCON0_CLKVAL_F(fimd_refresh->clkdiv - 1);
-
-	if (!irqs_disabled())
-		local_irq_save(flags);
-
-	if (timing.refresh == 60) {
-		while (1) {
-			ret = (__raw_readl(fimd_lite->iomem_base +
-						S5P_VIDCON1) >> 13) &
-						S5P_VIDCON1_VSTATUS_MASK;
-			if (ret == S5P_VIDCON1_VSTATUS_BACKPORCH) {
-				__raw_writel(cfg, fimd_lite->iomem_base +
-						S5P_VIDCON0);
-				ret = (__raw_readl(fimd_refresh->regs +
-						VIDCON1) >> 13) &
-						S5P_VIDCON1_VSTATUS_MASK;
-				if (ret == S5P_VIDCON1_VSTATUS_ACTIVE) {
-					__raw_writel(cfg,
-						fimd_refresh->regs + VIDCON0);
-					break;
-				}
-			}
-		}
-	} else {
-		while (1) {
-			ret = (__raw_readl(fimd_refresh->regs + VIDCON1) >> 13)
-					& S5P_VIDCON1_VSTATUS_MASK;
-			if (ret == S5P_VIDCON1_VSTATUS_ACTIVE) {
-				ret = (__raw_readl(fimd_lite->iomem_base +
-						S5P_VIDCON1) >> 13) &
-						S5P_VIDCON1_VSTATUS_MASK;
-				if (ret == S5P_VIDCON1_VSTATUS_FRONTPORCH) {
-					__raw_writel(cfg,
-						fimd_refresh->regs + VIDCON0);
-					__raw_writel(cfg,
-						fimd_lite->iomem_base +
-						S5P_VIDCON0);
-					break;
-				}
-			}
-		}
-	}
-	if (irqs_disabled())
-		local_irq_restore(flags);
-
-	src_clk = clk_get_rate(fimd_lite->clk->parent);
-	vclk = timing.refresh * (timing.left_margin + timing.hsync_len +
-		timing.right_margin + timing.xres) *
-		(timing.upper_margin + timing.vsync_len +
-		 timing.lower_margin + timing.yres);
-
-	refresh = timing.refresh -
-			((vclk - (src_clk / fimd_refresh->clkdiv)) / MHZ);
-	dev_dbg(fimd_lite->dev, "expected refresh rate: %d fps\n", refresh);
-}
-
 static irqreturn_t s5p_fimd_lite_irq_frame(int irq, void *dev_id)
 {
 	struct s5p_fimd_lite *fimd_lite;
@@ -475,7 +403,6 @@ static struct s5p_fimd_ext_driver fimd_ext_driver = {
 		.name	= "fimd_lite",
 		.owner	= THIS_MODULE,
 	},
-	.change_clock	= s5p_change_dynamic_refresh,
 	.power_on	= s5p_fimd_lite_power_on,
 	.power_off	= s5p_fimd_lite_power_off,
 	.setup		= s5p_fimd_lite_setup,

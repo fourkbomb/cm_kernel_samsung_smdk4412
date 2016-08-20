@@ -624,10 +624,6 @@ void putback_lru_page(struct page *page)
 	int was_unevictable = PageUnevictable(page);
 
 	VM_BUG_ON(PageLRU(page));
-#ifdef CONFIG_CLEANCACHE
-	if (active)
-		SetPageWasActive(page);
-#endif
 
 redo:
 	ClearPageUnevictable(page);
@@ -730,19 +726,15 @@ static enum page_references page_check_references(struct page *page,
 		 */
 		SetPageReferenced(page);
 
-#ifndef CONFIG_DMA_CMA
-		if (referenced_page)
-			return PAGEREF_ACTIVATE;
-#else
 		if (referenced_page || referenced_ptes > 1)
 			return PAGEREF_ACTIVATE;
 
 		/*
 		 * Activate file-backed executable pages after first usage.
-		*/
+		 */
 		if (vm_flags & VM_EXEC)
 			return PAGEREF_ACTIVATE;
-#endif
+
 		return PAGEREF_KEEP;
 	}
 
@@ -774,6 +766,9 @@ static noinline_for_stack void free_page_list(struct list_head *free_pages)
 /*
  * shrink_page_list() returns the number of reclaimed pages
  */
+#ifndef CONFIG_ZRAM_FOR_ANDROID
+static
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
 unsigned long shrink_page_list(struct list_head *page_list,
 				      struct zone *zone,
 				      struct scan_control *sc)
@@ -989,7 +984,7 @@ cull_mlocked:
 
 activate_locked:
 		/* Not a candidate for swapping, so reclaim swap space. */
-		if (PageSwapCache(page) && vm_swap_full(page_swap_info(page)))
+		if (PageSwapCache(page) && vm_swap_full())
 			try_to_free_swap(page);
 		VM_BUG_ON(PageActive(page));
 		SetPageActive(page);
@@ -1058,12 +1053,8 @@ int __isolate_lru_page(struct page *page, isolate_mode_t mode, int file)
 	 * unevictable; only give shrink_page_list evictable pages.
 	 */
 	if (PageUnevictable(page))
-#ifndef CONFIG_DMA_CMA
 		return ret;
-#else
-		printk(KERN_ERR "%s[%d] Unevictable page %p\n",
-					__func__, __LINE__, page);
-#endif
+
 	ret = -EBUSY;
 
 	/*
@@ -1280,6 +1271,9 @@ static unsigned long isolate_pages_global(unsigned long nr,
  * clear_active_flags() is a helper for shrink_active_list(), clearing
  * any active bits from the pages in the list.
  */
+#ifndef CONFIG_ZRAM_FOR_ANDROID
+static
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
 unsigned long clear_active_flags(struct list_head *page_list,
 					unsigned int *count)
 {
@@ -1293,9 +1287,6 @@ unsigned long clear_active_flags(struct list_head *page_list,
 		if (PageActive(page)) {
 			lru += LRU_ACTIVE;
 			ClearPageActive(page);
-#ifdef CONFIG_CLEANCACHE
-			SetPageWasActive(page);
-#endif
 			nr_active += numpages;
 		}
 		if (count)
@@ -1352,6 +1343,40 @@ int isolate_lru_page(struct page *page)
 	}
 	return ret;
 }
+
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+/**
+ * isolate_lru_page_compcache - tries to isolate a page for compcache
+ * @page: page to isolate from its LRU list
+ *
+ * Isolates a @page from an LRU list, clears PageLRU,but
+ * does not adjusts the vmstat statistic
+ * Returns 0 if the page was removed from an LRU list.
+ * Returns -EBUSY if the page was not on an LRU list.
+ */
+int isolate_lru_page_compcache(struct page *page)
+{
+	int ret = -EBUSY;
+
+	VM_BUG_ON(!page_count(page));
+
+	if (PageLRU(page)) {
+		struct zone *zone = page_zone(page);
+
+		spin_lock_irq(&zone->lru_lock);
+		if (PageLRU(page)) {
+			int lru = page_lru(page);
+			ret = 0;
+			get_page(page);
+			ClearPageLRU(page);
+			list_del(&page->lru);
+			mem_cgroup_del_lru_list(page, lru);
+		}
+		spin_unlock_irq(&zone->lru_lock);
+	}
+	return ret;
+}
+#endif
 
 /*
  * Are there way too many processes in the direct reclaim path already?
@@ -1589,6 +1614,44 @@ shrink_inactive_list(unsigned long nr_to_scan, struct zone *zone,
 	return nr_reclaimed;
 }
 
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+unsigned long
+zone_id_shrink_pagelist(struct zone *zone, struct list_head *page_list)
+{
+	unsigned long nr_reclaimed = 0;
+	unsigned long nr_anon;
+	unsigned long nr_file;
+
+	struct scan_control sc = {
+		.gfp_mask = GFP_USER,
+		.may_writepage = 1,
+		.nr_to_reclaim = SWAP_CLUSTER_MAX,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.swappiness = vm_swappiness,
+		.order = 0,
+		.mem_cgroup = NULL,
+		.nodemask = NULL,
+	};
+
+	spin_lock_irq(&zone->lru_lock);
+
+	update_isolated_counts(zone, &sc, &nr_anon, &nr_file, page_list);
+
+	spin_unlock_irq(&zone->lru_lock);
+
+	nr_reclaimed = shrink_page_list(page_list, zone, &sc);
+
+	__count_zone_vm_events(PGSTEAL, zone, nr_reclaimed);
+
+	putback_lru_pages(zone, &sc, nr_anon, nr_file, page_list);
+
+	return nr_reclaimed;
+}
+
+EXPORT_SYMBOL(zone_id_shrink_pagelist);
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
+
 /*
  * This moves pages from the active list to the inactive list.
  *
@@ -1717,9 +1780,6 @@ static void shrink_active_list(unsigned long nr_pages, struct zone *zone,
 		}
 
 		ClearPageActive(page);	/* we are de-activating */
-#ifdef CONFIG_CLEANCACHE
-		SetPageWasActive(page);
-#endif
 		list_add(&page->lru, &l_inactive);
 	}
 

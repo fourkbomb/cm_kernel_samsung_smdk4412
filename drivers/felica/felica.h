@@ -26,7 +26,6 @@
 #include <linux/skbuff.h>
 
 #include <mach/gpio-exynos4.h>
-#include <plat/gpio-cfg.h>
 
 
 
@@ -43,6 +42,8 @@
 /******************************************************************************
  * config option
  ******************************************************************************/
+
+#define CONFIG_FELICA_DIAG
 
 
 
@@ -102,7 +103,9 @@ static void __exit felica_exit(void);
 #define MSG_WRITE_LEN_OFFSET			6
 #define MSG_LOCK_ADDR_OFFSET			7
 #define MSG_I2C_ADDR_OFFSET			8
+#ifdef CONFIG_FELICA_DIAG
 #define MSG_DIAG_NAME_OFFSET			9
+#endif
 #define MSG_MFC_UID_FRONT_OFFSET		24
 #define MSG_MFC_UID_BACK_OFFSET			25
 #define MSG_MFL_UID_FRONT_OFFSET		26
@@ -137,11 +140,9 @@ static void felica_nl_recv_msg(struct sk_buff *skb);
 static void felica_nl_wait_ret_msg(void);
 static void felica_set_felica_info(void);
 
-static int felica_smc_read_oemflag(u32 ctrl_word, u32 *val);
-static int felica_Cpu0(void);
-static int felica_CpuAll(void);
+#ifdef CONFIG_TEMPER_FUSE
 static uint8_t felica_get_tamper_fuse_cmd(void);
-
+#endif
 
 
 
@@ -283,6 +284,7 @@ static ssize_t felica_int_poll_read(struct file *file, \
 static unsigned int felica_int_poll_poll(struct file *file, poll_table *wait);
 
 
+#ifdef CONFIG_FELICA_DIAG
 /******************************************************************************
  * /dev/felica_uid
  ******************************************************************************/
@@ -300,6 +302,7 @@ static int felica_uid_open(struct inode *inode, struct file *file);
 static int felica_uid_close(struct inode *inode, struct file *file);
 static long felica_uid_ioctl(struct file *file, unsigned int cmd, \
 						unsigned long arg);
+#endif
 /******************************************************************************
  * /dev/felica_ant
  ******************************************************************************/
@@ -317,5 +320,9 @@ static ssize_t felica_ant_read(struct file *file, char __user *buf,\
 				size_t len, loff_t *ppos);
 static ssize_t felica_ant_write(struct file *file, const char __user *data,\
 				size_t len, loff_t *ppos);
+
+
+
+
 
 #endif /* _FELICA_H */

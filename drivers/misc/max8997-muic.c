@@ -1216,7 +1216,7 @@ static int attach_jig_uart_boot_off(struct max8997_muic_info *info, u8 vbvolt)
 
 	dev_info(info->dev, "%s: JIG UART/BOOTOFF(0x%x)\n", __func__, vbvolt);
 
-#if defined(CONFIG_SEC_MODEM_M0_TD)
+#if defined(CONFIG_SEC_MODEM_M0_TD) || defined(CONFIG_SEC_MODEM_IRON_TD)
 	gpio_set_value(GPIO_AP_CP_INT1, 1);
 #endif
 
@@ -1707,7 +1707,7 @@ static int handle_detach(struct max8997_muic_info *info)
 {
 	int ret = 0;
 
-#if defined(CONFIG_SEC_MODEM_M0_TD)
+#if defined(CONFIG_SEC_MODEM_M0_TD) || defined(CONFIG_SEC_MODEM_IRON_TD)
 	gpio_set_value(GPIO_AP_CP_INT1, 0);
 #endif
 

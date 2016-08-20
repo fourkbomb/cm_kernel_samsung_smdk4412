@@ -60,6 +60,7 @@
 
  /* VP_ENABLE */
 #define VP_ENABLE_ON			(1 << 0)
+#define VP_ENABLE_OPERATING			(1 << 1)
 
 /* VP_SRESET */
 #define VP_SRESET_PROCESSING		(1 << 0)

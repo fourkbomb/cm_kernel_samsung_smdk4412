@@ -374,9 +374,13 @@ extern int s5p_dsim_select_lcd(unsigned int lcd_sel);
 extern int s5p_dsim_fifo_clear(void);
 extern void set_dsim_hs_clk_toggle_count(u8 count);
 extern void set_dsim_lcd_enabled(u8 enable);
+extern void s5p_dsim_set_main_stand_by(unsigned int enable);
 extern u32 read_dsim_register(u32 num);
 #endif
-
+#ifdef CONFIG_FB_S5P_PREVENTESD
+extern void s5p_dsim_rx_fifo_clear(void);
+extern void s3cfb_reinitialize_lcd(void);
+#endif
 
 #ifdef CONFIG_FB_S5P_AMS369FG06
 extern void ams369fg06_ldi_init(void);

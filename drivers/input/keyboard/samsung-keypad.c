@@ -66,6 +66,7 @@
 extern struct class *sec_class;
 
 static int key_suspend;
+static int already_report_wakeup_bykey;
 static int key_led_prev;
 
 enum samsung_keypad_type {
@@ -87,6 +88,10 @@ struct samsung_keypad {
 	unsigned int row_state[SAMSUNG_MAX_COLS];
 	unsigned short keycodes[];
 };
+
+/////////////////////////////////////////////////////////////////////
+extern int Is_folder_state(void);
+/////////////////////////////////////////////////////////////////////
 
 static int samsung_keypad_is_s5pv210(struct device *dev)
 {
@@ -134,6 +139,13 @@ static bool samsung_keypad_report(struct samsung_keypad *keypad,
 	unsigned int val;
 	unsigned int col, row;
 
+
+	if(Is_folder_state())
+	{
+		printk(KERN_INFO"[KEY] not report keypad : Folder is closed\n");
+		return key_down;
+	}
+
 	for (col = 0; col < keypad->cols; col++) {
 		changed = row_state[col] ^ keypad->row_state[col];
 		key_down |= row_state[col];
@@ -170,9 +182,6 @@ static irqreturn_t samsung_keypad_irq(int irq, void *dev_id)
 	unsigned int val;
 	bool key_down;
 
-
-	printk(KERN_INFO "[KEY]samsung_keypad_irq()\n");
-
 	do {
 		val = readl(keypad->base + SAMSUNG_KEYIFSTSCLR);
 		/* Clear interrupt. */
@@ -194,20 +203,15 @@ static irqreturn_t samsung_keypad_xeint_irq(int irq, void *dev_id)
 	struct input_dev *input_dev = keypad->input_dev;
 	unsigned int val;
 
-	printk(KERN_INFO "[KEY]samsung_keypad_xeint_irq()\n");
-
+	printk(KERN_INFO "[KEY]samsung_keypad_xeint_irq() : %d\n", already_report_wakeup_bykey);
+	if (already_report_wakeup_bykey == 0)
+	{
 	input_event(input_dev, EV_KEY, KEY_POWER, 1);
 	input_event(input_dev, EV_KEY, KEY_POWER, 0);
 	input_sync(input_dev);
 
-	s3c_gpio_cfgpin(GPIO_KBR_0, S3C_GPIO_SFN(3));
-	s3c_gpio_setpull(GPIO_KBR_0, S3C_GPIO_PULL_UP);
-	s3c_gpio_cfgpin(GPIO_KBR_1, S3C_GPIO_SFN(3));
-	s3c_gpio_setpull(GPIO_KBR_1, S3C_GPIO_PULL_UP);
-	s3c_gpio_cfgpin(GPIO_KBR_2, S3C_GPIO_SFN(3));
-	s3c_gpio_setpull(GPIO_KBR_2, S3C_GPIO_PULL_UP);
-	s3c_gpio_cfgall_range(GPIO_KBR_3, 2, S3C_GPIO_SFN(3), S3C_GPIO_PULL_UP);
-	s3c_gpio_cfgall_range(GPIO_KBC_0, 5, S3C_GPIO_SFN(3), S3C_GPIO_PULL_NONE);
+		already_report_wakeup_bykey = 1;
+	}
 
 	return IRQ_HANDLED;
 }
@@ -230,6 +234,12 @@ static void samsung_keypad_start(struct samsung_keypad *keypad)
 
 	/* KEYIFCOL reg clear. */
 	writel(0, keypad->base + SAMSUNG_KEYIFCOL);
+
+	/* There is problem when keypad suspend, keypad irq is generated.
+	 *  So, I removed enable_irq() in samsung_keypad_stop(), and
+	 *  add enable_irq() in samsung_keypad_start()
+	 */
+	enable_irq(keypad->irq);
 }
 
 static void samsung_keypad_stop(struct samsung_keypad *keypad)
@@ -257,7 +267,7 @@ static void samsung_keypad_stop(struct samsung_keypad *keypad)
 	 * Now that chip should not generate interrupts we can safely
 	 * re-enable the handler.
 	 */
-	enable_irq(keypad->irq);
+	/* enable_irq(keypad->irq); */
 }
 
 static int samsung_keypad_open(struct input_dev *input_dev)
@@ -433,9 +443,10 @@ static int __devinit samsung_keypad_probe(struct platform_device *pdev)
 	set_bit(EV_LED, input_dev->evbit);
 	set_bit(LED_MISC, input_dev->ledbit);
 	set_bit(EV_KEY, input_dev->evbit);
+#if 0 /*delete repeat key event CHN SYSTEM */
 	if (!pdata->no_autorepeat)
 		set_bit(EV_REP, input_dev->evbit);
-
+#endif
 
 	/* when sleep => wakeup, we want to report key-value as KEY_POWER */
 	input_set_capability(input_dev, EV_KEY, KEY_POWER);
@@ -551,7 +562,7 @@ static int samsung_keypad_suspend(struct device *dev)
 	int irq;
 	int error;
 
-	printk(KERN_INFO "[KEY] samsung_keypad_suspend()\n");
+	printk(KERN_INFO "[KEY] +samsung_keypad_suspend()\n");
 
 	mutex_lock(&input_dev->mutex);
 
@@ -600,7 +611,10 @@ static int samsung_keypad_suspend(struct device *dev)
 	enable_irq_wake(irq);
 
 	mutex_unlock(&input_dev->mutex);
+	printk(KERN_INFO "[KEY] -samsung_keypad_suspend()\n");
 
+	key_suspend = 1;
+	already_report_wakeup_bykey = 0;
 	return 0;
 }
 
@@ -615,6 +629,14 @@ static int samsung_keypad_resume(struct device *dev)
 	mutex_lock(&input_dev->mutex);
 
 /*	samsung_keypad_toggle_wakeup(keypad, false);*/
+	s3c_gpio_cfgpin(GPIO_KBR_0, S3C_GPIO_SFN(3));
+	s3c_gpio_setpull(GPIO_KBR_0, S3C_GPIO_PULL_UP);
+	s3c_gpio_cfgpin(GPIO_KBR_1, S3C_GPIO_SFN(3));
+	s3c_gpio_setpull(GPIO_KBR_1, S3C_GPIO_PULL_UP);
+	s3c_gpio_cfgpin(GPIO_KBR_2, S3C_GPIO_SFN(3));
+	s3c_gpio_setpull(GPIO_KBR_2, S3C_GPIO_PULL_UP);
+	s3c_gpio_cfgall_range(GPIO_KBR_3, 2, S3C_GPIO_SFN(3), S3C_GPIO_PULL_UP);
+	s3c_gpio_cfgall_range(GPIO_KBC_0, 5, S3C_GPIO_SFN(3), S3C_GPIO_PULL_NONE);
 
 	if (input_dev->users)
 		samsung_keypad_start(keypad);

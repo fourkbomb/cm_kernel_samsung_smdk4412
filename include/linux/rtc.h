@@ -91,6 +91,11 @@ struct rtc_pll_info {
 #define RTC_PLL_GET	_IOR('p', 0x11, struct rtc_pll_info)  /* Get PLL correction */
 #define RTC_PLL_SET	_IOW('p', 0x12, struct rtc_pll_info)  /* Set PLL correction */
 
+#if defined(CONFIG_RTC_ALARM_BOOT)
+/* Set power off alarm */
+#define RTC_WKALM_BOOT_SET	_IOW('p', 0x80, struct rtc_wkalrm)
+#endif
+
 /* interrupt flags */
 #define RTC_IRQF 0x80	/* Any of the following is active */
 #define RTC_PF 0x40	/* Periodic interrupt */
@@ -150,8 +155,6 @@ struct rtc_class_ops {
 	int (*set_alarm)(struct device *, struct rtc_wkalrm *);
 #if defined(CONFIG_RTC_ALARM_BOOT)
 	int (*set_alarm_boot)(struct device *, struct rtc_wkalrm *);
-#elif defined(CONFIG_RTC_POWER_OFF)
-	int (*set_alarm_poweroff)(struct device *, struct rtc_wkalrm *);
 #endif
 	int (*proc)(struct device *, struct seq_file *);
 	int (*set_mmss)(struct device *, unsigned long secs);
@@ -238,13 +241,10 @@ extern int rtc_set_alarm(struct rtc_device *rtc,
 				struct rtc_wkalrm *alrm);
 #if defined(CONFIG_RTC_ALARM_BOOT)
 extern int rtc_set_alarm_boot(struct rtc_device *rtc,
-				struct rtc_wkalrm *alarm);
-#elif defined(CONFIG_RTC_POWER_OFF)
-extern int rtc_set_alarm_poweroff(struct rtc_device *rtc,
-					struct rtc_wkalrm *alarm);
+			      struct rtc_wkalrm *alarm);
 #endif
 extern int rtc_initialize_alarm(struct rtc_device *rtc,
-					struct rtc_wkalrm *alrm);
+				struct rtc_wkalrm *alrm);
 extern void rtc_update_irq(struct rtc_device *rtc,
 			unsigned long num, unsigned long events);
 

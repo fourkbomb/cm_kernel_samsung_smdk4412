@@ -159,7 +159,7 @@ void ath6kl_config_suspend_wake_lock(struct ath6kl *ar, struct sk_buff *skb,
 {
 	struct ath6kl_vif *vif;
 #ifdef CONFIG_HAS_WAKELOCK
-	unsigned long wl_timeout = 5;
+	unsigned long wl_timeout = 1 * HZ;
 #endif
 	bool need_wake = false;
 

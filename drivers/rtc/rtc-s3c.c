@@ -458,7 +458,9 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "IRQ%d error %d\n", s3c_rtc_alarmno, ret);
 		goto err_irq;
 	}
-
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	device_init_wakeup_setirq(&rtc->dev, s3c_rtc_alarmno);
+#endif
 	return 0;
 
  err_irq:

@@ -7517,8 +7517,7 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 
 	work->event = event;
 	work->dev = crtc->dev;
-	intel_fb = to_intel_framebuffer(crtc->fb);
-	work->old_fb_obj = intel_fb->obj;
+	work->old_fb_obj = to_intel_framebuffer(old_fb)->obj;
 	INIT_WORK(&work->work, intel_unpin_work_fn);
 
 	ret = drm_vblank_get(dev, intel_crtc->pipe);
@@ -7568,6 +7567,7 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 
 cleanup_pending:
 	atomic_sub(1 << intel_crtc->plane, &work->old_fb_obj->pending_flip);
+	crtc->fb = old_fb;
 	drm_gem_object_unreference(&work->old_fb_obj->base);
 	drm_gem_object_unreference(&obj->base);
 	mutex_unlock(&dev->struct_mutex);
@@ -8602,6 +8602,10 @@ static void ivybridge_init_clock_gating(struct drm_device *dev)
 
 	I915_WRITE(ILK_DSPCLK_GATE, IVB_VRHUNIT_CLK_GATE);
 
+	I915_WRITE(IVB_CHICKEN3,
+		   CHICKEN3_DGMG_REQ_OUT_FIX_DISABLE |
+		   CHICKEN3_DGMG_DONE_FIX_DISABLE);
+
 	/* Apply the WaDisableRHWOOptimizationForRenderHang workaround. */
 	I915_WRITE(GEN7_COMMON_SLICE_CHICKEN1,
 		   GEN7_CSC1_RHWO_OPT_DISABLE_IN_RCC);
@@ -8617,7 +8621,7 @@ static void ivybridge_init_clock_gating(struct drm_device *dev)
 			I915_READ(GEN7_SQ_CHICKEN_MBCUNIT_CONFIG) |
 			GEN7_SQ_CHICKEN_MBCUNIT_SQINTMOB);
 
-	for_each_pipe(pipe)
+	for_each_pipe(pipe) {
 		I915_WRITE(DSPCNTR(pipe),
 			   I915_READ(DSPCNTR(pipe)) |
 			   DISPPLANE_TRICKLE_FEED_DISABLE);

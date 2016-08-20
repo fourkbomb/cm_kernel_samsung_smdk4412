@@ -27,10 +27,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/firmware.h>
 #include <video/mipi_display.h>
-
-#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
-#include <linux/devfreq/exynos4_display.h>
-#endif
+#include <linux/workqueue.h>
 
 #include <plat/mipi_dsim2.h>
 #include "s6d6aa1.h"
@@ -39,17 +36,14 @@
 #define LDI_FW_PATH "s6d6aa1/reg_%s.bin"
 #define MAX_STR				255
 #define MAX_READ_LENGTH		64
-#define MIN_BRIGHTNESS		(0)
-#define MAX_BRIGHTNESS		(0xff)
+#define DIMMING_BRIGHTNESS	(0)
+#define MIN_BRIGHTNESS		(1)
+#define MAX_BRIGHTNESS		(100)
 #define DSCTL_VFLIP	(1 << 7)
 #define DSCTL_HFLIP	(1 << 6)
-
-/*
- * FIXME:!!simple init vs full init
- * If lcd don't working simple sequence,
- * we use full initialization sequence
- */
-#define SIMPLE_INIT
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+#define OVERHEATING_LIMIT_BRIGHTNESS 69     /*limit brightness is 230cd */
+#endif
 
 #define POWER_IS_ON(pwr)		((pwr) == FB_BLANK_UNBLANK)
 #define POWER_IS_OFF(pwr)	((pwr) == FB_BLANK_POWERDOWN)
@@ -85,10 +79,8 @@ struct s6d6aa1 {
 	struct regulator	*reg_vddi;
 	struct regulator	*reg_vdd;
 
-#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
-	struct notifier_block	nb_disp;
-#endif
 	struct mutex	lock;
+	struct mutex	power_lock;
 
 	unsigned int	ver;
 	unsigned int	power;
@@ -97,6 +89,7 @@ struct s6d6aa1 {
 
 	const struct panel_model	*model;
 	unsigned int	model_count;
+	struct work_struct		esd_work;
 };
 
 static void s6d6aa1_delay(unsigned int msecs)
@@ -195,12 +188,12 @@ static void s6d6aa1_sony_ip_setting(struct s6d6aa1 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	const unsigned char data_to_send1[] = {
-		0xC4, 0x72, 0xFF, 0x72, 0xFF, 0x72, 0xFF, 0x72, 0x72,
-		0x05, 0x0F, 0x1F, 0x01, 0x00, 0x00
+		0xC4, 0x7C, 0xE6, 0x7C, 0xE6, 0x7C, 0xE6, 0x7C,
+		0x7C, 0x05, 0x0F, 0x1F, 0x01, 0x00, 0x00,
 	};
 	const unsigned char data_to_send2[] = {
-		0xC5, 0x80, 0x80, 0x80, 0x60, 0x4E, 0x36, 0x83, 0x85,
-		0x01, 0xFF, 0x20, 0x40, 0x50
+		0xC5, 0x80, 0x80, 0x80, 0x41, 0x43, 0x34,
+		0x80, 0x80, 0x01, 0xFF, 0x25, 0x58, 0x50,
 	};
 
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
@@ -210,12 +203,6 @@ static void s6d6aa1_sony_ip_setting(struct s6d6aa1 *lcd)
 		(unsigned int)data_to_send2, ARRAY_SIZE(data_to_send2));
 }
 
-/*
- * FIXME:!!simple init vs full init
- * If lcd don't working simple sequence,
- * we use full initialization sequence
- */
-#ifdef SIMPLE_INIT
 static void s6d6aa1_disp_ctl(struct s6d6aa1 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
@@ -233,15 +220,6 @@ static void s6d6aa1_disp_ctl(struct s6d6aa1 *lcd)
 	ops->cmd_write(lcd_to_master(lcd),
 		MIPI_DSI_DCS_SHORT_WRITE_PARAM, 0x36, cfg);
 }
-#else
-static void s6d6aa1_disp_ctl(struct s6d6aa1 *lcd)
-{
-	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
-
-	ops->cmd_write(lcd_to_master(lcd),
-		MIPI_DSI_DCS_SHORT_WRITE_PARAM, 0xEF, 0x02);
-}
-#endif
 
 static void s6d6aa1_source_ctl(struct s6d6aa1 *lcd)
 {
@@ -293,25 +271,25 @@ static int s6d6aa1_gamma_ctrl(struct s6d6aa1 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	const unsigned char data_to_send1[] = {
-		0xFA, 0x1C, 0x3F, 0x20, 0xDF, 0xEB, 0xEB, 0xE3, 0x61,
-		0x61, 0xDB, 0x94, 0x15, 0xD9, 0xD8, 0xDB, 0xE1, 0xE4,
-		0xE6, 0xE3, 0xA2, 0x49, 0xDC, 0x7F, 0x5E, 0xDD, 0x6B,
-		0x6A, 0xA3, 0xE1, 0xE2, 0x9B, 0x55, 0xD6, 0x99, 0x59,
-		0x9C, 0xA1, 0xA4, 0x64, 0xA0, 0x9F, 0x06, 0x80, 0xBF,
-		0xB0, 0xB1, 0xFB, 0xFA, 0xF4, 0x31, 0x72, 0xEC, 0x25,
-		0xA5, 0xA7, 0xE9, 0x6B, 0xAE, 0xB1, 0xB4, 0x35, 0xF8,
-		0x9F
+		0xFA, 0x9C, 0xBF, 0x1A, 0xD6, 0xE3, 0xE3, 0x1B,
+		0xDA, 0x9B, 0x16, 0x51, 0x12, 0x15, 0xD9, 0x9B,
+		0x1A, 0xDD, 0x62, 0x2D, 0x79, 0x6A, 0x2C, 0x7F,
+		0x11, 0x09, 0x53, 0x91, 0x09, 0x08, 0xCA, 0x06,
+		0x07, 0x89, 0x0D, 0x52, 0xD5, 0x16, 0xD9, 0x1C,
+		0x1E, 0x9E, 0xC1, 0x0F, 0xFF, 0xD7, 0x53, 0x61,
+		0xE2, 0x5A, 0x9A, 0xDC, 0x5A, 0x97, 0x99, 0x5D,
+		0x21, 0xE5, 0x26, 0xE9, 0x2C, 0x2A, 0x2A, 0x4F,
 	};
 
 	const unsigned char data_to_send2[] = {
-		0xFB, 0x1C, 0x3F, 0x20, 0xDF, 0xEB, 0xEB, 0xE3, 0x61,
-		0x61, 0xDB, 0x94, 0x15, 0xD9, 0xD8, 0xDB, 0xE1, 0xE4,
-		0xE6, 0xE3, 0xA2, 0x49, 0xDC, 0x7F, 0x5E, 0xDD, 0x6B,
-		0x6A, 0xA3, 0xE1, 0xE2, 0x9B, 0x55, 0xD6, 0x99, 0x59,
-		0x9C, 0xA1, 0xA4, 0x64, 0xA0, 0x9F, 0x06, 0x80, 0xBF,
-		0xB0, 0xB1, 0xFB, 0xFA, 0xF4, 0x31, 0x72, 0xEC, 0x25,
-		0xA5, 0xA7, 0xE9, 0x6B, 0xAE, 0xB1, 0xB4, 0x35, 0xF8,
-		0x9F
+		0xFB, 0x9C, 0xBF, 0x1A, 0xD6, 0xE3, 0xE3, 0x1B,
+		0xDA, 0x9B, 0x16, 0x51, 0x12, 0x15, 0xD9, 0x9B,
+		0x1A, 0xDD, 0x62, 0x2D, 0x79, 0x6A, 0x2C, 0x7F,
+		0x11, 0x09, 0x53, 0x91, 0x09, 0x08, 0xCA, 0x06,
+		0x07, 0x89, 0x0D, 0x52, 0xD5, 0x16, 0xD9, 0x1C,
+		0x1E, 0x9E, 0xC1, 0x0F, 0xFF, 0xD7, 0x53, 0x61,
+		0xE2, 0x5A, 0x9A, 0xDC, 0x5A, 0x97, 0x99, 0x5D,
+		0x21, 0xE5, 0x26, 0xE9, 0x2C, 0x2A, 0x2A, 0x4F,
 	};
 
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
@@ -436,15 +414,19 @@ static int s6d6aa1_set_power(struct lcd_device *ld, int power)
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	int ret = 0;
 
+	mutex_lock(&lcd->power_lock);
+
 	if (power != FB_BLANK_UNBLANK && power != FB_BLANK_POWERDOWN &&
 			power != FB_BLANK_NORMAL) {
 		dev_err(lcd->dev, "power value should be 0, 1 or 4.\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_unlock;
 	}
 
 	if (lcd->power == power) {
 		dev_err(lcd->dev, "power mode is same as previous one.\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_unlock;
 	}
 
 	if (ops->set_blank_mode) {
@@ -452,6 +434,9 @@ static int s6d6aa1_set_power(struct lcd_device *ld, int power)
 		if (!ret && lcd->power != power)
 			lcd->power = power;
 	}
+
+err_unlock:
+	mutex_unlock(&lcd->power_lock);
 
 	return ret;
 }
@@ -474,9 +459,40 @@ static int s6d6aa1_get_brightness(struct backlight_device *bd)
 	return bd->props.brightness;
 }
 
+static int s6d6aa1_get_minbrightness(struct backlight_device *bd)
+{
+	return MIN_BRIGHTNESS;
+}
+
+static void s6d6aa1_brightness_ctrl(struct s6d6aa1 *lcd,
+				unsigned int brightness)
+{
+	const unsigned int convert_table[] = {
+		8, 9, 11, 13, 15, 17, 19, 21, 23, 25,
+		27, 29, 31, 33, 35, 37, 39, 41, 43, 45,
+		47, 49, 51, 53, 55, 57, 59, 61, 63, 65,
+		67, 69, 71, 73, 75, 77, 79, 81, 83, 85,
+		87, 89, 91, 93, 95, 97, 99, 101, 103, 105,
+		107, 109, 111, 113, 115, 117, 119, 121, 123, 125,
+		127, 130, 133, 136, 139, 142, 145, 149, 152, 155,
+		158, 161, 164, 167, 170, 173, 176, 179, 182, 185,
+		189, 192, 195, 198, 201, 204, 207, 210, 213, 216,
+		219, 222, 225, 228, 232, 235, 238, 241, 244, 247,
+		250,
+	};
+
+	if (brightness > ARRAY_SIZE(convert_table)-1)
+		brightness = convert_table[ARRAY_SIZE(convert_table)-1];
+	else
+		brightness = convert_table[brightness];
+
+	s6d6aa1_write_disbv(lcd, brightness);
+}
+
+
 static int s6d6aa1_set_brightness(struct backlight_device *bd)
 {
-	int ret = 0, brightness = bd->props.brightness;
+	unsigned int  brightness = bd->props.brightness;
 	struct s6d6aa1 *lcd = bl_get_data(bd);
 
 	if (lcd->power == FB_BLANK_POWERDOWN) {
@@ -485,20 +501,80 @@ static int s6d6aa1_set_brightness(struct backlight_device *bd)
 		return -EINVAL;
 	}
 
-	if (brightness < MIN_BRIGHTNESS ||
-		brightness > bd->props.max_brightness) {
+	if (brightness < 0 || brightness > bd->props.max_brightness) {
 		dev_err(lcd->dev, "lcd brightness should be %d to %d.\n",
-			MIN_BRIGHTNESS, MAX_BRIGHTNESS);
+			0, MAX_BRIGHTNESS);
 		return -EINVAL;
 	}
 
-	s6d6aa1_write_disbv(lcd, brightness);
-	return ret;
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+	if ((bd->props.overheating) &&
+	    (brightness > OVERHEATING_LIMIT_BRIGHTNESS)) {
+		dev_err(lcd->dev, "overheating condition: brightness set failed.\n");
+		return -EINVAL;
+	}
+#endif
+
+	s6d6aa1_brightness_ctrl(lcd, brightness);
+	return 0;
 }
+
+static int s6d6aa1_set_dimming(struct backlight_device *bd)
+{
+	struct s6d6aa1 *lcd = bl_get_data(bd);
+	int brightness = bd->props.brightness;
+
+	if (lcd->power == FB_BLANK_POWERDOWN) {
+		dev_err(lcd->dev,
+			"lcd dimming: dimming set failed.\n");
+		return -EINVAL;
+	}
+
+	dev_info(lcd->dev, "%s: brightness %d, dimming %d.\n",
+		__func__, brightness, bd->props.dimming);
+
+	if (bd->props.dimming)
+		s6d6aa1_brightness_ctrl(lcd, DIMMING_BRIGHTNESS);
+	else
+		s6d6aa1_brightness_ctrl(lcd, brightness);
+
+	return 0;
+}
+
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+static int s6d6aa1_set_overheating_protection(struct backlight_device *bd)
+{
+	struct s6d6aa1 *lcd = bl_get_data(bd);
+	int brightness = bd->props.brightness;
+
+	if (lcd->power == FB_BLANK_POWERDOWN) {
+		dev_err(lcd->dev,
+			"lcd overheating: overheating set failed.\n");
+		return -EINVAL;
+	}
+
+	dev_info(lcd->dev, "%s: brightness %d overheating %d.\n",
+		__func__, brightness, bd->props.overheating);
+
+	if (bd->props.overheating) {
+		if (brightness > OVERHEATING_LIMIT_BRIGHTNESS)
+			s6d6aa1_brightness_ctrl
+			    (lcd, OVERHEATING_LIMIT_BRIGHTNESS);
+	} else
+		s6d6aa1_brightness_ctrl(lcd, brightness);
+
+	return 0;
+}
+#endif
 
 static const struct backlight_ops s6d6aa1_backlight_ops = {
 	.get_brightness = s6d6aa1_get_brightness,
 	.update_status = s6d6aa1_set_brightness,
+	.set_dimming = s6d6aa1_set_dimming,
+	.get_minbrightness = s6d6aa1_get_minbrightness,
+#ifdef CONFIG_BL_OVERHEATING_PROTECTION
+	.set_overheating_protection = s6d6aa1_set_overheating_protection,
+#endif
 };
 
 static ssize_t wm_mode_show(struct device *dev, struct
@@ -677,7 +753,13 @@ static ssize_t write_reg_store(struct device *dev, struct
 	return size;
 }
 
-static struct device_attribute device_attrs[] = {
+static ssize_t backlight_show_min_brightness(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", MIN_BRIGHTNESS);
+}
+
+static struct device_attribute ld_device_attrs[] = {
 	__ATTR(wm_mode, S_IRUGO|S_IWUSR|S_IWGRP,
 			wm_mode_show, wm_mode_store),
 	__ATTR(lcd_type, S_IRUGO,
@@ -691,33 +773,9 @@ static struct device_attribute device_attrs[] = {
 static struct panel_model s6d6aa1_model[] = {
 	{
 		.ver = VER_16,			/* MACH_SLP_REDWOORD */
-		.name = "SMD_ACX445AKM",
+		.name = "JDI_ACX445BLN-7",
 	}
 };
-
-#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
-static int s6d6aa1_notifier_callback(struct notifier_block *this,
-			unsigned long event, void *_data)
-{
-	struct s6d6aa1 *lcd = container_of(this, struct s6d6aa1, nb_disp);
-
-	if (lcd->power == FB_BLANK_POWERDOWN)
-		return NOTIFY_DONE;
-
-	switch (event) {
-	case EXYNOS4_DISPLAY_LV_HF:
-		s6d6aa1_panel_ctl(lcd, 1);
-		break;
-	case EXYNOS4_DISPLAY_LV_LF:
-		s6d6aa1_panel_ctl(lcd, 0);
-		break;
-	default:
-		return NOTIFY_BAD;
-	}
-
-	return NOTIFY_DONE;
-}
-#endif
 
 static void s6d6aa1_regulator_ctl(struct s6d6aa1 *lcd, bool enable)
 {
@@ -758,11 +816,11 @@ static void s6d6aa1_power_on(struct mipi_dsim_lcd_device *dsim_dev,
 			lcd->ddi_pd->reset(lcd->ld);
 
 		/* wait more than 10ms */
-		s6d6aa1_delay(10);
+		s6d6aa1_delay(lcd->ddi_pd->power_on_delay);
 	} else {
 		/* lcd reset low */
-		if (lcd->ddi_pd->reset)
-			lcd->ddi_pd->reset(lcd->ld);
+		if (lcd->property->reset_low)
+			lcd->property->reset_low();
 
 		/* lcd power off */
 		s6d6aa1_regulator_ctl(lcd, false);
@@ -791,19 +849,49 @@ static void s6d6aa1_set_sequence(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct s6d6aa1 *lcd = dev_get_drvdata(&dsim_dev->dev);
 	struct backlight_device *bd = lcd->bd;
+	int brightness = bd->props.brightness;
 
 	s6d6aa1_panel_init(lcd);
-
-	s6d6aa1_write_disbv(lcd, bd->props.brightness);
+	s6d6aa1_brightness_ctrl(lcd, brightness);
 	s6d6aa1_write_ctrld(lcd);
 	s6d6aa1_write_cabc(lcd, lcd->wm_mode);
 	s6d6aa1_display_on(lcd);
 }
 
+static void s6d6aa1_esd_work(struct work_struct *work)
+{
+	struct s6d6aa1 *lcd =
+		container_of(work, struct s6d6aa1, esd_work);
+
+	struct lcd_property *property = lcd->property;
+
+	property->esd_level = property->get_esd_level();
+
+	dev_info(lcd->dev, "%s:esd_level[%d]\n", __func__, property->esd_level);
+
+	if (!property->esd_level) {
+		s6d6aa1_set_power(lcd->ld, FB_BLANK_POWERDOWN);
+		s6d6aa1_set_power(lcd->ld, FB_BLANK_UNBLANK);
+	}
+}
+
+static irqreturn_t s6d6aa1_esd_handler(int irq, void *data)
+{
+	struct s6d6aa1 *lcd = data;
+
+	if (!work_busy(&lcd->esd_work)) {
+		schedule_work(&lcd->esd_work);
+		dev_info(lcd->dev, "%s: add schedule_work.\n", __func__);
+	}
+
+	return IRQ_HANDLED;
+}
+
 static int s6d6aa1_probe(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct s6d6aa1 *lcd;
-	int ret;
+	struct lcd_property	*property;
+	int ret = 0;
 	int i;
 
 	lcd = kzalloc(sizeof(struct s6d6aa1), GFP_KERNEL);
@@ -817,6 +905,7 @@ static int s6d6aa1_probe(struct mipi_dsim_lcd_device *dsim_dev)
 	lcd->dev = &dsim_dev->dev;
 
 	mutex_init(&lcd->lock);
+	mutex_init(&lcd->power_lock);
 
 	lcd->reg_vddi = regulator_get(lcd->dev, "VDDI");
 	if (IS_ERR(lcd->reg_vddi)) {
@@ -852,27 +941,30 @@ static int s6d6aa1_probe(struct mipi_dsim_lcd_device *dsim_dev)
 
 	s6d6aa1_regulator_ctl(lcd, true);
 
-	if (lcd->ddi_pd)
+	if (lcd->ddi_pd) {
 		lcd->property = lcd->ddi_pd->pdata;
+		property = lcd->property;
 
-#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
-	if (lcd->property && lcd->property->dynamic_refresh) {
-		lcd->nb_disp.notifier_call = s6d6aa1_notifier_callback;
-		ret = exynos4_display_register_client(&lcd->nb_disp);
-		if (ret < 0)
-			dev_warn(&lcd->ld->dev, "failed to register exynos-display notifier\n");
+		INIT_WORK(&lcd->esd_work, s6d6aa1_esd_work);
+
+		if (request_threaded_irq(property->esd_irq, NULL,
+		    s6d6aa1_esd_handler, IRQF_TRIGGER_FALLING
+		    | IRQF_ONESHOT, "esd", (void *) lcd)) {
+			dev_err(&lcd->ld->dev, "failed to reqeust LCD_DET irq.\n");
+			goto err_unregister_lcd;
+		}
 	}
-#endif
 
 	lcd->bd->props.max_brightness = MAX_BRIGHTNESS;
 	lcd->bd->props.brightness = MAX_BRIGHTNESS;
 	lcd->power = FB_BLANK_UNBLANK;
-	lcd->wm_mode = WM_MODE_CONSERVATIVE;
+	lcd->wm_mode = WM_MODE_NORMAL;
 	lcd->model = s6d6aa1_model;
 	lcd->model_count = ARRAY_SIZE(s6d6aa1_model);
-	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
+
+	for (i = 0; i < ARRAY_SIZE(ld_device_attrs); i++) {
 		ret = device_create_file(&lcd->ld->dev,
-					&device_attrs[i]);
+					&ld_device_attrs[i]);
 		if (ret < 0) {
 			dev_err(&lcd->ld->dev, "failed to add sysfs entries\n");
 			break;
@@ -907,10 +999,6 @@ static void s6d6aa1_remove(struct mipi_dsim_lcd_device *dsim_dev)
 	regulator_put(lcd->reg_vdd);
 	regulator_put(lcd->reg_vddi);
 
-#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
-	if (lcd->property && lcd->property->dynamic_refresh)
-		exynos4_display_unregister_client(&lcd->nb_disp);
-#endif
 	kfree(lcd);
 }
 
@@ -918,6 +1006,10 @@ static void s6d6aa1_remove(struct mipi_dsim_lcd_device *dsim_dev)
 static int s6d6aa1_suspend(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct s6d6aa1 *lcd = dev_get_drvdata(&dsim_dev->dev);
+	struct lcd_property *property = lcd->property;
+
+	disable_irq(property->esd_irq);
+	property->esd_gpio_suspend();
 
 	s6d6aa1_display_off(lcd);
 	s6d6aa1_sleep_in(lcd);
@@ -929,9 +1021,12 @@ static int s6d6aa1_suspend(struct mipi_dsim_lcd_device *dsim_dev)
 static int s6d6aa1_resume(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct s6d6aa1 *lcd = dev_get_drvdata(&dsim_dev->dev);
+	struct lcd_property *property = lcd->property;
 
-	s6d6aa1_sleep_out(lcd);
 	s6d6aa1_delay(lcd->ddi_pd->power_on_delay);
+
+	property->esd_gpio_resume();
+	enable_irq(property->esd_irq);
 
 	return 0;
 }

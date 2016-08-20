@@ -129,26 +129,6 @@ int __init register_security(struct security_operations *ops)
 
 /* Security operations */
 
-int security_binder_set_context_mgr(struct task_struct *mgr)
-{
-	return security_ops->binder_set_context_mgr(mgr);
-}
-
-int security_binder_transaction(struct task_struct *from, struct task_struct *to)
-{
-	return security_ops->binder_transaction(from, to);
-}
-
-int security_binder_transfer_binder(struct task_struct *from, struct task_struct *to)
-{
-	return security_ops->binder_transfer_binder(from, to);
-}
-
-int security_binder_transfer_file(struct task_struct *from, struct task_struct *to, struct file *file)
-{
-	return security_ops->binder_transfer_file(from, to, file);
-}
-
 int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
 {
 	return security_ops->ptrace_access_check(child, mode);
@@ -361,19 +341,8 @@ void security_inode_free(struct inode *inode)
 }
 
 int security_inode_init_security(struct inode *inode, struct inode *dir,
-				     const struct qstr *qstr, char **name,
-				     void **value, size_t *len)
-{
-	if (unlikely(IS_PRIVATE(inode)))
-		return -EOPNOTSUPP;
-	return security_ops->inode_init_security(inode, dir, qstr, name, value,
-						 len);
-}
-EXPORT_SYMBOL(security_inode_init_security);
-
-int security_new_inode_init_security(struct inode *inode, struct inode *dir,
-					const struct qstr *qstr,
-					const initxattrs initxattrs, void *fs_data)
+				 const struct qstr *qstr,
+				 const initxattrs initxattrs, void *fs_data)
 {
 	struct xattr new_xattrs[MAX_LSM_XATTR + 1];
 	struct xattr *lsm_xattr;
@@ -400,7 +369,18 @@ out:
 
 	return (ret == -EOPNOTSUPP) ? 0 : ret;
 }
-EXPORT_SYMBOL(security_new_inode_init_security);
+EXPORT_SYMBOL(security_inode_init_security);
+
+int security_old_inode_init_security(struct inode *inode, struct inode *dir,
+				     const struct qstr *qstr, char **name,
+				     void **value, size_t *len)
+{
+	if (unlikely(IS_PRIVATE(inode)))
+		return -EOPNOTSUPP;
+	return security_ops->inode_init_security(inode, dir, qstr, name, value,
+						 len);
+}
+EXPORT_SYMBOL(security_old_inode_init_security);
 
 #ifdef CONFIG_SECURITY_PATH
 int security_path_mknod(struct path *dir, struct dentry *dentry, int mode,

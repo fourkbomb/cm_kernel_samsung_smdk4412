@@ -486,7 +486,7 @@ static inline void fimc_irq_cap(struct fimc_control *ctrl)
 							pp, ctrl->id, cap->cnt);
 			cap->cnt++;
 		}
-		if (pp == 0 || cap->cnt == 1) {
+		if (pp == 0 || cap->cnt <= 5) {
 			if (ctrl->cap->nr_bufs == 1)
 				pp = fimc_hwget_present_frame_count(ctrl);
 			else
@@ -574,7 +574,15 @@ struct fimc_control *fimc_register_controller(struct platform_device *pdev)
 	ctrl->log = FIMC_LOG_DEFAULT;
 	ctrl->power_status = FIMC_POWER_OFF;
 
+#ifdef CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	sprintf(ctrl->cma_name, "%s", FIMC_CMA_NAME);
+	ctrl->mem.size = 0;
+	ctrl->mem.base = 0;
+#else
 	/* CMA */
+#ifdef CONFIG_ION_EXYNOS
+	if  (id != 2) {
+#endif
 		sprintf(ctrl->cma_name, "%s%d", FIMC_CMA_NAME, ctrl->id);
 	err = cma_info(&mem_info, ctrl->dev, 0);
 	fimc_info1("%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
@@ -590,10 +598,14 @@ struct fimc_control *fimc_register_controller(struct platform_device *pdev)
 		ctrl->mem.base = (dma_addr_t)cma_alloc
 			(ctrl->dev, ctrl->cma_name, (size_t)ctrl->mem.size, 0);
 	}
+#ifdef CONFIG_ION_EXYNOS
+	}
+#endif
 	printk(KERN_INFO "ctrl->mem.size = 0x%x\n", ctrl->mem.size);
 	printk(KERN_INFO "ctrl->mem.base = 0x%x\n", ctrl->mem.base);
 
 	ctrl->mem.curr = ctrl->mem.base;
+#endif
 	ctrl->status = FIMC_STREAMOFF;
 
 	switch (pdata->hw_ver) {
@@ -745,50 +757,6 @@ static struct vm_operations_struct fimc_mmap_ops = {
 };
 
 static inline
-int fimc_mmap_own_mem(struct file *filp, struct vm_area_struct *vma)
-{
-	struct fimc_prv_data *prv_data =
-				(struct fimc_prv_data *)filp->private_data;
-	struct fimc_control *ctrl = prv_data->ctrl;
-	u32 start_phy_addr = 0;
-	u32 size = vma->vm_end - vma->vm_start;
-	u32 pfn, idx = vma->vm_pgoff;
-	u32 buf_length = 0;
-
-	buf_length = ctrl->mem.size;
-	if (size > PAGE_ALIGN(buf_length)) {
-		fimc_err("Requested mmap size is too big\n");
-		return -EINVAL;
-	}
-
-	start_phy_addr = ctrl->mem.base + (vma->vm_pgoff  << PAGE_SHIFT);
-
-	if (!cma_is_registered_region(start_phy_addr, size)) {
-		pr_err("[%s] handling non-cma region (%#x@%#x)is prohibited\n",
-				__func__, buf_length, start_phy_addr);
-		return -EINVAL;
-	}
-
-	/* only supports non-cached mmap */
-	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-	vma->vm_flags |= VM_RESERVED;
-
-	if ((vma->vm_flags & VM_WRITE) && !(vma->vm_flags & VM_SHARED)) {
-		fimc_err("writable mapping must be shared\n");
-		return -EINVAL;
-	}
-
-	pfn = __phys_to_pfn(start_phy_addr);
-
-	if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot)) {
-		fimc_err("mmap fail\n");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static inline
 int fimc_mmap_out_src(struct file *filp, struct vm_area_struct *vma)
 {
 	struct fimc_prv_data *prv_data =
@@ -873,14 +841,10 @@ static inline int fimc_mmap_out(struct file *filp, struct vm_area_struct *vma)
 	int idx = ctrl->out->ctx[ctx_id].overlay.req_idx;
 	int ret = -1;
 
-#if 0
 	if (idx >= 0)
 		ret = fimc_mmap_out_dst(filp, vma, idx);
 	else if (idx == FIMC_MMAP_IDX)
 		ret = fimc_mmap_out_src(filp, vma);
-#else
-	ret = fimc_mmap_own_mem(filp, vma);
-#endif
 
 	return ret;
 }
@@ -896,12 +860,6 @@ static inline int fimc_mmap_cap(struct file *filp, struct vm_area_struct *vma)
 	if (ctrl->cap->fmt.priv != V4L2_PIX_FMT_MODE_HDR && !ctrl->cap->cacheable)
 		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	vma->vm_flags |= VM_RESERVED;
-
-	if (!cma_is_registered_region(ctrl->cap->bufs[idx].base[0], size)) {
-		pr_err("[%s] handling non-cma region (%#x@%#x)is prohibited\n",
-				__func__, size, ctrl->cap->bufs[idx].base[0]);
-		return -EINVAL;
-	}
 
 	/*
 	 * page frame number of the address for a source frame
@@ -1314,7 +1272,10 @@ static int fimc_release(struct file *filp)
 			fimc_outdev_init_idxs(ctrl);
 
 			ctrl->mem.curr = ctrl->mem.base;
-
+#ifdef CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+			if (ctrl->mem.base)
+				cma_free(ctrl->mem.base);
+#endif
 			kfree(ctrl->out);
 			ctrl->out = NULL;
 
@@ -1328,6 +1289,10 @@ static int fimc_release(struct file *filp)
 	if (ctrl->cap) {
 		cap = ctrl->cap;
 		ctrl->mem.curr = ctrl->mem.base;
+#ifdef CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+		if (ctrl->mem.base)
+			cma_free(ctrl->mem.base);
+#endif
 		kfree(filp->private_data);
 		filp->private_data = NULL;
 		if (pdata->hw_ver >= 0x51)

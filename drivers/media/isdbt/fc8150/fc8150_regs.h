@@ -14,29 +14,29 @@
 extern "C" {
 #endif
 
-/* #define BBM_XTAL_FREQ               16000 */
-/* #define BBM_XTAL_FREQ               16384 */
-/* #define BBM_XTAL_FREQ               18000 */
-/* #define BBM_XTAL_FREQ               19200 */
+/*#define BBM_XTAL_FREQ               16000*/
+/*#define BBM_XTAL_FREQ               16384*/
+/*#define BBM_XTAL_FREQ               18000*/
+/*#define BBM_XTAL_FREQ               19200*/
 #define BBM_XTAL_FREQ               24000
-/* #define BBM_XTAL_FREQ               26000 */
-/* #define BBM_XTAL_FREQ               27000 */
-/* #define BBM_XTAL_FREQ               27120 */
-/* #define BBM_XTAL_FREQ               24576 */
-/* #define BBM_XTAL_FREQ               32000 */
-/* #define BBM_XTAL_FREQ               37400 */
-/* #define BBM_XTAL_FREQ               38400 */
+/*#define BBM_XTAL_FREQ               26000*/
+/*#define BBM_XTAL_FREQ               27000*/
+/*#define BBM_XTAL_FREQ               27120*/
+/*#define BBM_XTAL_FREQ               24576*/
+/*#define BBM_XTAL_FREQ               32000*/
+/*#define BBM_XTAL_FREQ               37400*/
+/*#define BBM_XTAL_FREQ               38400*/
 
-#define BBM_BAND_WIDTH              6        /*  BW = 6M */
-/* #define BBM_BAND_WIDTH              7 */      /*  BW = 7M */
-/* #define BBM_BAND_WIDTH              8  */     /*  BW = 8M */
+#define BBM_BAND_WIDTH              6        /* BW = 6M*/
+/*#define BBM_BAND_WIDTH              7*/      /* BW = 7M*/
+/*#define BBM_BAND_WIDTH              8 */     /* BW = 8M*/
 
-	/*  Host register */
+	/* Host register*/
 #define BBM_ADDRESS_REG             0x00
 #define BBM_COMMAND_REG             0x01
 #define BBM_DATA_REG                0x02
 
-	/*  Common */
+	/* Common*/
 #define BBM_AP2APB_LT               0x0000
 #define BBM_SW_RESET                0x0001
 #define BBM_INT_STATUS              0x0002
@@ -62,7 +62,7 @@ extern "C" {
 #define BBM_AC_PAT_L                0x00a2
 #define BBM_VERIFY_TEST             0x00a4
 
-	/*  I2C */
+	/* I2C*/
 #define BBM_I2C_PR_L                0x0030
 #define BBM_I2C_PR_H                0x0031
 #define BBM_I2C_CTR                 0x0032
@@ -71,20 +71,20 @@ extern "C" {
 #define BBM_I2C_TXR                 0x0035
 #define BBM_I2C_CR                  0x0036
 
-	/*  DM Control */
+	/* DM Control*/
 #define BBM_DM_AUTO_ENABLE          0x0040
 #define BBM_DM_READ_SIZE            0x0041
 #define BBM_DM_START_ADDR           0x0042
 #define BBM_DM_TIMER_GAP            0x0043
 #define BBM_DM_BUSY                 0x0044
 
-	/*  RSSI */
+	/* RSSI */
 #define BBM_RSSI                    0x0100
 
-	/*  CE */
+	/* CE */
 #define BBM_WSCN_MSQ                0x4063
 
-	/*  FEC */
+	/* FEC */
 #define BBM_REQ_BER                 0x5000
 #define BBM_MAIN_BER_RXD_RSPS       0x5020
 #define BBM_MAIN_BER_ERR_RSPS       0x5022
@@ -95,7 +95,7 @@ extern "C" {
 #define BBM_DMP_BER_RXD_BITS        0x5040
 #define BBM_DMP_BER_ERR_BITS        0x5044
 
-	/*  Buffer */
+	/* Buffer */
 #define BBM_BUF_STATUS              0x8000
 #define BBM_BUF_OVERRUN             0x8001
 #define BBM_BUF_ENABLE              0x8002
@@ -115,10 +115,10 @@ extern "C" {
 #define BBM_BUF_TS_THR              0x8030
 #define BBM_BUF_AC_THR              0x8032
 
-	/*  DM */
+	/* DM */
 #define BBM_DM_DATA                 0xf001
 
-	/*   Buffer Configuration */
+	/*  Buffer Configuration */
 #define TS_BUF_SIZE	    (188*32*2)
 #define TS_BUF_START    (0)
 #define TS_BUF_END      (TS_BUF_START+TS_BUF_SIZE-1)
@@ -132,5 +132,4 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-
-#endif
+#endif /* __FC8150_REGS_H__*/

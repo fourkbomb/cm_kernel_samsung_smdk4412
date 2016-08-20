@@ -277,6 +277,12 @@ static struct tsProdRevMap prodRevsMap[] = {
 	{MPU_SILICON_REV_B6, 0},	/* 24 |  (npp)    */
 	{MPU_SILICON_REV_B6, 0},	/* 25 V  (npp)    */
 	{MPU_SILICON_REV_B6, 131},	/* 26    (B6/A11) */
+	{MPU_SILICON_REV_B6, 0},	/* 27 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 28 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 29 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 30 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 31 |  */
+	{MPU_SILICON_REV_B6, 131},	/* 32 |  */
 };
 #endif				/* !M_HW */
 
@@ -291,7 +297,9 @@ static struct tsProdRevMap prodRevsMap[] = {
 static int MLDLGetSiliconRev(struct mldl_cfg *pdata,
 			     void *mlsl_handle)
 {
-	int result;
+	int result = 0;
+
+#if 0
 	unsigned char index = 0x00;
 	unsigned char bank =
 	    (BIT_PRFTCH_EN | BIT_CFG_USER_BANK | MPU_MEM_OTP_BANK_0);
@@ -327,6 +335,10 @@ static int MLDLGetSiliconRev(struct mldl_cfg *pdata,
 			 " - unsupported non production part.\n");
 		return ML_ERROR_INVALID_MODULE;
 	}
+#else
+	pdata->silicon_revision = MPU_SILICON_REV_B6;
+	pdata->trim = 131;
+#endif
 
 	return result;
 }

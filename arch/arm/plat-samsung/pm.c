@@ -36,6 +36,10 @@
 unsigned long s3c_suspend_wakeup_stat;
 
 unsigned long s3c_pm_flags;
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+int wakeup_state;
+unsigned long wakeup_counter;
+#endif
 
 /* Debug code:
  *
@@ -320,17 +324,9 @@ static int s3c_pm_enter(suspend_state_t state)
 
 #ifdef CONFIG_FAST_BOOT
 	if (fake_shut_down) {
-#if defined(CONFIG_SEC_MODEM) || defined(CONFIG_QC_MODEM)
-		/* Masking external wake up source
-		 * only enable  power key, FUEL ALERT, AP/IF PMIC IRQ
-		 * and SIM Detect Irq
-		 */
-		__raw_writel(0xdf77df7f, S5P_EINT_WAKEUP_MASK);
-#else
 		/* Masking external wake up source
 		 * only enable  power key, FUEL ALERT, AP/IF PMIC IRQ */
 		__raw_writel(0xff77df7f, S5P_EINT_WAKEUP_MASK);
-#endif
 		/* disable all system int */
 		__raw_writel(0xffffffff, S5P_WAKEUP_MASK);
 	}
@@ -356,6 +352,10 @@ static int s3c_pm_enter(suspend_state_t state)
 	/* restore the cpu state using the kernel's cpu init code. */
 
 	cpu_init();
+
+#ifdef CONFIG_FAST_BOOT
+	fake_shut_down = false;
+#endif
 
 	s3c_pm_restore_core();
 	s3c_pm_restore_uarts();
@@ -383,6 +383,10 @@ static int s3c_pm_enter(suspend_state_t state)
 	/* ok, let's return from sleep */
 
 	S3C_PMDBG("S3C PM Resume (post-restore)\n");
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	wakeup_state = 1;
+	wakeup_counter = wakeup_counter + 1;
+#endif
 	return 0;
 }
 
@@ -433,7 +437,11 @@ static const struct platform_suspend_ops s3c_pm_ops = {
 	.enter		= s3c_pm_enter,
 	.prepare	= s3c_pm_prepare,
 	.finish		= s3c_pm_finish,
+#ifdef CONFIG_PARTIALSUSPEND_SLP
+	.valid		= suspend_valid_partialsuspend,
+#else
 	.valid		= suspend_valid_only_mem,
+#endif
 #if defined(CONFIG_CHARGER_MANAGER)
 	.suspend_again	= s3c_cm_suspend_again,
 #endif

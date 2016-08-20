@@ -201,7 +201,7 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 			   const char *buf, size_t n)
 {
 #ifdef CONFIG_SUSPEND
-#ifdef CONFIG_EARLYSUSPEND
+#if defined(CONFIG_EARLYSUSPEND) || defined(CONFIG_PARTIALSUSPEND_SLP)
 	suspend_state_t state = PM_SUSPEND_ON;
 #else
 	suspend_state_t state = PM_SUSPEND_STANDBY;
@@ -240,6 +240,11 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 		if (state == PM_SUSPEND_ON || valid_state(state)) {
 			error = 0;
 			request_suspend_state(state);
+		}
+#elif defined(CONFIG_PARTIALSUSPEND_SLP)
+		if (state == PM_SUSPEND_ON || valid_state(state)) {
+			error = 0;
+			request_slp_suspend_state(state);
 		}
 #ifdef CONFIG_FAST_BOOT
 		if (fake_shut_down)

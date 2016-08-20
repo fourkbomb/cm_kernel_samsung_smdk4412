@@ -343,7 +343,7 @@ static int mxt_load_fw_from_ums(struct mxt_fw_info *fw_info,
 	struct file *filp = NULL;
 	struct firmware fw;
 	mm_segment_t old_fs = {0};
-	const char *firmware_name = MXT_FW_NAME;
+	const char *firmware_name = data->pdata->firmware_name ?: MXT_FW_NAME;
 	char *fw_path;
 	int ret = 0;
 
@@ -1445,7 +1445,6 @@ int  __devinit mxt_sysfs_init(struct i2c_client *client)
 	mem_access_attr.read = mem_access_read;
 	mem_access_attr.write = mem_access_write;
 	mem_access_attr.size = 65535;
-	data->debug_enabled = 1;
 
 	if (sysfs_create_bin_file(&client->dev.kobj, &mem_access_attr) < 0) {
 		dev_err(&client->dev, "Failed to create device file(%s)!\n",

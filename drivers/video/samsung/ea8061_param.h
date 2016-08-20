@@ -58,6 +58,11 @@ static const unsigned char SEQ_APPLY_LEVEL_3_KEY[] = {
 	0x5A, 0x5A
 };
 
+static const unsigned char SEQ_AUTO_RECOVERY[] = {
+	0xDE,
+	0xDD, 0xD1, 0x51, 0x28, 0xAA, 0x73, 0x41, 0x00, 0x00,
+};
+
 static const unsigned char SEQ_FRAME_GAMMA_UPDATE_KEY[] = {
 	0xF7,
 	0x5A, 0x5A
@@ -70,11 +75,6 @@ static const unsigned char SEQ_FRAME_GAMMA_UPDATE_KEY2[] = {
 
 static const unsigned char SEQ_SLEEP_OUT[] = {
 	0x11,
-	0x00, 0x00
-};
-
-static const unsigned char SEQ_SLEEP_IN[] = {
-	0x10,
 	0x00, 0x00
 };
 
@@ -112,7 +112,7 @@ static const unsigned char SEQ_M4_GAMMA_CONDITION_SET[] = {
 
 static const unsigned char SEQ_LTPS_AID[] = {
 	0xB3,
-	0x00, 0x0A,
+	0x00, 0x0A, 0x00, 0x0A,
 };
 
 static const unsigned char ELVSS_CONTROL_SET[] = {
@@ -170,6 +170,16 @@ static const unsigned char SEQ_DISPLAY_OFF[] = {
 	0x00, 0x00
 };
 
+static const unsigned char SEQ_ACL_ON[] = {
+	0x55, 0x01,
+	0x00
+};
+
+static const unsigned char SEQ_ACL_OFF[] = {
+	0x55, 0x00,
+	0x00
+};
+
 enum {
 	ELVSS_STATUS_20,
 	ELVSS_STATUS_30,
@@ -199,127 +209,129 @@ enum {
 	ELVSS_STATUS_MAX
 };
 
-static const unsigned char elvss_control_set_20[] = {
+const unsigned char elvss_control_set_20[] = {
 	0xB2, 0x20,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_30[] = {
+const unsigned char elvss_control_set_30[] = {
 	0xB2, 0x20,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_40[] = {
+const unsigned char elvss_control_set_40[] = {
 	0xB2, 0x20,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_50[] = {
+const unsigned char elvss_control_set_50[] = {
 	0xB2, 0x1F,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_60[] = {
+const unsigned char elvss_control_set_60[] = {
 	0xB2, 0x1F,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_70[] = {
+const unsigned char elvss_control_set_70[] = {
 	0xB2, 0x1F,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_80[] = {
+const unsigned char elvss_control_set_80[] = {
 	0xB2, 0x1E,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_90[] = {
+const unsigned char elvss_control_set_90[] = {
 	0xB2, 0x1E,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_100[] = {
+const unsigned char elvss_control_set_100[] = {
 	0xB2, 0x1C,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_110[] = {
+const unsigned char elvss_control_set_110[] = {
 	0xB2, 0x1B,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_120[] = {
+const unsigned char elvss_control_set_120[] = {
 	0xB2, 0x19,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_130[] = {
+const unsigned char elvss_control_set_130[] = {
 	0xB2, 0x17,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_140[] = {
+const unsigned char elvss_control_set_140[] = {
 	0xB2, 0x16,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_150[] = {
+const unsigned char elvss_control_set_150[] = {
 	0xB2, 0x14,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_160[] = {
+const unsigned char elvss_control_set_160[] = {
 	0xB2, 0x12,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_170[] = {
+const unsigned char elvss_control_set_170[] = {
 	0xB2, 0x10,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_180[] = {
+const unsigned char elvss_control_set_180[] = {
 	0xB2, 0x0F,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_190[] = {
+const unsigned char elvss_control_set_190[] = {
 	0xB2, 0x15,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_200[] = {
+const unsigned char elvss_control_set_200[] = {
 	0xB2, 0x14,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_210[] = {
+const unsigned char elvss_control_set_210[] = {
 	0xB2, 0x13,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_220[] = {
+const unsigned char elvss_control_set_220[] = {
 	0xB2, 0x12,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_230[] = {
+const unsigned char elvss_control_set_230[] = {
 	0xB2, 0x11,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_240[] = {
+const unsigned char elvss_control_set_240[] = {
 	0xB2, 0x10,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_250[] = {
+
+const unsigned char elvss_control_set_250[] = {
 	0xB2, 0x10,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
 
-static const unsigned char elvss_control_set_300[] = {
+
+const unsigned char elvss_control_set_300[] = {
 	0xB2, 0x0B,
 	0xB4, 0xA0, 0x00, 0x00, 0x00, 0x00
 };
@@ -353,7 +365,6 @@ const unsigned char *ELVSS_CONTROL_TABLE[ELVSS_STATUS_MAX] = {
 	elvss_control_set_300
 };
 
-
 enum {
 	ACL_STATUS_0P = 0,
 	ACL_STATUS_33P,
@@ -362,27 +373,22 @@ enum {
 	ACL_STATUS_MAX
 };
 
-static const unsigned char SEQ_ACL_OFF[] = {
-	0x55, 0x00,
-	0x00
-};
-
-static const unsigned char acl_cutoff_33[] = {
+const unsigned char acl_cutoff_33[] = {
 	0x55, 0x01,
 	0x00
 };
 
-static const unsigned char acl_cutoff_40[] = {
+const unsigned char acl_cutoff_40[] = {
 	0x55, 0x02,
 	0x00
 };
 
-static const unsigned char acl_cutoff_50[] = {
+const unsigned char acl_cutoff_50[] = {
 	0x55, 0x03,
 	0x00
 };
 
-static const unsigned char *ACL_CUTOFF_TABLE[ACL_STATUS_MAX] = {
+const unsigned char *ACL_CUTOFF_TABLE[ACL_STATUS_MAX] = {
 	SEQ_ACL_OFF,
 	acl_cutoff_33,
 	acl_cutoff_40,

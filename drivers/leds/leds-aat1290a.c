@@ -38,6 +38,8 @@ static int aat1290a_setPower(int onoff, int level)
 		return -ENODEV;
 	}
 
+	led_pdata->brightness = level;
+
 	return 0;
 }
 
@@ -165,15 +167,28 @@ ssize_t aat1290a_power(struct device *dev,
 	return count;
 }
 
-ssize_t aat1290a_get_max_brightness(struct device *dev,
+ssize_t aat1290a_power_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf,
-		sizeof(led_pdata->brightness), "%d", TORCH_BRIGHTNESS_100);
+		sizeof(led_pdata->brightness), "%d", led_pdata->brightness);
 }
 
 static DEVICE_ATTR(rear_flash, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH,
-	aat1290a_get_max_brightness, aat1290a_power);
+	aat1290a_power_show, aat1290a_power);
+
+#ifdef CONFIG_SLP
+ssize_t aat1290a_max_brightness_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf,
+		sizeof(led_pdata->brightness), "%d",
+			TORCH_BRIGHTNESS_100);
+}
+
+static DEVICE_ATTR(max_brightness, S_IRUSR|S_IRGRP|S_IROTH,
+	aat1290a_max_brightness_show, NULL);
+#endif
 
 static const struct file_operations aat1290a_fops = {
 	.owner = THIS_MODULE,
@@ -207,6 +222,13 @@ static int aat1290a_led_probe(struct platform_device *pdev)
 		LED_ERROR("failed to create device file, %s\n",
 				dev_attr_rear_flash.attr.name);
 	}
+
+#ifdef CONFIG_SLP
+	if (device_create_file(aat1290a_dev, &dev_attr_max_brightness) < 0) {
+		LED_ERROR("failed to create device file, %s\n",
+				dev_attr_max_brightness.attr.name);
+	}
+#endif
 
 	if (led_pdata)
 		led_pdata->initGpio();

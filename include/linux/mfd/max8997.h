@@ -108,6 +108,14 @@ struct max8997_motor_data {
 };
 #endif
 
+#ifdef CONFIG_HAPTIC_MAX8997
+struct max8997_haptic_platform_data {
+	const char	*name;
+	int		pwm_timer;
+	void		(*control_power)(struct device *, int);
+};
+#endif
+
 enum {
 	MAX8997_MUIC_DETACHED = 0,
 	MAX8997_MUIC_ATTACHED
@@ -242,6 +250,9 @@ struct max8997_platform_data {
 	struct max8997_muic_data	*muic;
 #ifdef CONFIG_VIBETONZ
 	struct max8997_motor_data *motor;
+#endif
+#ifdef CONFIG_HAPTIC_MAX8997
+	struct max8997_haptic_platform_data *haptic_pdata;
 #endif
 	void (*register_buck1_dvs_funcs)(struct max8997_buck1_dvs_funcs *ptr);
 };

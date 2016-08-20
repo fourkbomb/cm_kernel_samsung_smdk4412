@@ -43,14 +43,13 @@ static ssize_t power_supply_show_property(struct device *dev,
 					  char *buf) {
 	static char *type_text[] = {
 		"Battery", "UPS", "Mains", "USB",
-		"USB_DCP", "USB_CDP", "USB_ACA",
-		"DOCK", "MISC", "WIRELESS", "OTG"
+		"USB_DCP", "USB_CDP", "USB_ACA"
 	};
 	static char *status_text[] = {
 		"Unknown", "Charging", "Discharging", "Not charging", "Full"
 	};
 	static char *charge_type[] = {
-		"Unknown", "N/A", "Trickle", "Fast", "Slow"
+		"Unknown", "N/A", "Trickle", "Fast"
 	};
 	static char *health_text[] = {
 		"Unknown", "Good", "Overheat", "Dead", "Over voltage",

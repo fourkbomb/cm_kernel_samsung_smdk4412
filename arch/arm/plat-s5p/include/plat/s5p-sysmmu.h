@@ -38,7 +38,8 @@ enum S5P_SYSMMU_INTERRUPT_TYPE {
  *             translated. This is 0 if @itype is SYSMMU_BUSERROR.
  */
 typedef int (*s5p_sysmmu_fault_handler_t)(enum S5P_SYSMMU_INTERRUPT_TYPE itype,
-			unsigned long pgtable_base, unsigned long fault_addr);
+			const char *mmuname, unsigned long pgtable_base,
+			unsigned long fault_addr);
 
 struct sysmmu_drvdata {
 	struct list_head node;

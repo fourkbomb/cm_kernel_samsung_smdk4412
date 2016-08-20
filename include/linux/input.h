@@ -129,11 +129,6 @@ struct input_keymap_entry {
 
 #define EVIOCGRAB		_IOW('E', 0x90, int)			/* Grab/Release device */
 
-#define EVIOCGSUSPENDBLOCK	_IOR('E', 0x91, int)			/* get suspend block enable */
-#define EVIOCSSUSPENDBLOCK	_IOW('E', 0x91, int)			/* set suspend block enable */
-
-#define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
-
 /*
  * Device properties and quirks
  */
@@ -451,10 +446,7 @@ struct input_keymap_entry {
 #define KEY_FOLDER_CLOSE	252  /*only use Grande CHN CTC */
 #define KEY_3G	253  /*only use Grande CHN CTC */
 
-/* kona dummy touchkey */
-#define KEY_DUMMY_1     251
-#define KEY_DUMMY_2     252
-#define KEY_DUMMY_3     253
+#define KEY_RECENT		254	/* Key recent for Samsung game pad */
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -511,6 +503,7 @@ struct input_keymap_entry {
 #define BTN_MODE		0x13c
 #define BTN_THUMBL		0x13d
 #define BTN_THUMBR		0x13e
+#define BTN_GAME		0x13f /* Add game button for samsung bluetooth keypad */
 
 #define BTN_DIGI		0x140
 #define BTN_TOOL_PEN		0x140
@@ -691,13 +684,7 @@ struct input_keymap_entry {
 #define KEY_CAMERA_LEFT		0x219
 #define KEY_CAMERA_RIGHT	0x21a
 
-#define KEY_DMB_ANT_DET_UP		0x21b
-#define KEY_DMB_ANT_DET_DOWN	0x21c
-
 #define KEY_PEN_PDCT		0x230 /* E-PEN PDCT flag*/
-
-#define KEY_FAKE_PWR		0x240 /* Fake Power off flag*/
-
 
 #define BTN_TRIGGER_HAPPY		0x2c0
 #define BTN_TRIGGER_HAPPY1		0x2c0
@@ -842,15 +829,8 @@ struct input_keymap_entry {
 #define SW_KEYPAD_SLIDE		0x0a  /* set = keypad slide out */
 #define SW_FRONT_PROXIMITY	0x0b  /* set = front proximity sensor active */
 #define SW_ROTATE_LOCK		0x0c  /* set = rotate locked/disabled */
-#define SW_PEN_INSERT			0x0e	/* set = pen out */
-#define SW_STROBE_INSERT		0x0f	/* set = strobe out */
-//#ifdef CONFIG_SENSORS_HALL
-//#define SW_FLIP			0x10  /* set = flip cover... */
-//#define SW_MAX			0x17
-//#else
-#define SW_MAX			0x10
-//#endif
-
+#define SW_PEN_INSERT			0x0d	/* set = pen out */
+#define SW_MAX			0x0f
 #define SW_CNT			(SW_MAX+1)
 
 /*

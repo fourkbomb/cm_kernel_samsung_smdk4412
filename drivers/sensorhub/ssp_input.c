@@ -17,7 +17,7 @@
 /*************************************************************************/
 /* SSP Kernel -> HAL input evnet function                                */
 /*************************************************************************/
-void convert_acc_data(s16 *iValue)
+static void convert_acc_data(s16 *iValue)
 {
 	if (*iValue > 2048)
 		*iValue = ((4096 - *iValue)) * (-1);
@@ -44,28 +44,32 @@ void report_acc_data(struct ssp_data *data, struct sensor_value *accdata)
 
 void report_gyro_data(struct ssp_data *data, struct sensor_value *gyrodata)
 {
-	long lTemp[3] = {0,};
 	data->buf[GYROSCOPE_SENSOR].x = gyrodata->x - data->gyrocal.x;
 	data->buf[GYROSCOPE_SENSOR].y = gyrodata->y - data->gyrocal.y;
 	data->buf[GYROSCOPE_SENSOR].z = gyrodata->z - data->gyrocal.z;
 
 	if (data->uGyroDps == GYROSCOPE_DPS250)	{
-		lTemp[0] = (long)data->buf[GYROSCOPE_SENSOR].x >> 1;
-		lTemp[1] = (long)data->buf[GYROSCOPE_SENSOR].y >> 1;
-		lTemp[2] = (long)data->buf[GYROSCOPE_SENSOR].z >> 1;
+		data->buf[GYROSCOPE_SENSOR].x =
+			data->buf[GYROSCOPE_SENSOR].x >> 1;
+		data->buf[GYROSCOPE_SENSOR].y =
+			data->buf[GYROSCOPE_SENSOR].y >> 1;
+		data->buf[GYROSCOPE_SENSOR].z =
+			data->buf[GYROSCOPE_SENSOR].z >> 1;
 	} else if (data->uGyroDps == GYROSCOPE_DPS2000)	{
-		lTemp[0] = (long)data->buf[GYROSCOPE_SENSOR].x << 2;
-		lTemp[1] = (long)data->buf[GYROSCOPE_SENSOR].y << 2;
-		lTemp[2] = (long)data->buf[GYROSCOPE_SENSOR].z << 2;
-	} else {
-		lTemp[0] = (long)data->buf[GYROSCOPE_SENSOR].x;
-		lTemp[1] = (long)data->buf[GYROSCOPE_SENSOR].y;
-		lTemp[2] = (long)data->buf[GYROSCOPE_SENSOR].z;
+		data->buf[GYROSCOPE_SENSOR].x =
+			data->buf[GYROSCOPE_SENSOR].x << 2;
+		data->buf[GYROSCOPE_SENSOR].y =
+			data->buf[GYROSCOPE_SENSOR].y << 2;
+		data->buf[GYROSCOPE_SENSOR].z =
+			data->buf[GYROSCOPE_SENSOR].z << 2;
 	}
 
-	input_report_rel(data->gyro_input_dev, REL_RX, lTemp[0]);
-	input_report_rel(data->gyro_input_dev, REL_RY, lTemp[1]);
-	input_report_rel(data->gyro_input_dev, REL_RZ, lTemp[2]);
+	input_report_rel(data->gyro_input_dev, REL_RX,
+		data->buf[GYROSCOPE_SENSOR].x);
+	input_report_rel(data->gyro_input_dev, REL_RY,
+		data->buf[GYROSCOPE_SENSOR].y);
+	input_report_rel(data->gyro_input_dev, REL_RZ,
+		data->buf[GYROSCOPE_SENSOR].z);
 	input_sync(data->gyro_input_dev);
 }
 
@@ -88,10 +92,10 @@ void report_pressure_data(struct ssp_data *data, struct sensor_value *predata)
 	data->buf[PRESSURE_SENSOR].pressure[1] = predata->pressure[1];
 
 	/* pressure */
-	input_report_rel(data->pressure_input_dev, REL_HWHEEL,
+	input_report_abs(data->pressure_input_dev, ABS_PRESSURE,
 		data->buf[PRESSURE_SENSOR].pressure[0]);
 	/* temperature */
-	input_report_rel(data->pressure_input_dev, REL_WHEEL,
+	input_report_abs(data->pressure_input_dev, ABS_HAT3Y,
 		data->buf[PRESSURE_SENSOR].pressure[1]);
 	input_sync(data->pressure_input_dev);
 }
@@ -121,6 +125,18 @@ void report_prox_data(struct ssp_data *data, struct sensor_value *proxdata)
 
 	data->buf[PROXIMITY_SENSOR].prox[0] = proxdata->prox[0];
 	data->buf[PROXIMITY_SENSOR].prox[1] = proxdata->prox[1];
+
+#if defined(CONFIG_MACH_T0_USA_SPR) || defined(CONFIG_MACH_T0_USA_USCC)\
+	|| defined(CONFIG_MACH_T0_USA_VZW) || defined(CONFIG_MACH_T0_USA_TMO)\
+	|| defined(CONFIG_MACH_T0_USA_ATT)
+	if (data->check_ap_rev() == 0x04)
+		proxdata->prox[0] = 0;
+#endif
+
+#if defined(CONFIG_MACH_T0_USA_TMO)
+	if (data->check_ap_rev() == 0x05)
+		proxdata->prox[0] = 0;
+#endif
 
 	input_report_abs(data->prox_input_dev, ABS_DISTANCE,
 		(!proxdata->prox[0]));
@@ -279,21 +295,34 @@ int initialize_input_dev(struct ssp_data *data)
 	prox_input_dev->name = "proximity_sensor";
 
 	input_set_capability(acc_input_dev, EV_REL, REL_X);
+	input_set_abs_params(acc_input_dev, REL_X, -2048, 2047, 0, 0);
 	input_set_capability(acc_input_dev, EV_REL, REL_Y);
+	input_set_abs_params(acc_input_dev, REL_Y, -2048, 2047, 0, 0);
 	input_set_capability(acc_input_dev, EV_REL, REL_Z);
+	input_set_abs_params(acc_input_dev, REL_Z, -2048, 2047, 0, 0);
 
 	input_set_capability(gyro_input_dev, EV_REL, REL_RX);
+	input_set_abs_params(gyro_input_dev, REL_RX, -32768, 32767, 0, 0);
 	input_set_capability(gyro_input_dev, EV_REL, REL_RY);
+	input_set_abs_params(gyro_input_dev, REL_RY, -32768, 32767, 0, 0);
 	input_set_capability(gyro_input_dev, EV_REL, REL_RZ);
+	input_set_abs_params(gyro_input_dev, REL_RZ, -32768, 32767, 0, 0);
 
-	input_set_capability(pressure_input_dev, EV_REL, REL_HWHEEL);
-	input_set_capability(pressure_input_dev, EV_REL, REL_DIAL);
-	input_set_capability(pressure_input_dev, EV_REL, REL_WHEEL);
+	input_set_capability(pressure_input_dev, EV_ABS, ABS_PRESSURE);
+	input_set_abs_params(pressure_input_dev, ABS_PRESSURE, 0, 130000, 0, 0);
+	input_set_capability(pressure_input_dev, EV_ABS, ABS_HAT3X);
+	input_set_abs_params(pressure_input_dev, ABS_HAT3X, 0, 130000, 0, 0);
+	input_set_capability(pressure_input_dev, EV_ABS, ABS_HAT3Y);
+	input_set_abs_params(pressure_input_dev, ABS_HAT3Y, 0, 1024, 0, 0);
 
 	input_set_capability(light_input_dev, EV_REL, REL_HWHEEL);
+	input_set_abs_params(light_input_dev, REL_HWHEEL, 0, 1024, 0, 0);
 	input_set_capability(light_input_dev, EV_REL, REL_DIAL);
+	input_set_abs_params(light_input_dev, REL_DIAL, 0, 1024, 0, 0);
 	input_set_capability(light_input_dev, EV_REL, REL_WHEEL);
+	input_set_abs_params(light_input_dev, REL_WHEEL, 0, 1024, 0, 0);
 	input_set_capability(light_input_dev, EV_REL, REL_MISC);
+	input_set_abs_params(light_input_dev, REL_MISC, 0, 1024, 0, 0);
 
 	input_set_capability(prox_input_dev, EV_ABS, ABS_DISTANCE);
 	input_set_abs_params(prox_input_dev, ABS_DISTANCE, 0, 1, 0, 0);
@@ -304,28 +333,20 @@ int initialize_input_dev(struct ssp_data *data)
 		goto iRet_acc_input_unreg_device;
 
 	iRet = input_register_device(gyro_input_dev);
-	if (iRet < 0) {
-		input_free_device(gyro_input_dev);
+	if (iRet < 0)
 		goto iRet_gyro_input_unreg_device;
-	}
 
 	iRet = input_register_device(pressure_input_dev);
-	if (iRet < 0) {
-		input_free_device(pressure_input_dev);
+	if (iRet < 0)
 		goto iRet_pressure_input_unreg_device;
-	}
 
 	iRet = input_register_device(light_input_dev);
-	if (iRet < 0) {
-		input_free_device(light_input_dev);
+	if (iRet < 0)
 		goto iRet_light_input_unreg_device;
-	}
 
 	iRet = input_register_device(prox_input_dev);
-	if (iRet < 0) {
-		input_free_device(prox_input_dev);
+	if (iRet < 0)
 		goto iRet_proximity_input_unreg_device;
-	}
 
 	data->acc_input_dev = acc_input_dev;
 	data->gyro_input_dev = gyro_input_dev;
@@ -343,8 +364,6 @@ iRet_pressure_input_unreg_device:
 	input_unregister_device(gyro_input_dev);
 iRet_gyro_input_unreg_device:
 	input_unregister_device(acc_input_dev);
-	return ERROR;
-
 iRet_acc_input_unreg_device:
 	pr_err("[SSP]: %s - could not register input device\n", __func__);
 	input_free_device(prox_input_dev);
@@ -358,7 +377,8 @@ iRet_gyro_input_free_device:
 	input_free_device(acc_input_dev);
 iRet_acc_input_free_device:
 	pr_err("[SSP]: %s - could not allocate input device\n", __func__);
-	return ERROR;
+
+	return -1;
 }
 
 void remove_input_dev(struct ssp_data *data)
@@ -368,4 +388,10 @@ void remove_input_dev(struct ssp_data *data)
 	input_unregister_device(data->pressure_input_dev);
 	input_unregister_device(data->light_input_dev);
 	input_unregister_device(data->prox_input_dev);
+
+	input_free_device(data->acc_input_dev);
+	input_free_device(data->gyro_input_dev);
+	input_free_device(data->pressure_input_dev);
+	input_free_device(data->light_input_dev);
+	input_free_device(data->prox_input_dev);
 }

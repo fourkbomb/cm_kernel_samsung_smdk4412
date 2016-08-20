@@ -27,11 +27,6 @@
 #include <mach/usb_bridge.h>
 #include <linux/mdm_hsic_pm.h>
 
-#ifdef CONFIG_MDM_HSIC_PM
-#include <linux/mdm_hsic_pm.h>
-static const char rmnet_pm_dev[] = "mdm_hsic_pm0";
-#endif
-
 static const char const *ctrl_bridge_names[] = {
 	"dun_ctrl_hsic0",
 	"rmnet_ctrl_hsic0"
@@ -253,10 +248,6 @@ static void notification_available_cb(struct urb *urb)
 		dev->cbits_tohost = ctrl_bits;
 		if (brdg && brdg->ops.send_cbits)
 			brdg->ops.send_cbits(brdg->ctx, ctrl_bits);
-#ifdef CONFIG_MDM_HSIC_PM
-		pr_info("%s: set lpa handling to false\n", __func__);
-		lpa_handling = false;
-#endif
 		break;
 	default:
 		dev_err(&udev->dev, "%s: unknown notification %d received:"
@@ -388,8 +379,7 @@ static void ctrl_write_callback(struct urb *urb)
 	kfree(urb->transfer_buffer);
 	kfree(urb->setup_packet);
 	usb_free_urb(urb);
-	if (dev->intf)
-		usb_autopm_put_interface_async(dev->intf);
+	usb_autopm_put_interface_async(dev->intf);
 }
 
 int ctrl_bridge_write(unsigned int id, char *data, size_t size)
@@ -399,7 +389,6 @@ int ctrl_bridge_write(unsigned int id, char *data, size_t size)
 	struct usb_ctrlrequest	*out_ctlreq;
 	struct usb_device	*udev;
 	struct ctrl_bridge	*dev;
-	int			spin = 50;
 
 	if (id >= MAX_BRIDGE_DEVICES) {
 		result = -EINVAL;
@@ -411,17 +400,6 @@ int ctrl_bridge_write(unsigned int id, char *data, size_t size)
 	if (!dev) {
 		result = -ENODEV;
 		goto free_data;
-	}
-
-	/* move it to mdm _hsic pm .c, check return code */
-	while (lpa_handling && spin--) {
-		pr_info("%s: lpa wake wait loop\n", __func__);
-		msleep(20);
-	}
-
-	if (lpa_handling) {
-		pr_err("%s: in lpa wakeup, return EAGAIN\n", __func__);
-		return -EAGAIN;
 	}
 
 	udev = interface_to_usbdev(dev->intf);

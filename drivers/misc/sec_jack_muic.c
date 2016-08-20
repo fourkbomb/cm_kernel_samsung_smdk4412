@@ -283,6 +283,7 @@ void earkey_status_change(int pressed, int kcode)
 	wake_lock_timeout(&hi->det_wake_lock, WAKE_LOCK_TIME_IN_SENDKEY);
 	hi->pressed_code = kcode;
 	if (pressed) {
+		msleep(50);
 		input_report_key(hi->input_dev, hi->pressed_code, 1);
 		switch_set_state(&switch_sendend, 1);
 		input_sync(hi->input_dev);

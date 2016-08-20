@@ -1060,8 +1060,17 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	info = SHMEM_I(inode);
 	if (info->flags & VM_LOCKED)
 		goto redirty;
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+	/*
+	 * Modification for compcache
+	 * shmem_writepage can be reason of kernel panic when using swap.
+	 * This modification prevent using swap by shmem.
+	 */
+	goto redirty;
+#else
 	if (!total_swap_pages)
 		goto redirty;
+#endif
 
 	/*
 	 * shmem_backing_dev_info's capabilities prevent regular writeback or
@@ -1686,6 +1695,12 @@ static int shmem_readpage(struct file *file, struct page *page)
 	return error;
 }
 
+#ifdef CONFIG_TMPFS_XATTR
+static int shmem_initxattrs(struct inode *, const struct xattr *, void *);
+#else
+#define shmem_initxattrs NULL
+#endif
+
 static int
 shmem_write_begin(struct file *file, struct address_space *mapping,
 			loff_t pos, unsigned len, unsigned flags,
@@ -1882,8 +1897,8 @@ shmem_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
 	inode = shmem_get_inode(dir->i_sb, dir, mode, dev, VM_NORESERVE);
 	if (inode) {
 		error = security_inode_init_security(inode, dir,
-						     &dentry->d_name, NULL,
-						     NULL, NULL);
+						     &dentry->d_name,
+						     shmem_initxattrs, NULL);
 		if (error) {
 			if (error != -EOPNOTSUPP) {
 				iput(inode);
@@ -2022,8 +2037,8 @@ static int shmem_symlink(struct inode *dir, struct dentry *dentry, const char *s
 	if (!inode)
 		return -ENOSPC;
 
-	error = security_inode_init_security(inode, dir, &dentry->d_name, NULL,
-					     NULL, NULL);
+	error = security_inode_init_security(inode, dir, &dentry->d_name,
+					     shmem_initxattrs, NULL);
 	if (error) {
 		if (error != -EOPNOTSUPP) {
 			iput(inode);
@@ -2094,6 +2109,66 @@ static void shmem_put_link(struct dentry *dentry, struct nameidata *nd, void *co
  * filesystem level, though.
  */
 
+/*
+ * Allocate new xattr and copy in the value; but leave the name to callers.
+ */
+static struct shmem_xattr *shmem_xattr_alloc(const void *value, size_t size)
+{
+	struct shmem_xattr *new_xattr;
+	size_t len;
+
+	/* wrap around? */
+	len = sizeof(*new_xattr) + size;
+	if (len <= sizeof(*new_xattr))
+		return NULL;
+
+	new_xattr = kmalloc(len, GFP_KERNEL);
+	if (!new_xattr)
+		return NULL;
+
+	new_xattr->size = size;
+	memcpy(new_xattr->value, value, size);
+	return new_xattr;
+}
+
+/*
+ * Callback for security_inode_init_security() for acquiring xattrs.
+ */
+static int shmem_initxattrs(struct inode *inode,
+			    const struct xattr *xattr_array,
+			    void *fs_info)
+{
+	struct shmem_inode_info *info = SHMEM_I(inode);
+	const struct xattr *xattr;
+	struct shmem_xattr *new_xattr;
+	size_t len;
+
+	for (xattr = xattr_array; xattr->name != NULL; xattr++) {
+		new_xattr = shmem_xattr_alloc(xattr->value, xattr->value_len);
+		if (!new_xattr)
+			return -ENOMEM;
+
+		len = strlen(xattr->name) + 1;
+		new_xattr->name = kmalloc(XATTR_SECURITY_PREFIX_LEN + len,
+					  GFP_KERNEL);
+		if (!new_xattr->name) {
+			kfree(new_xattr);
+			return -ENOMEM;
+		}
+
+		memcpy(new_xattr->name, XATTR_SECURITY_PREFIX,
+		       XATTR_SECURITY_PREFIX_LEN);
+		memcpy(new_xattr->name + XATTR_SECURITY_PREFIX_LEN,
+		       xattr->name, len);
+
+		spin_lock(&info->lock);
+		list_add(&new_xattr->list, &info->xattr_list);
+		spin_unlock(&info->lock);
+	}
+
+	return 0;
+}
+
 static int shmem_xattr_get(struct dentry *dentry, const char *name,
 			   void *buffer, size_t size)
 {
@@ -2121,24 +2196,17 @@ static int shmem_xattr_get(struct dentry *dentry, const char *name,
 	return ret;
 }
 
-static int shmem_xattr_set(struct dentry *dentry, const char *name,
+static int shmem_xattr_set(struct inode *inode, const char *name,
 			   const void *value, size_t size, int flags)
 {
-	struct inode *inode = dentry->d_inode;
 	struct shmem_inode_info *info = SHMEM_I(inode);
 	struct shmem_xattr *xattr;
 	struct shmem_xattr *new_xattr = NULL;
-	size_t len;
 	int err = 0;
 
 	/* value == NULL means remove */
 	if (value) {
-		/* wrap around? */
-		len = sizeof(*new_xattr) + size;
-		if (len <= sizeof(*new_xattr))
-			return -ENOMEM;
-
-		new_xattr = kmalloc(len, GFP_KERNEL);
+		new_xattr = shmem_xattr_alloc(value, size);
 		if (!new_xattr)
 			return -ENOMEM;
 
@@ -2147,9 +2215,6 @@ static int shmem_xattr_set(struct dentry *dentry, const char *name,
 			kfree(new_xattr);
 			return -ENOMEM;
 		}
-
-		new_xattr->size = size;
-		memcpy(new_xattr->value, value, size);
 	}
 
 	spin_lock(&info->lock);
@@ -2249,7 +2314,7 @@ static int shmem_setxattr(struct dentry *dentry, const char *name,
 	if (size == 0)
 		value = "";  /* empty EA, do not remove */
 
-	return shmem_xattr_set(dentry, name, value, size, flags);
+	return shmem_xattr_set(dentry->d_inode, name, value, size, flags);
 
 }
 
@@ -2269,7 +2334,7 @@ static int shmem_removexattr(struct dentry *dentry, const char *name)
 	if (err)
 		return err;
 
-	return shmem_xattr_set(dentry, name, NULL, 0, XATTR_REPLACE);
+	return shmem_xattr_set(dentry->d_inode, name, NULL, 0, XATTR_REPLACE);
 }
 
 static bool xattr_is_trusted(const char *name)

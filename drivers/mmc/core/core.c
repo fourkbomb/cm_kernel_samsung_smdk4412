@@ -214,8 +214,7 @@ static void __mmc_start_req(struct mmc_host *host, struct mmc_request *mrq)
 	}
 
 #if (defined(CONFIG_MIDAS_COMMON) && !defined(CONFIG_EXYNOS4_DEV_DWMCI)) || \
-	defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_SLP_NAPLES) || \
-	defined(CONFIG_MACH_TRATS)
+	defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_TRATS)
 #ifndef CONFIG_MMC_POLLING_WAIT_CMD23
 
 	if(mrq->sbc) {
@@ -275,22 +274,12 @@ static void mmc_wait_for_req_done(struct mmc_host *host,
 
 	/* if card is mmc type and nonremovable, and there are erros after
 	   issuing r/w command, then init eMMC and mshc */
-#ifdef CONFIG_WIMAX_CMC
-	if (((host->card) && mmc_card_mmc(host->card) && \
-		(host->caps & MMC_CAP_NONREMOVABLE)) && \
-		(mrq->cmd->error == -ENOTRECOVERABLE || \
-		((mrq->cmd->opcode == 17 || mrq->cmd->opcode == 18 || \
-		mrq->cmd->opcode == 24 || mrq->cmd->opcode == 25) && \
-		((mrq->data->error) || mrq->cmd->error || \
-		(mrq->sbc && mrq->sbc->error))))) {
-#else
 	if (((host->card) && mmc_card_mmc(host->card) && \
 		(host->caps & MMC_CAP_NONREMOVABLE)) && \
 		(mrq->cmd->error == -ENOTRECOVERABLE || \
 		((mrq->cmd->opcode == 17 || mrq->cmd->opcode == 18) && \
 		((mrq->data->error) || mrq->cmd->error || \
 		(mrq->sbc && mrq->sbc->error))))) {
-#endif
 		int rt_err = -1,count = 3;
 
 		printk(KERN_ERR "%s: it occurs a critical error on eMMC "
@@ -2450,7 +2439,6 @@ int mmc_suspend_host(struct mmc_host *host)
 		wake_unlock(&host->detect_wake_lock);
 	mmc_flush_scheduled_work();
 	if (mmc_try_claim_host(host)) {
-#ifndef CONFIG_WIMAX_CMC
 		u32 status;
 		u32 count=300000; /* up to 300ms */
 
@@ -2464,9 +2452,7 @@ int mmc_suspend_host(struct mmc_host *host)
 				       "flushing emmc's cache\n",
 					mmc_hostname(host),ret);
 		}
-#endif
 		err = mmc_cache_ctrl(host, 0);
-#ifndef CONFIG_WIMAX_CMC
 
 		/* to make sure that emmc is not working. should check
 		   emmc's state */
@@ -2482,7 +2468,6 @@ int mmc_suspend_host(struct mmc_host *host)
 				count--;
 			} while (count && R1_CURRENT_STATE(status) == 7);
 		}
-#endif
 		mmc_do_release_host(host);
 	} else {
 		err = -EBUSY;

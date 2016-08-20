@@ -57,7 +57,10 @@ UTS_VERSION="#$VERSION"
 CONFIG_FLAGS=""
 if [ -n "$SMP" ] ; then CONFIG_FLAGS="SMP"; fi
 if [ -n "$PREEMPT" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS PREEMPT"; fi
-UTS_VERSION="$UTS_VERSION $CONFIG_FLAGS $TIMESTAMP"
+if [ -n "$(grep "CONFIG_SLP 1" ./include/generated/autoconf.h)" ] ; then
+	CONFIG_VENDOR="-Tizen"
+fi
+UTS_VERSION="${UTS_VERSION}${CONFIG_VENDOR} $CONFIG_FLAGS $TIMESTAMP"
 
 # Truncate to maximum length
 

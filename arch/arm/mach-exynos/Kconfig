@@ -371,7 +371,7 @@ config EXYNOS4_SETUP_FB_S5P
 	  Setup code for EXYNOS4 FIMD
 
 config EXYNOS4_SETUP_TVOUT
-	bool "enabel EXYNOS4_SETUP_TVOUT"
+	bool "enable EXYNOS4_SETUP_TVOUT"
 	default y
 	help
 	  Common setup code for TVOUT
@@ -511,51 +511,6 @@ config MIDAS_COMMON
 	help
 	  Support common devices of MIDAS boards
 
-menu "Support dynamic CPU Hotplug"
-	depends on HOTPLUG_CPU && SMP
-
-config EXYNOS_PM_HOTPLUG
-	bool "EXYNOS Dynamic Hotplug"
-	help
-	  Dynamic CPU HOTLUG for EXYNOS series
-
-choice
-	prompt "Dynamic CPU HOTPLUG Policy"
-	depends on EXYNOS_PM_HOTPLUG
-	default DVFS_NR_RUNNING_POLICY if (CPU_EXYNOS4212 || CPU_EXYNOS4412 || CPU_EXYNOS5250)
-
-config STAND_ALONE_POLICY
-	bool "Stand alone policy CPU hotplug"
-	depends on EXYNOS_PM_HOTPLUG
-	help
-	  PM hotplug policy. This is for exynos4210
-	  Enable to use pm hotplug, then it uses stand-hotplug.c file.
-	  Avg-load is calculated with both cpu frequency aspect
-	  and run queue status.
-
-config LEGACY_HOTPLUG_POLICY
-	bool "Legacy policy CPU hotplug"
-	depends on EXYNOS_PM_HOTPLUG
-	help
-	  PM hotplug policy. This is for exynos4210
-	  Enable to use pm hotplug, then it uses pm-hotplug.c file.
-	  Avg-load is calculated with only cpu utilization of cpu
-	  frequency at that time.
-
-config WITH_DVFS_POLICY
-	depends on EXYNOS4_CPUFREQ
-	bool "Intergrated DVFS CPU hotplug"
-
-config DVFS_NR_RUNNING_POLICY
-	depends on (EXYNOS4_CPUFREQ || EXYNOS5_CPUFREQ)
-	bool "DVFS-nr_running CPU hotplug"
-
-config NR_RUNNING_POLICY
-	bool "nr_running CPU hotplug"
-
-endchoice
-endmenu
-
 menu "Busfreq Model"
 	depends on EXYNOS4_CPUFREQ || EXYNOS5_CPUFREQ
 
@@ -572,16 +527,14 @@ config BUSFREQ_OPP
 	bool "Busfreq with OPP"
 	depends on EXYNOS4_CPUFREQ || EXYNOS5_CPUFREQ
 
-config DISPFREQ_OPP
-	bool "Dispfreq with OPP"
-	depends on EXYNOS4_CPUFREQ || EXYNOS5_CPUFREQ
-
 config DEVFREQ_BUS
 	bool "Busfreq support with Devfreq framework & Simple-Ondemand"
 	depends on EXYNOS4_CPUFREQ
 	select PM_DEVFREQ
 	select ARM_EXYNOS4_BUS_DEVFREQ
-
+config SLP_BUSFREQ_ROUND_OFF
+	bool "Busfreq dvfs with round-off"
+	depends on BUSFREQ_OPP
 choice
 	prompt "QoS LEVEL By Resolution"
 	depends on BUSFREQ_QOS || BUSFREQ_OPP
@@ -594,10 +547,7 @@ config BUSFREQ_QOS_1024X600
 	bool "QoS for 1024x600 (like P2)"
 
 config BUSFREQ_QOS_1280X720
-	bool "QoS for 1280x720 (like M0/T0)"
-
-config BUSFREQ_QOS_1280X800
-	bool "QoS for 1280x800 or 800x1280 (like Q1/P8)"
+	bool "QoS for 1280x720 (like M0)"
 
 endchoice
 
@@ -867,80 +817,6 @@ choice
 config MACH_U1_BD
 	bool "U1 Board"
 
-config MACH_Q1_BD
-	bool "Q1 Board"
-
-endchoice
-config TARGET_LOCALE_NAATT_TEMP
-    bool "Support North America GSM ATT Board"
-	depends on MACH_U1
-    default n
-
-config MACH_PX
-	bool "PX board"
-	select CPU_EXYNOS4210
-	select S5P_GPIO_INT
-	select S5P_DEV_FIMD0
-	select S5P_DEV_FIMD_S5P
-	select S5P_DEV_TVOUT
-	select S5P_DEV_MFC
-	select S5P_DEV_FIMG2D
-	select S5P_DEV_USB_EHCI
-	select S5P_SYSTEM_MMU
-	select S5P_DEV_USBGADGET
-	select S5P_DEV_THERMAL
-	select S3C_DEV_RTC
-	select S3C_DEV_WDT
-	select S3C_DEV_I2C1
-	select S3C_DEV_I2C3
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
-	select S3C_DEV_I2C6
-	select S3C_DEV_I2C7
-	select S3C_DEV_I2C9_EMUL
-	select EXYNOS4_DEV_MSHC
-	select EXYNOS4_MSHC_MPLL_40MHZ
-	select EXYNOS4_MSHC_DDR
-	select EXYNOS4_MSHC_8BIT
-	select S3C_DEV_HSMMC2
-	select S3C_DEV_HSMMC3
-	select SAMSUNG_DEV_ADC
-	select SAMSUNG_DEV_TS
-	select SAMSUNG_DEV_TS1
-	select EXYNOS_DEV_PD
-	select S5P_SYSTEM_MMU
-	select EXYNOS4_SETUP_FIMD0
-	select EXYNOS4_SETUP_I2C1
-	select EXYNOS4_SETUP_I2C3
-	select EXYNOS4_SETUP_I2C4
-	select EXYNOS4_SETUP_I2C5
-	select EXYNOS4_SETUP_I2C6
-	select EXYNOS4_SETUP_I2C7
-	select EXYNOS4_SETUP_SDHCI
-	select EXYNOS4_SETUP_MSHCI
-	select EXYNOS4_SETUP_MFC
-	select EXYNOS4_SETUP_FB_S5P
-	select EXYNOS4_SETUP_USB_PHY
-	help
-	  Machine support for PX Board
-choice
-	prompt "PX board"
-	depends on MACH_PX
-	default MACH_P4
-
-config MACH_P4
-	bool "P4 board"
-
-config MACH_P2
-	bool "P2 board"
-
-config MACH_P8
-	bool "P8 board"
-
-config MACH_P8LTE
-	bool "P8 LTE board"
-	select S3C64XX_DEV_SPI0
-
 endchoice
 
 choice
@@ -956,7 +832,7 @@ config PANEL_U1_NA_SPR
 
 endchoice
 
-if MACH_U1 || MACH_C1 || MACH_M3 || MACH_M0 || MACH_P4 || MACH_P2 || MACH_P4NOTE || MACH_T0 || MACH_TRATS || MACH_GRANDE || MACH_GC1 || MACH_BAFFIN || MACH_KONA
+if MACH_U1 || MACH_C1 || MACH_M3 || MACH_M0 || MACH_TRATS || MACH_GRANDE
 source "arch/arm/mach-exynos/Kconfig.local"
 endif
 
@@ -1071,29 +947,11 @@ config MACH_M3
 	select S3C_DEV_I2C5
 	select MIDAS_COMMON_BD
 
-config MACH_P4NOTE
-	bool "P4 Note board"
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
-	select P4NOTE_00_BD
-
 config MACH_GC1
 	bool "Galuxy Camera board"
 	select S3C_DEV_I2C4
 	select S3C_DEV_I2C5
 	select GC1_00_BD
-
-config MACH_T0
-	bool "T0 board"
-	select EXYNOS4_SETUP_I2C2
-	select S3C_DEV_I2C2
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
-
-config MACH_KONA
-        bool "KONA Note8 board"
-        select S3C_DEV_I2C4
-        select S3C_DEV_I2C5
 
 config MACH_IRON
 	bool "Iron board"
@@ -1110,43 +968,21 @@ config MACH_GRANDE
 	select GRANDE_BD
 	select EXYNOS4_SETUP_KEYPAD
 	select SAMSUNG_DEV_KEYPAD
-
-config MACH_BAFFIN
-	bool "BAFFIN board"
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
 endchoice
 
 config MIDAS_COMMON_BD
 	bool "Midas default common Board"
 
-config P4NOTE_00_BD
-	bool "P4 Note PQ common Board"
-
 config GC1_00_BD
 	bool "Galaxy Camera common Board"
-
-config T0_00_BD
-	bool "T0 Revison 00 board"
-	default n
-
-config T0_04_BD
-	bool "T0 Revison 04 board"
-	default n
-
-config KONA_00_BD
-        bool "KONA note8 rev00 common Board"
-        default n
-
-config KONA_01_BD
-        bool "KONA note8 rev01 common Board"
-        default n
 
 config IRON_BD
 	bool "Iron common Board"
 
 config GRANDE_BD
 	bool "Grande common Board"
+
+source "arch/arm/mach-exynos/Kconfig.slp"
 
 config WRITEBACK_ENABLED
 	bool "Samsung Writeback Enable"
@@ -1164,13 +1000,6 @@ config JACK_FET
 
 config JACK_GROUND_DET
 	bool "Ear Ground Detection Enable"
-
-config USE_ADC_DET
-        bool "Jack Detection with ADC IC"
-
-config SAMSUNG_ANALOG_UART_SWITCH
-	int "SAMSUNG analog switch for UART"
-	default 1
 
 endmenu
 
@@ -1249,96 +1078,6 @@ config MACH_SMDK5250
 	help
 	  Machine support for Samsung SMDK5250
 
-config MACH_P10
-	bool "P10 board"
-	select CPU_EXYNOS5250
-	select S3C_DEV_HWMON if S3C_ADC
-	select S3C_DEV_RTC
-	select S3C_DEV_WDT
-	select S3C_DEV_HSMMC2
-	select S3C_DEV_HSMMC3
-	select S3C_DEV_I2C1
-	select S3C_DEV_I2C3
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
-	select S3C_DEV_I2C7
-	select S5P_GPIO_INT
-	select S5P_DEV_DP
-	select EXYNOS_DEV_SYSMMU
-	select S5P_DEV_FIMD1
-	select S5P_DEV_USB_EHCI
-	select S5P_DEV_TV
-	select S5P_DEV_USBGADGET
-	select S5P_DEV_MFC
-	select S5P_DEV_FIMG2D
-	select S5P_DEV_ROTATOR
-	select S5P_DEV_I2C_HDMIPHY
-	select EXYNOS_DEV_PD
-	select EXYNOS4_DEV_FIMC_LITE
-	select EXYNOS4_SETUP_I2C1
-	select EXYNOS4_SETUP_I2C3
-	select EXYNOS4_SETUP_I2C4
-	select EXYNOS4_SETUP_I2C5
-	select EXYNOS4_SETUP_I2C7
-	select EXYNOS4_SETUP_DP
-	select EXYNOS4_SETUP_SDHCI
-	select EXYNOS4_DEV_DWMCI
-	select EXYNOS4_SETUP_FIMD
-	select EXYNOS4_SETUP_USB_PHY
-	select SAMSUNG_DEV_BACKLIGHT
-	select SAMSUNG_DEV_PWM
-	select EXYNOS4_SETUP_MFC
-	select EXYNOS_DEV_SS_UDC
-	select SAMSUNG_DEV_ADC
-	select EXYNOS4_SETUP_THERMAL
-	help
-	  Machine support for Samsung P10 board
-
-choice
-	prompt "P10 board"
-	depends on MACH_P10
-	default MACH_P10_00_BD
-
-config MACH_P10_00_BD
-	bool "P10 Rev 0.0 board"
-
-config MACH_P10_LTE_00_BD
-	bool "P10 LTE Rev 0.0 board"
-
-config MACH_P10_WIFI_00_BD
-	bool "P10 WIFI Rev 0.0 board"
-
-config MACH_P10_LUNGO_01_BD
-	bool "P10 lungo Rev 0.1 board"
-
-config MACH_P10_LUNGO_WIFI_01_BD
-	bool "P10 lungo Wifi Rev 0.1 board"
-
-endchoice
-choice
-	prompt "P10 DP version"
-	depends on MACH_P10
-	default MACH_P10_DP_01
-
-config MACH_P10_DP_00
-	bool "P10 DP 0.0(evt0.0)"
-
-config MACH_P10_DP_01
-	bool "P10 DP 0.1(evt0.1)"
-
-endchoice
-choice
-	prompt "DP FrameRate of P10"
-	depends on MACH_P10
-	default DP_40HZ_P10
-
-config DP_40HZ_P10
-	bool "support 40HZ for DP of P10"
-
-config DP_60HZ_P10
-	bool "support 60HZ for DP of P10"
-
-endchoice
 endmenu
 
 config EXYNOS5_DEV_BTS
@@ -1616,13 +1355,13 @@ config EHCI_IRQ_DISTRIBUTION
 	default n
 
 if (LINK_DEVICE_USB || LINK_DEVICE_HSIC)
-config EHCI_MODEM_PORTNUM
-        int "EHCI port number of modem connection"
-        default 2
+config ECHI_MODEM_PORTNUM
+	int "EHCI port number of modem connection"
+	default 2
 config CMC_MODEM_HSIC_SYSREV
-        int "System revision number which CMC modem support HSIC i/f"
-        depends on LTE_MODEM_CMC221
-        default 9
+	int "System revision number which CMC modem support HSIC i/f"
+	depends on LTE_MODEM_CMC221
+	default 9
 endif
 
 if SEC_MODEM
@@ -1630,10 +1369,6 @@ comment "Samsung Modem Feature"
 
 config LTE_VIA_SWITCH
 	bool
-	default n
-
-config SEC_DUAL_MODEM_MODE
-	bool "sec dual modem mode"
 	default n
 
 choice
@@ -1660,16 +1395,6 @@ config SEC_MODEM_M0_CTC
 	bool "M0 CTC with MDM6600"
 	select CDMA_MODEM_MDM6600
 	select USBHUB_USB3503
-
-config SEC_MODEM_T0_CU_DUOS
-	bool "T0 CU DUOS with ESC6270"
-	select GSM_MODEM_ESC6270
-	select LINK_DEVICE_PLD
-
-config SEC_MODEM_T0_OPEN_DUOS
-	bool "T0 OPEN DUOS with ESC6270"
-	select GSM_MODEM_ESC6270
-	select LINK_DEVICE_PLD
 
 config SEC_MODEM_M0_GRANDECTC
 	bool "M0 CTC with ESC6270"
@@ -1715,6 +1440,20 @@ config SEC_MODEM_U1_LGT
 	select CDMA_MODEM_MDM6600
 	select LINK_DEVICE_DPRAM
 
+config SEC_MODEM_TRATS
+	bool "TRATS with xmm6260"
+	select SEC_MODEM_TIZEN
+	select UMTS_MODEM_XMM6260
+	select LINK_DEVICE_HSIC
+	select EHCI_IRQ_DISTRIBUTION
+
+config SEC_MODEM_TRATS2
+	bool "TRATS2 with xmm6262"
+	select SEC_MODEM_TIZEN
+	select UMTS_MODEM_XMM6262
+	select LINK_DEVICE_HSIC
+	select EHCI_IRQ_DISTRIBUTION
+
 config SEC_MODEM_GAIA
 	bool "GAIA with cmc221"
 	select LTE_MODEM_CMC221
@@ -1726,6 +1465,11 @@ config SEC_MODEM_IRON
 	select LINK_DEVICE_HSIC
 	select EHCI_IRQ_DISTRIBUTION
 
+config SEC_MODEM_IRON_TD
+	bool "Iron_TD with ESC6270"
+	select GSM_MODEM_ESC6270
+	select LINK_DEVICE_PLD
+
 config SEC_MODEM_P8LTE
 	bool "P8 VZW with CMC220 and CBP7.1"
 	select CDMA_MODEM_CBP71
@@ -1734,28 +1478,9 @@ config SEC_MODEM_P8LTE
 	select LINK_DEVICE_USB
 	select INTERNAL_MODEM_IF
 
-config SEC_MODEM_T0_TD_DUAL
-	bool "T0 with SPRD8803 & XMM6262"
-	select UMTS_MODEM_XMM6262
-	select LINK_DEVICE_HSIC
-	select EHCI_IRQ_DISTRIBUTION
-	select TDSCDMA_MODEM_SPRD8803
-	select LINK_DEVICE_SPI
-
-config SEC_MODEM_U1_SPR
-        bool "U1 with qsc6085"
-        select CDMA_MODEM_QSC6085
-        select LINK_DEVICE_DPRAM
-        select INTERNAL_MODEM_IF
-
 endchoice
 
 endif
-
-comment "Connectivity Feature"
-config GPS_BRCM_475X
-	bool "BRCM_475X_CHIPSET"
-	default n
 
 if BT
 config BT_CSR8811
@@ -1805,9 +1530,6 @@ config MDM_HSIC_PM
 config EMI_ERROR_RECOVERY
 	bool "unsuspected emi error recovery on HUB"
 	default n
-config SIM_DETECT
-	bool "support sim detect"
-        default n
 
 if QC_MODEM
 choice
@@ -1825,13 +1547,14 @@ config QC_MODEM_M3
 	select MSM_RMNET_USB
 	select DIAG_CHAR
 	select MDM_HSIC_PM
+	select EMI_ERROR_RECOVERY
 
 endchoice
 endif
 
 config USB_CDFS_SUPPORT
 	bool "Auto install for cdfs"
-	default y
+	default n
 
 config SAMSUNG_PRODUCT_SHIP
 	bool "set up for product shippling"
@@ -1848,13 +1571,3 @@ config CORESIGHT_ETM_DEFAULT_ENABLE
 	help
 	  Turns on ETM tracing by default. Otherwise, tracing is
 	  disabled by default but can be enabled by other means.
-
-
-config MACH_KONA_SENSOR
-        bool "KONA Sensor Enable"
-        help
-          Support sensors of KONA boards
-
-          BMA254 / BOSCH
-          YAS532 / YAMAHA
-          GP2A030A / SHARP

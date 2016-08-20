@@ -301,12 +301,18 @@ struct ifla_vf_tx_rate {
 	__u32 rate; /* Max TX bandwidth in Mbps, 0 disables throttling */
 };
 
+struct ifla_vf_spoofchk {
+	__u32 vf;
+	__u32 setting;
+};
+
 struct ifla_vf_info {
 	__u32 vf;
 	__u8 mac[32];
 	__u32 vlan;
 	__u32 qos;
 	__u32 tx_rate;
+	__u32 spoofchk;
 };
 
 /* VF ports management section

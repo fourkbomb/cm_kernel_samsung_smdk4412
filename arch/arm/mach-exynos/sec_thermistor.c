@@ -26,13 +26,15 @@ struct sec_therm_info {
 	struct sec_therm_platform_data *pdata;
 	struct s3c_adc_client *padc;
 	struct delayed_work polling_work;
+	struct mutex therm_mutex;
 
 	int curr_temperature;
 	int curr_temp_adc;
 };
 
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_REDWOOD) || \
+	defined(CONFIG_MACH_SLP_PQ)
 static void notify_change_of_temperature(struct sec_therm_info *info);
 int siopLevellimit;
 EXPORT_SYMBOL(siopLevellimit);
@@ -57,7 +59,8 @@ static ssize_t sec_therm_show_temp_adc(struct device *dev,
 }
 
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_REDWOOD) || \
+	defined(CONFIG_MACH_SLP_PQ)
 static ssize_t sec_therm_show_sioplevel(struct device *dev,
 				   struct device_attribute *attr,
 				   char *buf)
@@ -84,6 +87,104 @@ static DEVICE_ATTR(sioplevel, S_IWUSR | S_IRUGO, sec_therm_show_sioplevel, \
 				 sec_therm_store_sioplevel);
 #endif
 
+
+static int saved_siop_level;
+
+#if defined(CONFIG_MACH_REDWOOD)
+static int sec_therm_get_adc_data(struct sec_therm_info *info);
+static int convert_adc_to_temper(struct sec_therm_info *info, unsigned int adc);
+static ssize_t sec_therm_show_saved_siop_level(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	return sprintf(buf, "%d\n", saved_siop_level);
+}
+
+static ssize_t sec_therm_show_period(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	struct sec_therm_info *info = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", info->pdata->polling_interval / 1000);
+}
+
+static ssize_t sec_therm_store_period(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t n)
+{
+	unsigned int val;
+	int valid_input = false;
+
+	struct sec_therm_info *info = dev_get_drvdata(dev);
+
+	if (sscanf(buf, "%u", &val) == 1) {
+		if (val > 0 && val <= 10000) {
+			valid_input = true;
+			info->pdata->polling_interval = val * 1000;
+		} else
+			valid_input = false;
+	}
+
+	if (valid_input == true) {
+		cancel_delayed_work(&info->polling_work);
+		schedule_delayed_work(&info->polling_work,
+			msecs_to_jiffies(info->pdata->polling_interval));
+
+	} else
+		n = -1;
+
+	return n;
+}
+
+static ssize_t sec_therm_show_real_temp_adc(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	int adc;
+	struct sec_therm_info *info = dev_get_drvdata(dev);
+
+	mutex_lock(&info->therm_mutex);
+	adc = sec_therm_get_adc_data(info);
+	mutex_unlock(&info->therm_mutex);
+
+	return sprintf(buf, "%d\n", adc);
+}
+
+static ssize_t sec_therm_show_real_temperature(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	int adc;
+	int temper;
+	struct sec_therm_info *info = dev_get_drvdata(dev);
+
+	mutex_lock(&info->therm_mutex);
+	adc = sec_therm_get_adc_data(info);
+
+	if (adc < 0)
+		temper = -1;
+	else
+		temper = convert_adc_to_temper(info, adc);
+
+	mutex_unlock(&info->therm_mutex);
+
+	return sprintf(buf, "%d\n", temper);
+}
+
+
+static DEVICE_ATTR(period, S_IWUSR | S_IRUGO, sec_therm_show_period, \
+				 sec_therm_store_period);
+
+static DEVICE_ATTR(real_temp_adc
+			, S_IRUGO, sec_therm_show_real_temp_adc, NULL);
+
+static DEVICE_ATTR(real_temperature
+			, S_IRUGO, sec_therm_show_real_temperature, NULL);
+static DEVICE_ATTR(saved_siop_level
+			, S_IRUGO, sec_therm_show_saved_siop_level, NULL);
+#endif
+
 static DEVICE_ATTR(temperature, S_IRUGO, sec_therm_show_temperature, NULL);
 static DEVICE_ATTR(temp_adc, S_IRUGO, sec_therm_show_temp_adc, NULL);
 
@@ -91,8 +192,15 @@ static struct attribute *sec_therm_attributes[] = {
 	&dev_attr_temperature.attr,
 	&dev_attr_temp_adc.attr,
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_REDWOOD) || \
+	defined(CONFIG_MACH_SLP_PQ)
 	&dev_attr_sioplevel.attr,
+#endif
+#if defined(CONFIG_MACH_REDWOOD)
+	&dev_attr_period.attr,
+	&dev_attr_real_temp_adc.attr,
+	&dev_attr_real_temperature.attr,
+	&dev_attr_saved_siop_level.attr,
 #endif
 	NULL
 };
@@ -169,7 +277,7 @@ static void notify_change_of_temperature(struct sec_therm_info *info)
 {
 	char temp_buf[20];
 	char siop_buf[20];
-	char *envp[2];
+	char *envp[3];
 	int env_offset = 0;
 	int siop_level = -1;
 
@@ -185,6 +293,7 @@ static void notify_change_of_temperature(struct sec_therm_info *info)
 		snprintf(siop_buf, sizeof(siop_buf), "SIOP_LEVEL=%d",
 			 siop_level);
 		envp[env_offset++] = siop_buf;
+		saved_siop_level = siop_level;
 		dev_info(info->dev, "%s: uevent: %s\n", __func__, siop_buf);
 	}
 	envp[env_offset] = NULL;
@@ -199,6 +308,8 @@ static void sec_therm_polling_work(struct work_struct *work)
 		container_of(work, struct sec_therm_info, polling_work.work);
 	int adc;
 	int temper;
+
+	mutex_lock(&info->therm_mutex);
 
 	adc = sec_therm_get_adc_data(info);
 	dev_dbg(info->dev, "%s: adc=%d\n", __func__, adc);
@@ -216,6 +327,8 @@ static void sec_therm_polling_work(struct work_struct *work)
 		notify_change_of_temperature(info);
 	}
 out:
+	mutex_unlock(&info->therm_mutex);
+
 	schedule_delayed_work(&info->polling_work,
 			msecs_to_jiffies(info->pdata->polling_interval));
 }
@@ -245,6 +358,8 @@ static __devinit int sec_therm_probe(struct platform_device *pdev)
 		dev_err(info->dev,
 			"failed to create sysfs attribute group\n");
 	}
+
+	mutex_init(&info->therm_mutex);
 
 	INIT_DELAYED_WORK_DEFERRABLE(&info->polling_work,
 			sec_therm_polling_work);

@@ -35,11 +35,17 @@ static int fimc_querycap(struct file *filp, void *fh,
 	sprintf(cap->bus_info, "FIMC AHB-bus");
 
 	cap->version = 0;
+#ifdef CONFIG_SLP
 #ifdef CONFIG_SLP_DMABUF
 	cap->capabilities = (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT |
 			V4L2_CAP_VIDEO_OVERLAY | V4L2_CAP_STREAMING |
 			V4L2_CAP_VIDEO_OUTPUT_MPLANE |
-			V4L2_CAP_VIDEO_CAPTURE_MPLANE);
+			V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_SHARE_FD);
+#else
+	cap->capabilities = (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT |
+				V4L2_CAP_VIDEO_OVERLAY | V4L2_CAP_STREAMING |
+				V4L2_CAP_SHARE_PADDR);
+#endif
 #else
 	cap->capabilities = (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT |
 				V4L2_CAP_VIDEO_OVERLAY | V4L2_CAP_STREAMING);

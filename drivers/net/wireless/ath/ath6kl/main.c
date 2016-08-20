@@ -829,6 +829,8 @@ static void ath6kl_update_target_stats(struct ath6kl_vif *vif, u8 *ptr, u32 len)
 		tgt_stats->cserv_stats.cs_last_roam_msec;
 	stats->cs_snr = tgt_stats->cserv_stats.cs_snr;
 	stats->cs_rssi = a_sle16_to_cpu(tgt_stats->cserv_stats.cs_rssi);
+	ath6kl_dbg(ATH6KL_DBG_TRC, "cs_ave_beacon_rssi = %d, cs_last_roam_msec = %d, cs_snr = %d, cs_rssi = %d\n",
+					stats->cs_ave_beacon_rssi, stats->cs_last_roam_msec, stats->cs_snr, stats->cs_rssi);
 
 	stats->lq_val = le32_to_cpu(tgt_stats->lq_val);
 

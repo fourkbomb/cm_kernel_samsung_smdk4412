@@ -32,12 +32,9 @@
 #include <linux/videodev2_exynos_camera.h>
 #include <linux/delay.h>
 #include <linux/cma.h>
-#include <linux/dma-mapping.h>
 #include <plat/fimc.h>
 #include <plat/clock.h>
 #include <mach/regs-pmu.h>
-#include <linux/cpufreq.h>
-#include <mach/cpufreq.h>
 
 #include "fimc.h"
 
@@ -714,32 +711,20 @@ static struct fimc_control *fimc_register_controller(struct platform_device *pde
 	/* In Midas project, FIMC2 reserve memory is used by ION driver. */
 	if (id != 2) {
 #endif
-#ifdef CONFIG_USE_FIMC_CMA
-		if (id == 1) {
-			ctrl->mem.size =
-				CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1 * SZ_1K;
-			ctrl->mem.base = 0;
-		} else
-#endif
-		{
-			sprintf(ctrl->cma_name, "%s%d",
-					FIMC_CMA_NAME, ctrl->id);
-			err = cma_info(&mem_info, ctrl->dev, 0);
-			fimc_info1("%s : [cma_info] start_addr : 0x%x, "
-				" end_addr : 0x%x, total_size : 0x%x, "
-				"free_size : 0x%x\n", __func__,
-				mem_info.lower_bound, mem_info.upper_bound,
+		sprintf(ctrl->cma_name, "%s%d", FIMC_CMA_NAME, ctrl->id);
+		err = cma_info(&mem_info, ctrl->dev, 0);
+		fimc_info1("%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
+				"total_size : 0x%x, free_size : 0x%x\n",
+				__func__, mem_info.lower_bound, mem_info.upper_bound,
 				mem_info.total_size, mem_info.free_size);
-			if (err) {
-				fimc_err("%s: get cma info failed\n", __func__);
-				ctrl->mem.size = 0;
-				ctrl->mem.base = 0;
-			} else {
-				ctrl->mem.size = mem_info.total_size;
-				ctrl->mem.base = (dma_addr_t)cma_alloc
-					(ctrl->dev, ctrl->cma_name,
-					(size_t)ctrl->mem.size, 0);
-			}
+		if (err) {
+			fimc_err("%s: get cma info failed\n", __func__);
+			ctrl->mem.size = 0;
+			ctrl->mem.base = 0;
+		} else {
+			ctrl->mem.size = mem_info.total_size;
+			ctrl->mem.base = (dma_addr_t)cma_alloc
+				(ctrl->dev, ctrl->cma_name, (size_t)ctrl->mem.size, 0);
 		}
 #ifdef CONFIG_ION_EXYNOS
 	}
@@ -898,50 +883,6 @@ static struct vm_operations_struct fimc_mmap_ops = {
 };
 
 static inline
-int fimc_mmap_own_mem(struct file *filp, struct vm_area_struct *vma)
-{
-	struct fimc_prv_data *prv_data =
-				(struct fimc_prv_data *)filp->private_data;
-	struct fimc_control *ctrl = prv_data->ctrl;
-	u32 start_phy_addr = 0;
-	u32 size = vma->vm_end - vma->vm_start;
-	u32 pfn, idx = vma->vm_pgoff;
-	u32 buf_length = 0;
-
-	buf_length = ctrl->mem.size;
-	if (size > PAGE_ALIGN(buf_length)) {
-		fimc_err("Requested mmap size is too big\n");
-		return -EINVAL;
-	}
-
-	start_phy_addr = ctrl->mem.base + (vma->vm_pgoff  << PAGE_SHIFT);
-
-	if (!cma_is_registered_region(start_phy_addr, size)) {
-		pr_err("[%s] handling non-cma region (%#x@%#x)is prohibited\n",
-				__func__, buf_length, start_phy_addr);
-		return -EINVAL;
-	}
-
-	/* only supports non-cached mmap */
-	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-	vma->vm_flags |= VM_RESERVED;
-
-	if ((vma->vm_flags & VM_WRITE) && !(vma->vm_flags & VM_SHARED)) {
-		fimc_err("writable mapping must be shared\n");
-		return -EINVAL;
-	}
-
-	pfn = __phys_to_pfn(start_phy_addr);
-
-	if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot)) {
-		fimc_err("mmap fail\n");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static inline
 int fimc_mmap_out_src(struct file *filp, struct vm_area_struct *vma)
 {
 	struct fimc_prv_data *prv_data =
@@ -1025,14 +966,10 @@ static inline int fimc_mmap_out(struct file *filp, struct vm_area_struct *vma)
 	int idx = ctrl->out->ctx[ctx_id].overlay.req_idx;
 	int ret = -1;
 
-#if 0
 	if (idx >= 0)
 		ret = fimc_mmap_out_dst(filp, vma, idx);
 	else if (idx == FIMC_MMAP_IDX)
 		ret = fimc_mmap_out_src(filp, vma);
-#else
-	ret = fimc_mmap_own_mem(filp, vma);
-#endif
 
 	return ret;
 }
@@ -1049,12 +986,6 @@ static inline int fimc_mmap_cap(struct file *filp, struct vm_area_struct *vma)
 		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
 	vma->vm_flags |= VM_RESERVED;
-
-	if (!cma_is_registered_region(ctrl->cap->bufs[idx].base[0], size)) {
-		pr_err("[%s] handling non-cma region (%#x@%#x)is prohibited\n",
-				__func__, size, ctrl->cap->bufs[idx].base[0]);
-		return -EINVAL;
-	}
 
 	/*
 	 * page frame number of the address for a source frame
@@ -1544,19 +1475,6 @@ static int fimc_open(struct file *filp)
 		goto kzalloc_err;
 	}
 
-#ifdef CONFIG_USE_FIMC_CMA
-	if (ctrl->id == 1) {
-		ctrl->mem.cpu_addr = dma_alloc_coherent(ctrl->dev,
-					ctrl->mem.size, &(ctrl->mem.base), 0);
-		if (!ctrl->mem.cpu_addr) {
-			printk(KERN_INFO "FIMC%d: dma_alloc_coherent failed\n",
-								ctrl->id);
-			ret = -ENOMEM;
-			goto dma_alloc_err;
-		}
-	}
-#endif
-
 	if (in_use == 1) {
 #if (!defined(CONFIG_EXYNOS_DEV_PD) || !defined(CONFIG_PM_RUNTIME))
 		if (pdata->clk_on)
@@ -1606,11 +1524,6 @@ static int fimc_open(struct file *filp)
 	mutex_unlock(&ctrl->lock);
 
 	return 0;
-
-#ifdef CONFIG_USE_FIMC_CMA
-dma_alloc_err:
-	kfree(prv_data);
-#endif
 
 kzalloc_err:
 	atomic_dec(&ctrl->in_use);
@@ -1804,14 +1717,6 @@ static int fimc_release(struct file *filp)
 		ctrl->fb.is_enable = 0;
 	}
 
-#ifdef CONFIG_USE_FIMC_CMA
-	if (ctrl->id == 1) {
-		dma_free_coherent(ctrl->dev, ctrl->mem.size, ctrl->mem.cpu_addr,
-					ctrl->mem.base);
-		ctrl->mem.base = 0;
-		ctrl->mem.cpu_addr = NULL;
-	}
-#endif
 	fimc_warn("FIMC%d %d released.\n",
 			ctrl->id, atomic_read(&ctrl->in_use));
 

@@ -243,7 +243,7 @@ static int max77693_led_setup(struct max77693_led_data *led_data)
 	return ret;
 }
 
-static ssize_t max77693_flash(struct device *dev,
+static ssize_t max77693_flash_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
@@ -268,8 +268,31 @@ static ssize_t max77693_flash(struct device *dev,
 	return ret;
 }
 
-static DEVICE_ATTR(rear_flash, S_IWUSR|S_IWGRP|S_IROTH,
-	NULL, max77693_flash);
+static ssize_t max77693_flash_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	return snprintf(buf,
+		sizeof(led_cdev->brightness), "%d", led_cdev->brightness);
+}
+
+static DEVICE_ATTR(rear_flash, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH,
+	max77693_flash_show, max77693_flash_store);
+
+#ifdef CONFIG_SLP
+static ssize_t max77693_flash_max_brightness_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(led_cdev->max_brightness), "%d",
+		led_cdev->max_brightness);
+}
+
+static DEVICE_ATTR(max_brightness, S_IRUSR|S_IRGRP|S_IROTH,
+	max77693_flash_max_brightness_show, NULL);
+#endif
 
 static int max77693_led_probe(struct platform_device *pdev)
 {
@@ -353,6 +376,12 @@ static int max77693_led_probe(struct platform_device *pdev)
 				dev_attr_rear_flash.attr.name);
 	}
 
+#ifdef CONFIG_SLP
+	if (device_create_file(flash_dev, &dev_attr_max_brightness) < 0) {
+		pr_err("failed to create device file, %s\n",
+				dev_attr_max_brightness.attr.name);
+	}
+#endif
 #ifdef CONFIG_LEDS_SWITCH
 	if (system_rev < FLASH_SWITCH_REMOVED_REVISION) {
 		if (gpio_request(GPIO_CAM_SW_EN, "CAM_SW_EN"))

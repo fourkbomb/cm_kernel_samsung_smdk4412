@@ -11,7 +11,6 @@
  * GNU General Public License for more details.
  *
  */
-
 #ifndef __MODEM_LINK_DEVICE_MEMORY_H__
 #define __MODEM_LINK_DEVICE_MEMORY_H__
 
@@ -19,14 +18,8 @@
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
 #include <linux/timer.h>
-#include <linux/notifier.h>
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-#include <linux/earlysuspend.h>
-#elif defined(CONFIG_FB)
-#include <linux/fb.h>
-#endif
+#include <linux/platform_data/modem.h>
 
-#include "modem.h"
 #include "modem_prj.h"
 
 #define DPRAM_MAGIC_CODE	0xAA
@@ -71,16 +64,10 @@
 #define UDL_CMD_ALARM_BOOT_OK	0xC
 #define UDL_CMD_ALARM_BOOT_FAIL	0xD
 
-#define CMD_DL_READY		0xA100
-#define CMD_DL_START_REQ	0x9200
-#define CMD_DL_START_RESP	0xA301
-#define CMD_DL_SEND_REQ		0x9400
-#define CMD_DL_SEND_RESP	0xA501
-#define CMD_DL_DONE_REQ		0x9600
-#define CMD_DL_DONE_RESP	0xA701
-
+#define CMD_IMG_START_REQ	0x9200
+#define CMD_IMG_SEND_REQ	0x9400
+#define CMD_DL_SEND_DONE_REQ	0x9600
 #define CMD_UL_RECV_RESP	0x9601
-#define CMD_UL_RECV_DONE_REQ	0xA700
 #define CMD_UL_RECV_DONE_RESP	0x9801
 
 /* special interrupt cmd indicating modem boot failure. */
@@ -97,34 +84,28 @@
 #define INT_MASK_RES_ACK_RFS	0x0200 /* Response of REQ_ACK_RFS	*/
 #define INT_MASK_SEND_RFS	0x0100 /* Indicate sending RFS data	*/
 
-#define INT_MASK_REQ_ACK_SET \
-	(INT_MASK_REQ_ACK_F | INT_MASK_REQ_ACK_R | INT_MASK_REQ_ACK_RFS)
-
 #define INT_MASK_RES_ACK_SET \
 	(INT_MASK_RES_ACK_F | INT_MASK_RES_ACK_R | INT_MASK_RES_ACK_RFS)
 
-#define INT_CMD_MASK(x)			((x) & 0xF)
-#define INT_CMD_INIT_START		0x1
-#define INT_CMD_INIT_END		0x2
-#define INT_CMD_REQ_ACTIVE		0x3
-#define INT_CMD_RES_ACTIVE		0x4
-#define INT_CMD_REQ_TIME_SYNC		0x5
-#define INT_CMD_CRASH_RESET		0x7
-#define INT_CMD_PHONE_START		0x8
-#define INT_CMD_ERR_DISPLAY		0x9
-#define INT_CMD_CRASH_EXIT		0x9
-#define INT_CMD_CP_DEEP_SLEEP		0xA
-#define INT_CMD_NV_REBUILDING		0xB
-#define INT_CMD_EMER_DOWN		0xC
-#define INT_CMD_PIF_INIT_DONE		0xD
-#define INT_CMD_SILENT_NV_REBUILDING	0xE
-#define INT_CMD_NORMAL_POWER_OFF	0xF
+#define INT_MASK_SEND_SET \
+	(INT_MASK_SEND_F | INT_MASK_SEND_R | INT_MASK_SEND_RFS)
 
-/* AP_IDPRAM PM control command with QSC6085 */
-#define INT_CMD_IDPRAM_SUSPEND_REQ	0xD
-#define INT_CMD_IDPRAM_SUSPEND_ACK	0xB
-#define INT_CMD_IDPRAM_WAKEUP_START	0xE
-#define INT_CMD_IDPRAM_RESUME_REQ	0xC
+#define INT_CMD_MASK(x)		((x) & 0xF)
+#define INT_CMD_INIT_START	0x1
+#define INT_CMD_INIT_END	0x2
+#define INT_CMD_REQ_ACTIVE	0x3
+#define INT_CMD_RES_ACTIVE	0x4
+#define INT_CMD_REQ_TIME_SYNC	0x5
+#define INT_CMD_CRASH_RESET	0x7
+#define INT_CMD_PHONE_START	0x8
+#define INT_CMD_ERR_DISPLAY	0x9
+#define INT_CMD_CRASH_EXIT	0x9
+#define INT_CMD_CP_DEEP_SLEEP	0xA
+#define INT_CMD_NV_REBUILDING	0xB
+#define INT_CMD_EMER_DOWN	0xC
+#define INT_CMD_PIF_INIT_DONE	0xD
+#define INT_CMD_SILENT_NV_REBUILDING	0xE
+#define INT_CMD_NORMAL_PWR_OFF	0xF
 
 #define START_FLAG		0x7F
 #define END_FLAG		0x7E
@@ -138,17 +119,14 @@
 
 #define UDL_TIMEOUT		(50 * HZ)
 #define UDL_SEND_TIMEOUT	(200 * HZ)
-#define FORCE_CRASH_ACK_TIMEOUT	(5 * HZ)
+#define FORCE_CRASH_ACK_TIMEOUT	(30 * HZ)
 #define DUMP_TIMEOUT		(30 * HZ)
 #define DUMP_START_TIMEOUT	(100 * HZ)
 #define DUMP_WAIT_TIMEOUT	(HZ >> 10)	/* 1/1024 second */
+#define RES_ACK_WAIT_TIMEOUT	(HZ >> 8)	/* 1/256 second */
+#define REQ_ACK_DELAY		(HZ >> 7)	/* 1/128 second */
 
-#define IDPRAM_SUSPEND_REQ_TIMEOUT	(50 * HZ)
-
-#define RES_ACK_WAIT_TIMEOUT	10		/* 10 ms */
-#define REQ_ACK_DELAY		10		/* 10 ms */
-
-#ifdef DEBUG_MODEM_IF
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 #define MAX_RETRY_CNT	1
 #else
 #define MAX_RETRY_CNT	3
@@ -156,37 +134,15 @@
 
 #define MAX_SKB_TXQ_DEPTH	1024
 
-struct memif_boot_map {
-	u32 __iomem *magic;
-	u8  __iomem *buff;
-	u32 __iomem *req;
-	u32 __iomem *resp;
-	u32          space;
+enum host_boot_mode {
+	HOST_BOOT_MODE_NORMAL,
+	HOST_BOOT_MODE_DUMP,
 };
 
-struct memif_dload_map {
-	u32 __iomem *magic;
-	u8  __iomem *buff;
-	u32 space;
+enum dpram_init_status {
+	DPRAM_INIT_STATE_NONE,
+	DPRAM_INIT_STATE_READY,
 };
-
-struct memif_uload_map {
-	u32 __iomem *magic;
-	u8  __iomem *cmd;
-	u32 cmd_size;
-	u8  __iomem *buff;
-	u32 space;
-};
-
-#define DP_BOOT_BUFF_OFFSET	4
-#define DP_DLOAD_MAGIC_SIZE	4
-#define DP_DLOAD_BUFF_OFFSET	4
-#define DP_ULOAD_MAGIC_SIZE	4
-#define DP_ULOAD_BUFF_OFFSET	4
-#define DP_BOOT_REQ_OFFSET	0
-#define DP_BOOT_RESP_OFFSET	8
-#define DP_MBX_SET_SIZE		4
-#define DP_MAX_PAYLOAD_SIZE	0x2000
 
 enum circ_dir_type {
 	TX,
@@ -199,6 +155,94 @@ enum circ_ptr_type {
 	TAIL,
 };
 
+struct dpram_boot_img {
+	char *addr;
+	int size;
+	enum host_boot_mode mode;
+	unsigned req;
+	unsigned resp;
+};
+
+#define MAX_PAYLOAD_SIZE 0x2000
+struct dpram_boot_frame {
+	unsigned req;		/* AP->CP request		*/
+	unsigned resp;		/* response expected by AP	*/
+	ssize_t len;		/* data size in the buffer	*/
+	unsigned offset;	/* offset to write into DPRAM	*/
+	char data[MAX_PAYLOAD_SIZE];
+};
+
+/* buffer type for modem image */
+struct dpram_dump_arg {
+	char *buff;		/* pointer to the buffer	*/
+	int buff_size;		/* buffer size			*/
+	unsigned req;		/* AP->CP request		*/
+	unsigned resp;		/* CP->AP response		*/
+	bool cmd;		/* AP->CP command		*/
+};
+
+struct dpram_boot_map {
+	u32 __iomem *magic;
+	u8  __iomem *buff;
+	u32 __iomem *req;
+	u32 __iomem *resp;
+	u32          size;
+};
+
+struct qc_dpram_boot_map {
+	u8 __iomem *buff;
+	u16 __iomem *frame_size;
+	u16 __iomem *tag;
+	u16 __iomem *count;
+};
+
+struct dpram_dload_map {
+	u32 __iomem *magic;
+	u8  __iomem *buff;
+};
+
+struct dpram_uload_map {
+	u32 __iomem *magic;
+	u8  __iomem *buff;
+};
+
+struct ul_header {
+	u8  bop;
+	u16 total_frame;
+	u16 curr_frame;
+	u16 len;
+} __packed;
+
+struct dpram_udl_param {
+	unsigned char *addr;
+	unsigned int size;
+	unsigned int count;
+	unsigned int tag;
+};
+
+struct dpram_udl_check {
+	unsigned int total_size;
+	unsigned int rest_size;
+	unsigned int send_size;
+	unsigned int copy_start;
+	unsigned int copy_complete;
+	unsigned int boot_complete;
+};
+
+struct dpram_circ_status {
+	u8 *buff;
+	unsigned int qsize;	/* the size of a circular buffer */
+	unsigned int in;
+	unsigned int out;
+	int size;		/* the size of free space or received data */
+};
+
+#define DP_BOOT_BUFF_OFFSET	4
+#define DP_DLOAD_BUFF_OFFSET	4
+#define DP_ULOAD_BUFF_OFFSET	4
+#define DP_BOOT_REQ_OFFSET	0
+#define DP_BOOT_RESP_OFFSET	8
+
 static inline bool circ_valid(u32 qsize, u32 in, u32 out)
 {
 	if (in >= qsize)
@@ -210,20 +254,14 @@ static inline bool circ_valid(u32 qsize, u32 in, u32 out)
 	return true;
 }
 
-static inline u32 circ_get_space(u32 qsize, u32 in, u32 out)
+static inline int circ_get_space(int qsize, int in, int out)
 {
 	return (in < out) ? (out - in - 1) : (qsize + out - in - 1);
 }
 
-static inline u32 circ_get_usage(u32 qsize, u32 in, u32 out)
+static inline int circ_get_usage(int qsize, int in, int out)
 {
 	return (in >= out) ? (in - out) : (qsize - out + in);
-}
-
-static inline u32 circ_new_pointer(u32 qsize, u32 p, u32 len)
-{
-	p += len;
-	return (p < qsize) ? p : (p - qsize);
 }
 
 /**
@@ -236,7 +274,8 @@ static inline u32 circ_new_pointer(u32 qsize, u32 p, u32 len)
  *
  * Should be invoked after checking data length
  */
-static inline void circ_read(void *dst, void *src, u32 qsize, u32 out, u32 len)
+static inline void circ_read(u8 *dst, u8 __iomem *src, u32 qsize, u32 out,
+				u32 len)
 {
 	unsigned len1;
 
@@ -267,7 +306,8 @@ static inline void circ_read(void *dst, void *src, u32 qsize, u32 out, u32 len)
  *
  * Should be invoked after checking free space
  */
-static inline void circ_write(void *dst, void *src, u32 qsize, u32 in, u32 len)
+static inline void circ_write(u8 __iomem *dst, u8 *src, u32 qsize, u32 in,
+				u32 len)
 {
 	u32 space;
 
@@ -319,42 +359,132 @@ static const inline char *circ_ptr(enum circ_ptr_type ptr)
 		return "tail";
 }
 
-/**
- * get_dir_str
- * @dir: communication direction (enum circ_dir_type)
- *
- * Returns the direction of a circular queue
- *
- */
-static const inline char *get_dir_str(enum circ_dir_type dir)
+#if 1
+#define DPRAM_MAX_RXBQ_SIZE	256
+
+struct mif_rxb {
+	u8 *buff;
+	unsigned size;
+
+	u8 *data;
+	unsigned len;
+};
+
+struct mif_rxb_queue {
+	int size;
+	int in;
+	int out;
+	struct mif_rxb *rxb;
+};
+
+/*
+** RXB (DPRAM RX buffer) functions
+*/
+static inline struct mif_rxb *rxbq_create_pool(unsigned size, int count)
 {
-	if (dir == TX)
-		return "AP->CP";
-	else
-		return "CP->AP";
+	struct mif_rxb *rxb;
+	u8 *buff;
+	int i;
+
+	rxb = kzalloc(sizeof(struct mif_rxb) * count, GFP_KERNEL);
+	if (!rxb) {
+		mif_info("ERR! kzalloc rxb fail\n");
+		return NULL;
+	}
+
+	buff = kzalloc((size * count), GFP_KERNEL|GFP_DMA);
+	if (!buff) {
+		mif_info("ERR! kzalloc buff fail\n");
+		kfree(rxb);
+		return NULL;
+	}
+
+	for (i = 0; i < count; i++) {
+		rxb[i].buff = buff;
+		rxb[i].size = size;
+		buff += size;
+	}
+
+	return rxb;
 }
 
-void memcpy16_from_io(const void *to, const void __iomem *from, u32 count);
-void memcpy16_to_io(const void __iomem *to, const void *from, u32 count);
-int memcmp16_to_io(const void __iomem *to, const void *from, u32 count);
-void circ_read16_from_io(void *dst, void *src, u32 qsize, u32 out, u32 len);
-void circ_write16_to_io(void *dst, void *src, u32 qsize, u32 in, u32 len);
-int copy_circ_to_user(void __user *dst, void *src, u32 qsize, u32 out, u32 len);
-int copy_user_to_circ(void *dst, void __user *src, u32 qsize, u32 in, u32 len);
+static inline unsigned rxbq_get_page_size(unsigned len)
+{
+	return ((len + PAGE_SIZE - 1) >> PAGE_SHIFT) << PAGE_SHIFT;
+}
+
+static inline bool rxbq_empty(struct mif_rxb_queue *rxbq)
+{
+	return (rxbq->in == rxbq->out) ? true : false;
+}
+
+static inline int rxbq_free_size(struct mif_rxb_queue *rxbq)
+{
+	int in = rxbq->in;
+	int out = rxbq->out;
+	int qsize = rxbq->size;
+	return (in < out) ? (out - in - 1) : (qsize + out - in - 1);
+}
+
+static inline struct mif_rxb *rxbq_get_free_rxb(struct mif_rxb_queue *rxbq)
+{
+	struct mif_rxb *rxb = NULL;
+
+	if (likely(rxbq_free_size(rxbq) > 0)) {
+		rxb = &rxbq->rxb[rxbq->in];
+		rxbq->in++;
+		if (rxbq->in >= rxbq->size)
+			rxbq->in -= rxbq->size;
+		rxb->data = rxb->buff;
+	}
+
+	return rxb;
+}
+
+static inline int rxbq_size(struct mif_rxb_queue *rxbq)
+{
+	int in = rxbq->in;
+	int out = rxbq->out;
+	int qsize = rxbq->size;
+	return (in >= out) ? (in - out) : (qsize - out + in);
+}
+
+static inline struct mif_rxb *rxbq_get_data_rxb(struct mif_rxb_queue *rxbq)
+{
+	struct mif_rxb *rxb = NULL;
+
+	if (likely(!rxbq_empty(rxbq))) {
+		rxb = &rxbq->rxb[rxbq->out];
+		rxbq->out++;
+		if (rxbq->out >= rxbq->size)
+			rxbq->out -= rxbq->size;
+	}
+
+	return rxb;
+}
+
+static inline u8 *rxb_put(struct mif_rxb *rxb, unsigned len)
+{
+	rxb->len = len;
+	return rxb->data;
+}
+
+static inline void rxb_clear(struct mif_rxb *rxb)
+{
+	rxb->data = NULL;
+	rxb->len = 0;
+}
+#endif
 
 #define MAX_MEM_LOG_CNT	8192
-#define MAX_TRACE_SIZE	1024
 
 struct mem_status {
 	/* Timestamp */
 	struct timespec ts;
 
-	/* Direction (TX or RX) */
-	enum circ_dir_type dir;
-
 	/* The status of memory interface at the time */
-	u32 magic;
-	u32 access;
+	u16 magic;
+	u16 access;
 
 	u32 head[MAX_IPC_DEV][MAX_DIR];
 	u32 tail[MAX_IPC_DEV][MAX_DIR];
@@ -363,47 +493,151 @@ struct mem_status {
 	u16 int2cp;
 };
 
-struct mem_status_queue {
+struct mem_stat_queue {
 	spinlock_t lock;
 	u32 in;
 	u32 out;
 	struct mem_status stat[MAX_MEM_LOG_CNT];
 };
 
-struct circ_status {
-	u8 *buff;
-	u32 qsize;	/* the size of a circular buffer */
-	u32 in;
-	u32 out;
-	u32 size;	/* the size of free space or received data */
-};
+static inline struct mem_status *msq_get_free_slot(struct mem_stat_queue *msq)
+{
+	int qsize = MAX_MEM_LOG_CNT;
+	int in;
+	unsigned long int flags;
+	struct mem_status *stat;
+
+	spin_lock_irqsave(&msq->lock, flags);
+
+	in = msq->in;
+
+	while (circ_get_space(qsize, in, msq->out) < 1) {
+		msq->out++;
+		if (unlikely(msq->out >= qsize))
+			msq->out = 0;
+	}
+
+	stat = &msq->stat[in];
+
+	in++;
+	if (in == qsize)
+		msq->in = 0;
+	else
+		msq->in = in;
+
+	spin_unlock_irqrestore(&msq->lock, flags);
+
+	return stat;
+}
+
+static inline struct mem_status *msq_get_data_slot(struct mem_stat_queue *msq)
+{
+	int qsize = MAX_MEM_LOG_CNT;
+	int out;
+	unsigned long int flags;
+	struct mem_status *stat;
+
+	spin_lock_irqsave(&msq->lock, flags);
+
+	out = msq->out;
+
+	if (circ_get_usage(qsize, msq->in, out) < 1) {
+		spin_unlock_irqrestore(&msq->lock, flags);
+		return NULL;
+	}
+
+	stat = &msq->stat[out];
+
+	out++;
+	if (out == qsize)
+		msq->out = 0;
+	else
+		msq->out = out;
+
+	spin_unlock_irqrestore(&msq->lock, flags);
+
+	return stat;
+}
+
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
+#define MAX_TRACE_SIZE	1024
 
 struct trace_data {
 	struct timespec ts;
 	enum dev_format dev;
-	struct circ_status circ_stat;
+	struct dpram_circ_status stat;
 	u8 *data;
-	u32 size;
+	int size;
 };
 
-struct trace_data_queue {
+struct trace_queue {
 	spinlock_t lock;
-	u32 in;
-	u32 out;
+	int in;
+	int out;
 	struct trace_data trd[MAX_TRACE_SIZE];
 };
 
-struct mem_status *msq_get_free_slot(struct mem_status_queue *msq);
-struct mem_status *msq_get_data_slot(struct mem_status_queue *msq);
+static inline struct trace_data *trq_get_free_slot(struct trace_queue *trq)
+{
+	int in;
+	int out;
+	int qsize = MAX_TRACE_SIZE;
+	struct trace_data *trd = NULL;
+	unsigned long int flags;
 
-void print_mem_status(struct link_device *ld, struct mem_status *mst);
-void print_circ_status(struct link_device *ld, int dev, struct mem_status *mst);
-void print_ipc_trace(struct link_device *ld, int dev, struct circ_status *stat,
-			struct timespec *ts, u8 *buff, u32 rcvd);
+	spin_lock_irqsave(&trq->lock, flags);
 
-u8 *capture_mem_dump(struct link_device *ld, u8 *base, u32 size);
-struct trace_data *trq_get_free_slot(struct trace_data_queue *trq);
-struct trace_data *trq_get_data_slot(struct trace_data_queue *trq);
+	in = trq->in;
+	out = trq->out;
 
+	if (circ_get_space(qsize, in, out) < 1) {
+		spin_unlock_irqrestore(&trq->lock, flags);
+		return NULL;
+	}
+
+	trd = &trq->trd[in];
+
+	in++;
+	if (in == qsize)
+		trq->in = 0;
+	else
+		trq->in = in;
+
+	spin_unlock_irqrestore(&trq->lock, flags);
+
+	return trd;
+}
+
+static inline struct trace_data *trq_get_data_slot(struct trace_queue *trq)
+{
+	int in;
+	int out;
+	int qsize = MAX_TRACE_SIZE;
+	struct trace_data *trd = NULL;
+	unsigned long int flags;
+
+	spin_lock_irqsave(&trq->lock, flags);
+
+	in = trq->in;
+	out = trq->out;
+
+	if (circ_get_usage(qsize, in, out) < 1) {
+		spin_unlock_irqrestore(&trq->lock, flags);
+		return NULL;
+	}
+
+	trd = &trq->trd[out];
+
+	out++;
+	if (out == qsize)
+		trq->out = 0;
+	else
+		trq->out = out;
+
+	spin_unlock_irqrestore(&trq->lock, flags);
+
+	return trd;
+}
 #endif
 
+#endif

@@ -51,9 +51,6 @@
  * PG_hwpoison indicates that a page got corrupted in hardware and contains
  * data with incorrect ECC bits that triggered a machine check. Accessing is
  * not safe since it may cause another machine check. Don't touch!
- *
- * PG_wasactive reflects that a page previously was promoted to active status.
- * Such pages should be considered higher priority for cleancache backends.
  */
 
 /*
@@ -110,9 +107,6 @@ enum pageflags {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	PG_compound_lock,
 #endif
-#ifdef CONFIG_CLEANCACHE
-	PG_was_active,
-#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -136,54 +130,6 @@ enum pageflags {
 };
 
 #ifndef __GENERATING_BOUNDS_H
-
-#ifdef CONFIG_DMA_CMA
-struct page;
-extern struct page *migrate_pages_current;
-
-/*
- * Macros to create function definitions for page flags
- */
-#define TESTPAGEFLAG(uname, lname)					\
-static inline int Page##uname(struct page *page)			\
-	{ do { } while (0); return test_bit(PG_##lname, &page->flags); }
-
-#define SETPAGEFLAG(uname, lname)					\
-static inline void SetPage##uname(struct page *page)			\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		set_bit(PG_##lname, &page->flags); }
-
-#define CLEARPAGEFLAG(uname, lname)					\
-static inline void ClearPage##uname(struct page *page)			\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		clear_bit(PG_##lname, &page->flags); }
-
-#define __SETPAGEFLAG(uname, lname)					\
-static inline void __SetPage##uname(struct page *page)			\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		 __set_bit(PG_##lname, &page->flags); }
-
-#define __CLEARPAGEFLAG(uname, lname)					\
-static inline void __ClearPage##uname(struct page *page)		\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		 __clear_bit(PG_##lname, &page->flags); }
-
-#define TESTSETFLAG(uname, lname)					\
-static inline int TestSetPage##uname(struct page *page)			\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		 return test_and_set_bit(PG_##lname, &page->flags); }
-
-#define TESTCLEARFLAG(uname, lname)					\
-static inline int TestClearPage##uname(struct page *page)		\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		 return test_and_clear_bit(PG_##lname, &page->flags); }
-
-#define __TESTCLEARFLAG(uname, lname)					\
-static inline int __TestClearPage##uname(struct page *page)		\
-	{ WARN_ON(0 && page == migrate_pages_current);			\
-		 return __test_and_clear_bit(PG_##lname, &page->flags); }
-
-#else
 
 /*
  * Macros to create function definitions for page flags
@@ -219,8 +165,6 @@ static inline int TestClearPage##uname(struct page *page)		\
 #define __TESTCLEARFLAG(uname, lname)					\
 static inline int __TestClearPage##uname(struct page *page)		\
 		{ return __test_and_clear_bit(PG_##lname, &page->flags); }
-
-#endif
 
 #define PAGEFLAG(uname, lname) TESTPAGEFLAG(uname, lname)		\
 	SETPAGEFLAG(uname, lname) CLEARPAGEFLAG(uname, lname)
@@ -269,10 +213,6 @@ PAGEFLAG(SwapBacked, swapbacked) __CLEARPAGEFLAG(SwapBacked, swapbacked)
 __PAGEFLAG(SlobFree, slob_free)
 
 __PAGEFLAG(SlubFrozen, slub_frozen)
-
-#ifdef CONFIG_CLEANCACHE
-PAGEFLAG(WasActive, was_active)
-#endif
 
 /*
  * Private page markings that may be used by the filesystem that owns the page

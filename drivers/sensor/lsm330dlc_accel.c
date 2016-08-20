@@ -28,6 +28,7 @@
 #include <linux/sensor/sensors_core.h>
 #include <linux/printk.h>
 #include <linux/wakelock.h>
+#include <linux/poll.h>
 
 /* For debugging */
 #if 1
@@ -41,12 +42,7 @@
 #undef LSM330DLC_ACCEL_LOGGING
 #undef DEBUG_ODR
 #undef DEBUG_REACTIVE_ALERT
-/* It will be used, when google fusion is enabled. */
-#ifdef CONFIG_SENSORS_LSM330DLC_USE_INPUT_DEV
-#define USES_INPUT_DEV 1
-#else
-#undef USES_INPUT_DEV
-#endif
+#define USES_INPUT_DEV
 
 #define VENDOR		"STM"
 #define CHIP_ID		"LSM330"
@@ -71,11 +67,13 @@ enum {
 };
 #define ABS(a)		(((a) < 0) ? -(a) : (a))
 #define MAX(a, b)	(((a) > (b)) ? (a) : (b))
+#define MIN(a, b) (((a) > (b)) ? (b) : (a))
 #endif
 
 #define ACC_DEV_NAME "accelerometer"
 
 #ifdef CONFIG_SLP
+#define USE_INTERRUPT_ALARM
 #define CALIBRATION_FILE_PATH	"/csa/sensor/accel_cal_data"
 #else
 #define CALIBRATION_FILE_PATH	"/efs/calibration_data"
@@ -120,6 +118,11 @@ struct lsm330dlc_accel_data {
 	int movement_recog_flag;
 	unsigned char interrupt_state;
 	struct wake_lock reactive_wake_lock;
+#ifdef USE_INTERRUPT_ALARM
+	wait_queue_head_t interrupt_wait_q;
+	unsigned char read_q_cnt;
+#endif
+	int dynamic_threshold[2];
 #endif
 	ktime_t poll_delay;
 #ifdef USES_INPUT_DEV
@@ -156,10 +159,6 @@ static int lsm330dlc_accel_read_raw_xyz(struct lsm330dlc_accel_data *data,
 	acc->x = acc->x >> 4;
 	acc->y = acc->y >> 4;
 	acc->z = acc->z >> 4;
-
-#if defined(CONFIG_MACH_M3_JPN_DCM)
-	acc->y = -acc->y;
-#endif
 
 	return 0;
 }
@@ -540,6 +539,48 @@ static int lsm330dlc_accel_resume(struct device *dev)
 	return res;
 }
 
+#ifdef USE_INTERRUPT_ALARM
+static ssize_t lsm330dlc_accel_interrupt_read(struct file *file,
+			char __user *buf, size_t count, loff_t *ppos)
+{
+	int ret = 0;
+	struct lsm330dlc_accel_data *data =
+		container_of(file->private_data, struct lsm330dlc_accel_data,
+			lsm330dlc_accel_device);
+	accel_dbgmsg("is called\n");
+
+	ret = wait_event_interruptible(data->interrupt_wait_q,
+			data->read_q_cnt);
+
+	if (ret)
+		return ret;
+
+	if (copy_to_user(buf, &data->interrupt_state, sizeof(unsigned char)))
+		return -EFAULT;
+
+	data->read_q_cnt = 0;
+
+	return 0;
+}
+
+static unsigned int lsm330dlc_accel_interrupt_poll(struct file *file,
+				poll_table *wait)
+{
+	struct lsm330dlc_accel_data *data =
+		container_of(file->private_data, struct lsm330dlc_accel_data,
+			lsm330dlc_accel_device);
+	unsigned int mask = 0;
+
+	accel_dbgmsg("is called\n");
+	accel_dbgmsg("read q cnt : %d\n", data->read_q_cnt);
+	poll_wait(file, &data->interrupt_wait_q, wait);
+	if (data->read_q_cnt > 0)
+		mask |= (POLLIN | POLLRDNORM);
+
+	return mask;
+}
+#endif
+
 static const struct dev_pm_ops lsm330dlc_accel_pm_ops = {
 	.suspend = lsm330dlc_accel_suspend,
 	.resume = lsm330dlc_accel_resume,
@@ -550,6 +591,10 @@ static const struct file_operations lsm330dlc_accel_fops = {
 	.open = lsm330dlc_accel_open,
 	.release = lsm330dlc_accel_close,
 	.unlocked_ioctl = lsm330dlc_accel_ioctl,
+#ifdef USE_INTERRUPT_ALARM
+	.read = lsm330dlc_accel_interrupt_read,
+	.poll = lsm330dlc_accel_interrupt_poll,
+#endif
 };
 
 static ssize_t lsm330dlc_accel_fs_read(struct device *dev,
@@ -701,12 +746,16 @@ static ssize_t lsm330dlc_accel_reactive_alert_store(struct device *dev,
 			}
 		}
 		/* Change raw data to threshold value & settng threshold */
-		thresh1 = (MAX(ABS(raw_data.x), ABS(raw_data.y))
-				+ DYNAMIC_THRESHOLD)/16;
+		thresh1 = MIN(DEFAULT_THRESHOLD,
+				(MAX(ABS(raw_data.x), ABS(raw_data.y))
+				+ data->dynamic_threshold[0])/16);
+
 		if (factory_test == true)
 			thresh2 = 0; /* for z axis */
 		else
-			thresh2 = (ABS(raw_data.z) + DYNAMIC_THRESHOLD2)/16;
+			thresh2 = MIN(DEFAULT_THRESHOLD, (ABS(raw_data.z)
+					+ data->dynamic_threshold[1])/16);
+
 		accel_dbgmsg("threshold1 = 0x%x, threshold2 = 0x%x\n",
 			thresh1, thresh2);
 		err = i2c_smbus_write_byte_data(data->client, INT1_THS
@@ -763,7 +812,17 @@ static ssize_t lsm330dlc_accel_reactive_alert_store(struct device *dev,
 			goto err_i2c_write;
 		}
 		data->movement_recog_flag = OFF;
+
+#ifdef USE_INTERRUPT_ALARM
+		if (!data->interrupt_state)
+			data->read_q_cnt++;
+
 		data->interrupt_state = 0; /* Init interrupt state.*/
+
+		wake_up_interruptible(&data->interrupt_wait_q);
+#else
+		data->interrupt_state = 0; /* Init interrupt state.*/
+#endif
 	}
 	return count;
 err_i2c_write:
@@ -781,6 +840,41 @@ static ssize_t lsm330dlc_accel_reactive_alert_show(struct device *dev,
 
 	return sprintf(buf, "%d\n", data->interrupt_state);
 }
+
+#ifdef USE_INTERRUPT_ALARM
+static ssize_t lsm330dlc_accel_reactive_threshold_show(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	struct lsm330dlc_accel_data *data = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d %d\n", data->dynamic_threshold[0],
+					data->dynamic_threshold[1]);
+}
+
+static ssize_t lsm330dlc_accel_reactive_threshold_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct lsm330dlc_accel_data *data = dev_get_drvdata(dev);
+	char *str, *threshold;
+	int err = 0;
+
+	str = (char *)buf;
+
+	threshold = strsep(&str, " ");
+	err = kstrtoint(threshold, 10, &data->dynamic_threshold[0]);
+	if (err < 0)
+		pr_err("%s, kstrtoint failed : %d", __func__, err);
+
+	threshold = strsep(&str, " ");
+	err = kstrtoint(threshold, 10, &data->dynamic_threshold[1]);
+	if (err < 0)
+		pr_err("%s, kstrtoint failed : %d", __func__, err);
+
+	return count;
+}
+#endif
 #endif
 
 #ifdef DEBUG_ODR
@@ -933,6 +1027,11 @@ static DEVICE_ATTR(raw_data, 0664, lsm330dlc_accel_fs_read, NULL);
 static DEVICE_ATTR(reactive_alert, 0664,
 	lsm330dlc_accel_reactive_alert_show,
 	lsm330dlc_accel_reactive_alert_store);
+#ifdef USE_INTERRUPT_ALARM
+static DEVICE_ATTR(reactive_threshold, 0664,
+	lsm330dlc_accel_reactive_threshold_show,
+	lsm330dlc_accel_reactive_threshold_store);
+#endif
 #endif
 
 #ifdef DEBUG_ODR
@@ -991,7 +1090,10 @@ static irqreturn_t lsm330dlc_accel_interrupt_thread(int irq\
 		pr_err("%s, read int2_src failed\n", __func__);
 	accel_dbgmsg("interrupt source reg2 = 0x%x\n", int2_src_reg);
 #endif
-
+#ifdef USE_INTERRUPT_ALARM
+	data->read_q_cnt++;
+	wake_up_interruptible(&data->interrupt_wait_q);
+#endif
 	data->interrupt_state = 1;
 	wake_lock_timeout(&data->reactive_wake_lock, msecs_to_jiffies(2000));
 	accel_dbgmsg("irq is handled\n");
@@ -1049,25 +1151,15 @@ static int lsm330dlc_accel_probe(struct i2c_client *client,
 {
 	struct lsm330dlc_accel_data *data;
 	struct accel_platform_data *pdata;
-	int err = 0, retry;
-	int probe_retry_max = 3;
+	int err = 0;
 
 	accel_dbgmsg("is started\n");
-probe_retry:
-	for (retry = 0; retry < 5; retry++) {
-		if (!i2c_check_functionality(client->adapter,
-					     I2C_FUNC_SMBUS_WRITE_BYTE_DATA |
-					     I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {
-			pr_err("%s: i2c functionality failed!\n", __func__);
-
-			if (retry == 4) {
-				err = -ENODEV;
-				goto exit;
-			}
-			i2c_smbus_write_byte_data(client, CTRL_REG1, PM_OFF);
-			mdelay(2);
-		} else
-			break;
+	if (!i2c_check_functionality(client->adapter,
+				     I2C_FUNC_SMBUS_WRITE_BYTE_DATA |
+				     I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {
+		pr_err("%s: i2c functionality check failed!\n", __func__);
+		err = -ENODEV;
+		goto exit;
 	}
 
 	data = kzalloc(sizeof(struct lsm330dlc_accel_data), GFP_KERNEL);
@@ -1134,7 +1226,7 @@ probe_retry:
 		pr_err("%s: could not create sysfs group\n", __func__);
 		goto err_create_sysfs;
 	}
-#endif
+#else
 	/* sensor HAL expects to find /dev/accelerometer */
 	data->lsm330dlc_accel_device.minor = MISC_DYNAMIC_MINOR;
 	data->lsm330dlc_accel_device.name = ACC_DEV_NAME;
@@ -1145,9 +1237,13 @@ probe_retry:
 		pr_err("%s: misc_register failed\n", __FILE__);
 		goto err_misc_register;
 	}
+#endif
 
 #ifdef USES_MOVEMENT_RECOGNITION
 	data->movement_recog_flag = OFF;
+	data->dynamic_threshold[0] = DYNAMIC_THRESHOLD;
+	data->dynamic_threshold[1] = DYNAMIC_THRESHOLD2;
+
 	/* wake lock init for accelerometer sensor */
 	wake_lock_init(&data->reactive_wake_lock, WAKE_LOCK_SUSPEND,
 		       "reactive_wake_lock");
@@ -1204,7 +1300,14 @@ probe_retry:
 	}
 
 	disable_irq(data->client->irq);
+#ifdef CONFIG_SLP_WAKEUP_COUNT
+	device_init_wakeup_setirq(&data->client->dev, data->client->irq);
+#endif
 	device_init_wakeup(&data->client->dev, 1);
+#ifdef USE_INTERRUPT_ALARM
+	data->read_q_cnt = 0;
+	init_waitqueue_head(&data->interrupt_wait_q);
+#endif
 #endif
 
 	/* creating device for test & calibration */
@@ -1237,6 +1340,15 @@ probe_retry:
 				__func__, dev_attr_reactive_alert.attr.name);
 		goto err_reactive_device_create_file;
 	}
+
+#ifdef USE_INTERRUPT_ALARM
+	err = device_create_file(data->dev, &dev_attr_reactive_threshold);
+	if (err < 0) {
+		pr_err("%s: Failed to create device file(%s)\n", __func__,
+				dev_attr_reactive_threshold.attr.name);
+		goto err_recative_threshold_device_create_file;
+	}
+#endif
 #endif
 
 #ifdef DEBUG_ODR
@@ -1291,16 +1403,16 @@ err_position_device_create_file:
 #ifdef DEBUG_ODR
 	device_remove_file(data->dev, &dev_attr_odr);
 err_odr_device_create_file:
+#endif
 #ifdef USES_MOVEMENT_RECOGNITION
+#ifdef USE_INTERRUPT_ALARM
+	device_remove_file(data->dev, &dev_attr_reactive_threshold);
+err_recative_threshold_device_create_file:
+#endif
 	device_remove_file(data->dev, &dev_attr_reactive_alert);
-#else
-	device_remove_file(data->dev, &dev_attr_calibration);
-#endif
-#endif
-#ifdef USES_MOVEMENT_RECOGNITION
 err_reactive_device_create_file:
-	device_remove_file(data->dev, &dev_attr_calibration);
 #endif
+	device_remove_file(data->dev, &dev_attr_calibration);
 err_cal_device_create_file:
 	device_remove_file(data->dev, &dev_attr_raw_data);
 err_acc_device_create_file:
@@ -1318,21 +1430,16 @@ err_create_sysfs:
 	input_unregister_device(data->input_dev);
 err_input_allocate:
 	destroy_workqueue(data->work_queue);
-#endif
+err_create_workqueue:
+#else
 	misc_deregister(&data->lsm330dlc_accel_device);
 err_misc_register:
-err_create_workqueue:
+#endif
 	mutex_destroy(&data->read_lock);
 	mutex_destroy(&data->write_lock);
 err_read_reg:
 	kfree(data);
 exit:
-	if (probe_retry_max > 0) {
-		pr_err("%s: Failed to probe..(%d try left)\n",
-			__func__, probe_retry_max);
-		probe_retry_max--;
-		goto probe_retry;
-	}
 	return err;
 }
 
@@ -1359,6 +1466,9 @@ static int lsm330dlc_accel_remove(struct i2c_client *client)
 	device_remove_file(data->dev, &dev_attr_odr);
 #endif
 #ifdef USES_MOVEMENT_RECOGNITION
+#ifdef USE_INTERRUPT_ALARM
+	device_remove_file(data->dev, &dev_attr_reactive_threshold);
+#endif
 	device_remove_file(data->dev, &dev_attr_reactive_alert);
 #endif
 	device_remove_file(data->dev, &dev_attr_calibration);
@@ -1375,8 +1485,9 @@ static int lsm330dlc_accel_remove(struct i2c_client *client)
 	sysfs_remove_group(&data->input_dev->dev.kobj,
 		&lsm330dlc_attribute_group);
 	input_unregister_device(data->input_dev);
-#endif
+#else
 	misc_deregister(&data->lsm330dlc_accel_device);
+#endif
 	mutex_destroy(&data->read_lock);
 	mutex_destroy(&data->write_lock);
 	kfree(data);

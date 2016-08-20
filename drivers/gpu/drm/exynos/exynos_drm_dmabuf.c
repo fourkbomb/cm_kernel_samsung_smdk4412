@@ -28,6 +28,8 @@
 #include "exynos_drm.h"
 #include "exynos_drm_drv.h"
 #include "exynos_drm_gem.h"
+#include "exynos_drm_iommu.h"
+#include "exynos_drm_buf.h"
 
 #include <linux/dma-buf.h>
 
@@ -180,6 +182,7 @@ struct drm_gem_object *exynos_dmabuf_prime_import(struct drm_device *drm_dev,
 	struct sg_table *sgt;
 	struct scatterlist *sgl;
 	struct exynos_drm_gem_obj *exynos_gem_obj;
+	struct exynos_drm_private *private = drm_dev->dev_private;
 	struct exynos_drm_gem_buf *buffer;
 	struct page *page;
 	int ret;
@@ -195,7 +198,12 @@ struct drm_gem_object *exynos_dmabuf_prime_import(struct drm_device *drm_dev,
 
 		/* is it from our device? */
 		if (obj->dev == drm_dev) {
+			/*
+			 * Importing dmabuf exported from out own gem increases
+			 * refcount on gem itself instead of f_count of dmabuf.
+			 */
 			drm_gem_object_reference(obj);
+			dma_buf_put(dma_buf);
 			return obj;
 		}
 	}
@@ -261,6 +269,23 @@ struct drm_gem_object *exynos_dmabuf_prime_import(struct drm_device *drm_dev,
 	exynos_gem_obj->buffer = buffer;
 	buffer->sgt = sgt;
 	exynos_gem_obj->base.import_attach = attach;
+
+	if (private->vmm) {
+		exynos_gem_obj->vmm = private->vmm;
+		buffer->dev_addr = exynos_drm_iommu_map_gem(drm_dev,
+							&exynos_gem_obj->base);
+		if (!buffer->dev_addr) {
+			DRM_ERROR("failed to map gem with iommu table.\n");
+			exynos_drm_free_buf(drm_dev, exynos_gem_obj->flags,
+									buffer);
+			drm_gem_object_release(&exynos_gem_obj->base);
+			ret = -EFAULT;
+
+			goto err_free_pages;
+		}
+
+		buffer->dma_addr = buffer->dev_addr;
+	}
 
 	DRM_DEBUG_PRIME("dma_addr = 0x%x, size = 0x%lx\n", buffer->dma_addr,
 				buffer->size);

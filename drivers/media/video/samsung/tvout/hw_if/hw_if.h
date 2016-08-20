@@ -771,7 +771,6 @@ extern int s5p_hdcp_encrypt_stop(bool on);
 extern int __init s5p_hdcp_init(void);
 extern int s5p_hdcp_start(void);
 extern int s5p_hdcp_stop(void);
-extern void s5p_hdcp_flush_work(void);
 
 /****************************************
  * Definitions for sdo ctrl class

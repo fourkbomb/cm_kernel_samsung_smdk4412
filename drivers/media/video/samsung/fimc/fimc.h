@@ -227,9 +227,6 @@ enum fimc_plane_num {
 
 /* for reserved memory */
 struct fimc_meminfo {
-#ifdef CONFIG_USE_FIMC_CMA
-	void		*cpu_addr;
-#endif
 	dma_addr_t	base;		/* buffer base */
 	size_t		size;		/* total length */
 	dma_addr_t	curr;		/* current addr */
@@ -469,7 +466,6 @@ struct fimc_control {
 	struct mutex			lock;		/* controller lock */
 	struct mutex			v4l2_lock;
 	spinlock_t			outq_lock;
-        spinlock_t			inq_lock;
 	wait_queue_head_t		wq;
 	struct device			*dev;
 #if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)

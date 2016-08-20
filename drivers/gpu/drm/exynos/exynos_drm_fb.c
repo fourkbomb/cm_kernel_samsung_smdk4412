@@ -73,44 +73,6 @@ static int check_fb_gem_memory_type(struct drm_device *drm_dev,
 	return 0;
 }
 
-static int check_fb_gem_size(struct drm_device *drm_dev,
-				struct drm_framebuffer *fb,
-				unsigned int nr)
-{
-	unsigned long fb_size;
-	struct drm_gem_object *obj;
-	struct exynos_drm_gem_obj *exynos_gem_obj;
-	struct exynos_drm_fb *exynos_fb = to_exynos_fb(fb);
-
-	/* in case of RGB format, only one plane is used. */
-	if (nr < 2) {
-		exynos_gem_obj = exynos_fb->exynos_gem_obj[0];
-		obj = &exynos_gem_obj->base;
-		fb_size = fb->pitches[0] * fb->height;
-
-		if (fb_size != exynos_gem_obj->packed_size) {
-			DRM_ERROR("invalid fb or gem size.\n");
-			return -EINVAL;
-		}
-	/* in case of NV12MT, YUV420M and so on, two and three planes. */
-	} else {
-		unsigned int i;
-
-		for (i = 0; i < nr; i++) {
-			exynos_gem_obj = exynos_fb->exynos_gem_obj[i];
-			obj = &exynos_gem_obj->base;
-			fb_size = fb->pitches[i] * fb->height;
-
-			if (fb_size != exynos_gem_obj->packed_size) {
-				DRM_ERROR("invalid fb or gem size.\n");
-				return -EINVAL;
-			}
-		}
-	}
-
-	return 0;
-}
-
 static void exynos_drm_fb_destroy(struct drm_framebuffer *fb)
 {
 	struct exynos_drm_fb *exynos_fb = to_exynos_fb(fb);
@@ -207,7 +169,8 @@ exynos_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 	struct drm_gem_object *obj;
 	struct drm_framebuffer *fb;
 	struct exynos_drm_fb *exynos_fb;
-	int nr, i, ret;
+	int nr;
+	int i;
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
@@ -248,12 +211,6 @@ exynos_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		}
 
 		exynos_fb->exynos_gem_obj[i] = to_exynos_gem_obj(obj);
-	}
-
-	ret = check_fb_gem_size(dev, fb, nr);
-	if (ret < 0) {
-		exynos_drm_fb_destroy(fb);
-		return ERR_PTR(ret);
 	}
 
 	return fb;

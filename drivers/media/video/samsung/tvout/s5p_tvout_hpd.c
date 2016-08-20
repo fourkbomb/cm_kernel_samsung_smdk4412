@@ -252,16 +252,9 @@ static unsigned int s5p_hpd_poll(struct file *file, poll_table * wait)
 void hdmi_send_audio_ch_num(
 	int supported_ch_num, struct switch_dev *p_audio_ch_switch)
 {
-	if (last_uevent_state == HPD_LO) {
-		printk(KERN_INFO	"[WARNING] %s() "
-			"HDMI Audio ch = %d but not send\n",
-			__func__, supported_ch_num);
-		return;
-	} else
-		printk(KERN_INFO	"%s() "
-			"HDMI Audio ch = %d\n",
-			__func__, supported_ch_num);
-
+	printk(KERN_INFO	"%s() hdmi_send_audio_ch_num :: "
+		"HDMI Audio supported ch = %d",
+		__func__, supported_ch_num);
 	p_audio_ch_switch->state = 0;
 	switch_set_state(p_audio_ch_switch, (int)supported_ch_num);
 }

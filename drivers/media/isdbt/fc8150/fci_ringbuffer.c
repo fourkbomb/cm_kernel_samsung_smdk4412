@@ -15,7 +15,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/string.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 #include "fci_ringbuffer.h"
 
@@ -82,8 +82,8 @@ void fci_ringbuffer_flush_spinlock_wakeup(struct fci_ringbuffer *rbuf)
 	wake_up(&rbuf->queue);
 }
 
-ssize_t fci_ringbuffer_read_user(struct fci_ringbuffer *rbuf
-	, u8 __user *buf, size_t len)
+ssize_t fci_ringbuffer_read_user(struct fci_ringbuffer *rbuf, \
+	u8 __user *buf, size_t len)
 {
 	size_t todo = len;
 	size_t split;
@@ -121,14 +121,14 @@ void fci_ringbuffer_read(struct fci_ringbuffer *rbuf, u8 *buf, size_t len)
 	rbuf->pread = (rbuf->pread + todo) % rbuf->size;
 }
 
-ssize_t fci_ringbuffer_write(struct fci_ringbuffer *rbuf
-	, const u8 *buf, size_t len)
+ssize_t fci_ringbuffer_write(struct fci_ringbuffer *rbuf, \
+	const u8 *buf, size_t len)
 {
 	size_t todo = len;
 	size_t split;
 
-	split = (rbuf->pwrite + len > rbuf->size)
-		? rbuf->size - rbuf->pwrite : 0;
+	split = (rbuf->pwrite + len > rbuf->size) ? \
+		rbuf->size - rbuf->pwrite : 0;
 
 	if (split > 0) {
 		memcpy(rbuf->data+rbuf->pwrite, buf, split);
@@ -142,8 +142,8 @@ ssize_t fci_ringbuffer_write(struct fci_ringbuffer *rbuf
 	return len;
 }
 
-ssize_t fci_ringbuffer_pkt_write(struct fci_ringbuffer *rbuf
-	, u8 *buf, size_t len)
+ssize_t fci_ringbuffer_pkt_write(struct fci_ringbuffer *rbuf, \
+	u8 *buf, size_t len)
 {
 	int status;
 	ssize_t oldpwrite = rbuf->pwrite;
@@ -225,34 +225,33 @@ void fci_ringbuffer_pkt_dispose(struct fci_ringbuffer *rbuf, size_t idx)
 		if (FCI_RINGBUFFER_PEEK(rbuf, 2) == PKT_DISPOSED) {
 			pktlen = FCI_RINGBUFFER_PEEK(rbuf, 0) << 8;
 			pktlen |= FCI_RINGBUFFER_PEEK(rbuf, 1);
-			FCI_RINGBUFFER_SKIP(rbuf
-				, pktlen + FCI_RINGBUFFER_PKTHDRSIZE);
+			FCI_RINGBUFFER_SKIP(rbuf, pktlen + \
+				FCI_RINGBUFFER_PKTHDRSIZE);
 		} else
 			break;
 	}
 }
 
-ssize_t fci_ringbuffer_pkt_next(struct fci_ringbuffer *rbuf
-	, size_t idx, size_t *pktlen)
+ssize_t fci_ringbuffer_pkt_next(struct fci_ringbuffer *rbuf,
+	size_t idx, size_t *pktlen)
 {
 	int consumed;
 	int curpktlen;
 	int curpktstatus;
 
 	if (idx == -1)
-		idx = rbuf->pread;
+	       idx = rbuf->pread;
 	else {
 		curpktlen = rbuf->data[idx] << 8;
 		curpktlen |= rbuf->data[(idx + 1) % rbuf->size];
-		idx = (idx + curpktlen + FCI_RINGBUFFER_PKTHDRSIZE)
-			% rbuf->size;
+		idx = (idx + curpktlen + \
+			FCI_RINGBUFFER_PKTHDRSIZE) % rbuf->size;
 	}
 
 	consumed = (idx - rbuf->pread) % rbuf->size;
 
-	while ((fci_ringbuffer_avail(rbuf) - consumed)
-		> FCI_RINGBUFFER_PKTHDRSIZE) {
-
+	while ((fci_ringbuffer_avail(rbuf) - consumed) > \
+		FCI_RINGBUFFER_PKTHDRSIZE) {
 		curpktlen = rbuf->data[idx] << 8;
 		curpktlen |= rbuf->data[(idx + 1) % rbuf->size];
 		curpktstatus = rbuf->data[(idx + 2) % rbuf->size];
@@ -263,9 +262,18 @@ ssize_t fci_ringbuffer_pkt_next(struct fci_ringbuffer *rbuf
 		}
 
 		consumed += curpktlen + FCI_RINGBUFFER_PKTHDRSIZE;
-		idx = (idx + curpktlen + FCI_RINGBUFFER_PKTHDRSIZE)
-			% rbuf->size;
+		idx = (idx + curpktlen + \
+			FCI_RINGBUFFER_PKTHDRSIZE) % rbuf->size;
 	}
 
 	return -1;
 }
+
+EXPORT_SYMBOL(fci_ringbuffer_init);
+EXPORT_SYMBOL(fci_ringbuffer_empty);
+EXPORT_SYMBOL(fci_ringbuffer_free);
+EXPORT_SYMBOL(fci_ringbuffer_avail);
+EXPORT_SYMBOL(fci_ringbuffer_flush_spinlock_wakeup);
+EXPORT_SYMBOL(fci_ringbuffer_read_user);
+EXPORT_SYMBOL(fci_ringbuffer_read);
+EXPORT_SYMBOL(fci_ringbuffer_write);

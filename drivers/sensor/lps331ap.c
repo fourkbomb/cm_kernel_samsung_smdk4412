@@ -205,8 +205,8 @@
 #define	LPS331AP_PRS_AUTOZ_DISABLE	0
 
 /* poll delays */
-#define DELAY_DEFAULT			200
-#define DELAY_MINIMUM			40
+#define DELAY_DEFAULT			200000000
+#define DELAY_MINIMUM			40000000
 /* calibration file path */
 #ifdef CONFIG_SLP
 #define CALIBRATION_FILE_PATH		"/csa/sensor/baro_cal_data"
@@ -231,7 +231,7 @@ struct lps331ap_prs_data {
 	struct input_dev *input_dev;
 	struct device *dev;
 
-	unsigned int poll_delay;
+	u64 poll_delay;
 
 	int hw_initialized;
 	/* hw_working = 0 means not tested yet */
@@ -452,10 +452,11 @@ static int lps331ap_prs_device_power_on(struct lps331ap_prs_data *prs)
 	return 0;
 }
 
-int lps331ap_prs_update_odr(struct lps331ap_prs_data *prs, int delay_ms)
+int lps331ap_prs_update_odr(struct lps331ap_prs_data *prs, u64 delay_ns)
 {
 	int err = -1;
 	int i;
+	unsigned int delay_ms;
 
 	u8 buf[2];
 	u8 init_val, updated_val;
@@ -467,6 +468,8 @@ int lps331ap_prs_update_odr(struct lps331ap_prs_data *prs, int delay_ms)
 	 * odr_table vector from the end (longest period) backward (shortest
 	 * period), to support the poll_interval requested by the system.
 	 * It must be the longest period shorter then the set poll period.*/
+
+	delay_ms = (unsigned int)do_div(delay_ns, 1000000);
 	for (i = ARRAY_SIZE(lps331ap_prs_odr_table) - 1; i >= 0; i--) {
 		if ((lps331ap_prs_odr_table[i].cutoff_ms <= delay_ms)
 								|| (i == 0))
@@ -1093,7 +1096,7 @@ static int lps331ap_prs_enable(struct lps331ap_prs_data *prs)
 			return err;
 		}
 		schedule_delayed_work(&prs->input_work,
-			msecs_to_jiffies(prs->poll_delay));
+			nsecs_to_jiffies(prs->poll_delay));
 	}
 
 	return 0;
@@ -1114,12 +1117,12 @@ static ssize_t lps331ap_get_poll_delay(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	int val;
+	u64 val;
 	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
 	mutex_lock(&prs->lock);
 	val = prs->poll_delay;
 	mutex_unlock(&prs->lock);
-	return sprintf(buf, "%d\n", val);
+	return sprintf(buf, "%lld\n", val);
 }
 
 static ssize_t lps331ap_set_poll_delay(struct device *dev,
@@ -1127,23 +1130,23 @@ static ssize_t lps331ap_set_poll_delay(struct device *dev,
 					 const char *buf, size_t size)
 {
 	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
-	unsigned long delay_ms = 0;
-	unsigned int delay_min = DELAY_MINIMUM;
+	u64 delay_ns = 0;
 
-	if (strict_strtoul(buf, 10, &delay_ms))
+	if (strict_strtoll(buf, 10, &delay_ns))
 		return -EINVAL;
-	if (!delay_ms)
+	if (!delay_ns)
 		return -EINVAL;
 
-	printk(KERN_INFO "%s, delay_ms passed = %ld\n", __func__, delay_ms);
-	delay_ms = max_t(unsigned int, (unsigned int)delay_ms, delay_min);
+	printk(KERN_INFO "%s, delay_ns passed = %lld\n", __func__, delay_ns);
 
-	if (delay_ms == DELAY_MINIMUM)
+	if (delay_ns < DELAY_MINIMUM) {
+		delay_ns = DELAY_MINIMUM;
 		printk(KERN_INFO "%s, minimum delay is 40ms!\n", __func__);
+	}
 
 	mutex_lock(&prs->lock);
-	prs->poll_delay = (unsigned int)delay_ms;
-	lps331ap_prs_update_odr(prs, delay_ms);
+	prs->poll_delay = (u64)delay_ns;
+	lps331ap_prs_update_odr(prs, delay_ns);
 	mutex_unlock(&prs->lock);
 	return size;
 }
@@ -1420,7 +1423,7 @@ static void lps331ap_prs_input_work_func(struct work_struct *work)
 		lps331ap_prs_report_values(prs, &output);
 
 	schedule_delayed_work(&prs->input_work,
-				msecs_to_jiffies(prs->poll_delay));
+				nsecs_to_jiffies(prs->poll_delay));
 	mutex_unlock(&prs->lock);
 }
 
@@ -1713,7 +1716,7 @@ static int lps331ap_prs_resume(struct i2c_client *client)
 		if (err < 0)
 			dev_err(&prs->client->dev, "resume failed: %d\n", err);
 		schedule_delayed_work(&prs->input_work,
-			msecs_to_jiffies(prs->poll_delay));
+			nsecs_to_jiffies(prs->poll_delay));
 		pr_info("%s\n", __func__);
 	}
 

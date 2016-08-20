@@ -37,6 +37,20 @@
 #define MAX_FB_BUFFER	4
 #define DEFAULT_ZPOS	-1
 
+#define _wait_for(COND, MS) ({ \
+	unsigned long timeout__ = jiffies + msecs_to_jiffies(MS);	\
+	int ret__ = 0;							\
+	while (!(COND)) {						\
+		if (time_after(jiffies, timeout__)) {			\
+			ret__ = -ETIMEDOUT;				\
+			break;						\
+		}							\
+	}								\
+	ret__;								\
+})
+
+#define wait_for(COND, MS) _wait_for(COND, MS)
+
 struct drm_device;
 struct exynos_drm_overlay;
 struct drm_connector;
@@ -61,6 +75,8 @@ enum exynos_drm_output_type {
  * @commit: apply hardware specific overlay data to registers.
  * @enable: enable hardware specific overlay.
  * @disable: disable hardware specific overlay.
+ * @wait_for_vblank: wait for vblank interrupt to make sure that
+ *	dma transfer is completed.
  */
 struct exynos_drm_overlay_ops {
 	void (*mode_set)(struct device *subdrv_dev,
@@ -68,6 +84,7 @@ struct exynos_drm_overlay_ops {
 	void (*commit)(struct device *subdrv_dev, int zpos);
 	void (*enable)(struct device *subdrv_dev, int zpos);
 	void (*disable)(struct device *subdrv_dev, int zpos);
+	void (*wait_for_vblank)(struct device *subdrv_dev);
 };
 
 /*
@@ -233,18 +250,26 @@ struct exynos_drm_g2d_private {
  * Exynos drm ipp private structure
  *
  * @dev: device object to device driver for using driver data.
- * @ippdrv: link used ippdrv.
  * @event_list: list head to event.
  */
 struct exynos_drm_ipp_private {
 	struct device	*dev;
-	void *ippdrv;
 	struct list_head	event_list;
+};
+
+/*
+ * Exynos drm ipp private structure
+ *
+ * @dev: device object to device driver for using driver data.
+ */
+struct exynos_drm_hdmi_private {
+	struct device	*dev;
 };
 
 struct drm_exynos_file_private {
 	struct exynos_drm_g2d_private	*g2d_priv;
 	struct exynos_drm_ipp_private	*ipp_priv;
+	struct exynos_drm_hdmi_private	*hdmi_priv;
 	pid_t				tgid;
 };
 
@@ -338,8 +363,10 @@ int exynos_drm_subdrv_open(struct drm_device *dev, struct drm_file *file);
 void exynos_drm_subdrv_close(struct drm_device *dev, struct drm_file *file);
 
 extern struct platform_driver fimd_driver;
+extern struct platform_driver hdcp_driver;
 extern struct platform_driver hdmi_driver;
 extern struct platform_driver mixer_driver;
+extern struct platform_driver cec_driver;
 extern struct platform_driver exynos_drm_common_hdmi_driver;
 extern struct platform_driver vidi_driver;
 extern struct platform_driver g2d_driver;

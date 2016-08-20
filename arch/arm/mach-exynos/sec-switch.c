@@ -41,8 +41,8 @@
 #include <linux/jack.h>
 #endif
 
-#ifdef CONFIG_MACH_SLP_NAPLES
-#include <mach/naples-tsp.h>
+#ifdef CONFIG_MACH_REDWOOD
+#include <mach/board-melfas.h>
 #endif
 #ifdef CONFIG_MACH_MIDAS
 #include <linux/platform_data/mms_ts.h>
@@ -188,18 +188,12 @@ static int __init midas_sec_switch_init(void)
 	int ret = 0;
 	switch_dev = device_create(sec_class, NULL, 0, NULL, "switch");
 
-	if (IS_ERR(switch_dev)) {
-		pr_err("%s:%s= Failed to create device(switch)!\n",
-				__FILE__, __func__);
-		return -ENODEV;
-	}
+	if (IS_ERR(switch_dev))
+		pr_err("Failed to create device(switch)!\n");
 
 	ret = device_create_file(switch_dev, &dev_attr_disable_vbus);
-	if (ret) {
-		pr_err("%s:%s= Failed to create device file(disable_vbus)!\n",
-				__FILE__, __func__);
-		return ret;
-	}
+	if (ret)
+		pr_err("Failed to create device file(disable_vbus)!\n");
 
 #ifdef CONFIG_TARGET_LOCALE_KOR
 	usb_lock = device_create(sec_class, switch_dev,
@@ -244,7 +238,6 @@ int max77693_muic_charger_cb(enum cable_type_muic cable_type)
 	case CABLE_TYPE_CARDOCK_MUIC:
 	case CABLE_TYPE_DESKDOCK_MUIC:
 	case CABLE_TYPE_SMARTDOCK_MUIC:
-	case CABLE_TYPE_AUDIODOCK_MUIC:
 	case CABLE_TYPE_JIG_UART_OFF_VB_MUIC:
 		is_cable_attached = true;
 		break;
@@ -263,14 +256,14 @@ int max77693_muic_charger_cb(enum cable_type_muic cable_type)
 	value.intval = cable_type;
 	psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE, &value);
 #endif
-#endif
-
-#if defined(CONFIG_MACH_SLP_NAPLES) || defined(CONFIG_MACH_MIDAS) \
-		|| defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0)
-	tsp_charger_infom(is_cable_attached);
-#endif
 #ifdef CONFIG_JACK_MON
 	jack_event_handler("charger", is_cable_attached);
+#endif
+#endif
+
+#if defined(CONFIG_MACH_MIDAS) || defined(CONFIG_MACH_GC1) || \
+		defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_REDWOOD)
+	tsp_charger_infom(is_cable_attached);
 #endif
 
 	return 0;
@@ -427,7 +420,7 @@ bool max77693_muic_is_mhl_attached(void)
 
 void max77693_muic_dock_cb(int type)
 {
-	pr_info("%s:%s= MUIC dock type=%d\n", "sec-switch.c", __func__, type);
+	pr_info("MUIC dock type=%d\n", type);
 #ifdef CONFIG_JACK_MON
 	jack_event_handler("cradle", type);
 #endif
@@ -452,8 +445,7 @@ void max77693_muic_init_cb(void)
 }
 
 #if !defined(CONFIG_MACH_GC1) && !defined(CONFIG_MACH_T0) && \
-!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE) && \
-!defined(CONFIG_MACH_KONA)
+!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE)
 int max77693_muic_cfg_uart_gpio(void)
 {
 	int uart_val, path;
@@ -473,8 +465,7 @@ int max77693_muic_cfg_uart_gpio(void)
 #endif
 
 #if !defined(CONFIG_MACH_GC1) && !defined(CONFIG_MACH_T0) && \
-!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE) && \
-!defined(CONFIG_MACH_KONA)
+!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE)
 void max77693_muic_jig_uart_cb(int path)
 {
 	pr_info("func:%s : (path=%d\n", __func__, path);
@@ -585,8 +576,7 @@ struct max77693_muic_data max77693_muic = {
 	.init_cb = max77693_muic_init_cb,
 	.dock_cb = max77693_muic_dock_cb,
 #if !defined(CONFIG_MACH_GC1) && !defined(CONFIG_MACH_T0) && \
-!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE) && \
-	!defined(CONFIG_MACH_KONA)
+!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE)
 	.cfg_uart_gpio = max77693_muic_cfg_uart_gpio,
 	.jig_uart_cb = max77693_muic_jig_uart_cb,
 #endif /* CONFIG_MACH_GC1 */
@@ -600,8 +590,7 @@ struct max77693_muic_data max77693_muic = {
 	.host_notify_cb = NULL,
 #endif
 #if !defined(CONFIG_MACH_GC1) && !defined(CONFIG_MACH_T0) && \
-!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE) && \
-	!defined(CONFIG_MACH_KONA)
+!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE)
 	.gpio_usb_sel = GPIO_USB_SEL,
 #else
 	.gpio_usb_sel = -1,
@@ -624,9 +613,17 @@ static void otg_accessory_power(int enable)
 	pr_info("%s: otg accessory power = %d\n", __func__, on);
 }
 
+static void otg_accessory_powered_booster(int enable)
+{
+	/* max77693 powered otg power control */
+	powered_otg_control(enable);
+	pr_info("%s: otg accessory power = %d\n", __func__, !!enable);
+}
+
 static struct host_notifier_platform_data host_notifier_pdata = {
 	.ndev.name	= "usb_otg",
 	.booster	= otg_accessory_power,
+	.powered_booster = otg_accessory_powered_booster,
 	.thread_enable	= 0,
 };
 

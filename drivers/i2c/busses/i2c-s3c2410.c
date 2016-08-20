@@ -946,6 +946,11 @@ static int s3c24xx_i2c_probe(struct platform_device *pdev)
 	i2c->adap.algo_data = i2c;
 	i2c->adap.dev.parent = &pdev->dev;
 
+#ifdef CONFIG_SLP
+	/* clear IICSTAT reg */
+	writel(0x0, i2c->regs + S3C2410_IICSTAT);
+#endif
+
 	/* initialise the i2c controller */
 
 	ret = s3c24xx_i2c_init(i2c);

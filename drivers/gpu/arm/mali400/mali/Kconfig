@@ -1,0 +1,43 @@
+config MALI400_DEBUG
+	bool "Enable debug in Mali driver"
+	depends on MALI400
+	---help---
+	  This enabled extra debug checks and messages in the Mali driver.
+
+config MALI400_PROFILING
+	bool "Enable Mali profiling"
+	depends on MALI400
+	select TRACEPOINTS
+	default n
+	---help---
+	  This enables gator profiling of Mali GPU events.
+
+config MALI400_INTERNAL_PROFILING
+	bool "Enable internal Mali profiling API"
+	depends on MALI400_PROFILING
+	default n
+	---help---
+	  This enables the internal legacy Mali profiling API.
+
+config MALI400_UMP
+	bool "Enable UMP support"
+	depends on MALI400
+	default n
+	---help---
+	  This enables support for the UMP memory sharing API in the Mali driver.
+
+source "drivers/gpu/arm/mali400/ump/Kconfig"
+
+config MALI_DVFS
+	bool "Enables mali DVFS"
+	depends on MALI400 && PM
+	default n
+	---help---
+		This enables Mali driver DVFS.
+
+config SLP_MALI_DBG
+	bool "Enable mali debug"
+	depends on MALI400
+	default y
+	---help---
+		This enables the panic when mali register is accessed without power on

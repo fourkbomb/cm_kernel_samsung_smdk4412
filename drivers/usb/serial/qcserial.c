@@ -143,6 +143,8 @@ static struct usb_driver qcdriver = {
 };
 
 #ifdef CONFIG_MDM_HSIC_PM
+static struct wake_lock mdm_boot;
+
 void check_chip_configuration(char *product)
 {
 	if (!product)
@@ -182,8 +184,10 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 
 	spin_lock_init(&data->susp_lock);
 #ifdef CONFIG_MDM_HSIC_PM
-	if (id->idVendor == 0x05c6 && id->idProduct == 0x9008)
+	if (id->idVendor == 0x05c6 && id->idProduct == 0x9008) {
 		check_chip_configuration(serial->dev->product);
+		wake_lock(&mdm_boot);
+	}
 
 	if (id->idVendor == 0x05c6 &&
 			(id->idProduct == 0x9008 || id->idProduct == 0x9048 ||
@@ -310,6 +314,9 @@ static void qc_release(struct usb_serial *serial)
 	usb_wwan_release(serial);
 	usb_set_serial_data(serial, NULL);
 	kfree(priv);
+#ifdef CONFIG_MDM_HSIC_PM
+	wake_unlock(&mdm_boot);
+#endif
 }
 
 static struct usb_serial_driver qcdevice = {
@@ -349,7 +356,9 @@ static int __init qcinit(void)
 		usb_serial_deregister(&qcdevice);
 		return retval;
 	}
-
+#ifdef CONFIG_MDM_HSIC_PM
+	wake_lock_init(&mdm_boot, WAKE_LOCK_SUSPEND, "mdm_boot");
+#endif
 	return 0;
 }
 

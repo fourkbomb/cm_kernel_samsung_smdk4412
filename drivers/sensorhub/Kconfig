@@ -21,61 +21,6 @@ config SENSORS_SSP
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
 
-config SENSORS_SSP_LSM330
-	tristate "Sensors ssp lsm330"
-	default n
-	depends on I2C
-	help
-	  lsm330 file for factory test in ssp driver.
-          If you say yes here you get lsm330 support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_AK8963C
-	tristate "Sensors ssp ak8963c"
-	default n
-	depends on I2C
-	help
-	  ak8963c file for factory test in ssp driver.
-          If you say yes here you get ak8963c support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_CM36651
-	tristate "Sensors ssp cm36651"
-	default n
-	depends on I2C
-	help
-	  cm36651 file for factory test in ssp driver.
-          If you say yes here you get cm36651 support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_BMP182
-	tristate "Sensors ssp bmp182"
-	default n
-	depends on I2C
-	help
-	  bmp182 file for factory test in ssp driver.
-          If you say yes here you get bmp182 support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_AT32UC3L0128
-	tristate "Sensors ssp at32uc3l0128"
-	default n
-	depends on I2C
-	help
-	  at32uc3l0128 file for factory test in ssp driver.
-          If you say yes here you get at32uc3l0128 support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
 config SENSORS_SSP_ACCELEROMETER_POSITION
 	int "Accelerometer Sensor Mounting Position on Board"
 	depends on SENSORS_SSP

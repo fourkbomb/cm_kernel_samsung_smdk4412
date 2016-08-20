@@ -31,6 +31,7 @@
 static inline int exynos_drm_format_num_buffers(uint32_t format)
 {
 	switch (format) {
+	case DRM_FORMAT_NV12:
 	case DRM_FORMAT_NV12M:
 	case DRM_FORMAT_NV12MT:
 		return 2;

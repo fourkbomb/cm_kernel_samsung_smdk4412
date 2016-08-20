@@ -22,12 +22,11 @@
 #include <mach/irqs.h>
 #include <plat/gpio-cfg.h>
 #include <asm/gpio.h>
-#include <mach/gpio-midas.h>
 #include "melfas_download.h"
 
 #define _3_TOUCH_SDA_28V GPIO_3_TOUCH_SDA
 #define _3_TOUCH_SCL_28V GPIO_3_TOUCH_SCL
-#define _3_GPIO_TOUCH_EN	GPIO_TOUCH_EN
+#define _3_GPIO_TOUCH_EN	GPIO_3_TOUCH_EN
 #define _3_GPIO_TOUCH_INT	GPIO_3_TOUCH_INT
 
 
@@ -182,6 +181,9 @@ static void EXT_I2C_ACK(u32 delay)
 
 	/* SDA -> Input */
 	TKEY_I2C_SDA_SET_INPUT();
+
+	/* workaround: to sync I2C SCL signal */
+	mdelay(delay);
 
 	EXT_I2C_SCL_HIGH;
 	udelay(delay);
@@ -1784,7 +1786,9 @@ static void mcsdl_delay(UINT32 nCount)
 {
 
 	#if 1
-
+	if (nCount > (MAX_UDELAY_MS * 1000))
+		mdelay(nCount / 1000);
+	else
 		udelay(nCount);			//1 Baseband delay function
 
 	#else
