@@ -1109,9 +1109,6 @@ static void __init smdk5210_machine_init(void)
 	clk_add_alias("mfc", "s5p-mfc-v6", "mfc", &s5p_device_mfc.dev);
 	s5p_mfc_setname(&s5p_device_mfc, "s5p-mfc-v6");
 #endif
-#ifdef CONFIG_ION_EXYNOS
-	exynos_ion_set_platdata();
-#endif
 
 #ifdef CONFIG_EXYNOS4_DEV_DWMCI
 	exynos_dwmci_set_platdata(&exynos_dwmci_pdata);

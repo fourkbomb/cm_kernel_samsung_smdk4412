@@ -2553,10 +2553,6 @@ static void __init smdkv310_machine_init(void)
 #endif
 #endif
 
-#ifdef CONFIG_ION_EXYNOS
-	exynos_ion_set_platdata();
-#endif
-
 #ifdef CONFIG_EXYNOS4_SETUP_THERMAL
 	s5p_tmu_set_platdata(NULL);
 #endif

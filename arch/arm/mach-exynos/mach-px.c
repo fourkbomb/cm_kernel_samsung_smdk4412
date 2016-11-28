@@ -7625,9 +7625,6 @@ static void __init smdkc210_machine_init(void)
 	s3c_device_fimc3.dev.parent = &exynos4_device_pd[PD_CAM].dev;
 #endif
 #endif
-#ifdef CONFIG_ION_EXYNOS
-	exynos_ion_set_platdata();
-#endif
 
 #ifdef CONFIG_EXYNOS4_SETUP_THERMAL
 	s5p_tmu_set_platdata(&px_tmu_data);

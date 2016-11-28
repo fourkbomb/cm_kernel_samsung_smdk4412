@@ -1,6 +1,7 @@
 menuconfig ION
 	tristate "Ion Memory Manager"
 	select GENERIC_ALLOCATOR
+	select DMA_SHARED_BUFFER
 	help
 	  Chose this option to enable the ION Memory Manager.
 
@@ -22,7 +23,37 @@ config ION_EXYNOS_CONTIGHEAP_SIZE
 	depends on ION_EXYNOS && CMA
 	default 45056
 
-config ION_EXYNOS_CONTIGHEAP_DEBUG
-	bool "Debug message for allocation, free of CONTIGHEAP"
-	depends on ION_EXYNOS && CMA
-	default n
+config ION_EXYNOS_DRM_MFC_SH
+	bool "ION Heap for drm mfc sh"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default y
+
+config ION_EXYNOS_DRM_MSGBOX_SH
+	bool "ION Heap for drm msgbox sh"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default y
+
+config ION_EXYNOS_DRM_MFC_FW
+	bool "ION Heap for drm fw"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default y
+
+config ION_EXYNOS_DRM_SECTBL
+	bool "ION Heap for drm sectbl"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default y
+
+config ION_EXYNOS_DRM_MEMSIZE_FIMD_VIDEO
+	int "Reserved memsize in kilobytes for FIMD VIDEO"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default 184320
+
+config ION_EXYNOS_DRM_MEMSIZE_MFC_OUTPUT
+	int "Reserved memsize in kilobytes for MFC OUTPUT"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default 51200
+
+config ION_EXYNOS_DRM_MEMSIZE_MFC_INPUT
+	int "Reserved memsize in kilobytes for MFC INPUT"
+	depends on EXYNOS_CONTENT_PATH_PROTECTION
+	default 16384

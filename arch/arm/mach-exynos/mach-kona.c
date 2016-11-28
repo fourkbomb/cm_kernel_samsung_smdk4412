@@ -2048,10 +2048,6 @@ static void __init midas_machine_init(void)
 #endif
 #endif
 
-#ifdef CONFIG_ION_EXYNOS
-	exynos_ion_set_platdata();
-#endif
-
 #if defined(CONFIG_VIDEO_MFC5X) || defined(CONFIG_VIDEO_SAMSUNG_S5P_MFC)
 #ifdef CONFIG_EXYNOS_DEV_PD
 	s5p_device_mfc.dev.parent = &exynos4_device_pd[PD_MFC].dev;

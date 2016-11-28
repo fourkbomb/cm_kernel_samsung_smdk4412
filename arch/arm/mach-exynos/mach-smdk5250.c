@@ -1091,10 +1091,6 @@ static void __init smdk5250_machine_init(void)
 	s3c_i2c4_set_platdata(NULL);
 	s3c_i2c5_set_platdata(NULL);
 
-#ifdef CONFIG_ION_EXYNOS
-	exynos_ion_set_platdata();
-#endif
-
 	if (samsung_rev() >= EXYNOS5250_REV_1_0) {
 		platform_device_register(&s3c_device_adc);
 #ifdef CONFIG_S3C_DEV_HWMON
