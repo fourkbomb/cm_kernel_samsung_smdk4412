@@ -173,8 +173,7 @@ config LCD_LTE480WV
 
 config LCD_S6E8AA0
 	tristate "S6E8AA0 MIPI AMOLED LCD Driver"
-	depends on S5P_MIPI_DSI2 && BACKLIGHT_CLASS_DEVICE && \
-			(MACH_SLP_MIDAS || MACH_SLP_PQ_LTE || MACH_SLP_PQ || MACH_TRATS)
+	depends on S5P_MIPI_DSI2 && BACKLIGHT_CLASS_DEVICE
 	default n
 	help
 	  If you have an S6E8AA0 MIPI AMOLED LCD Panel, say Y to enable its
@@ -182,8 +181,7 @@ config LCD_S6E8AA0
 
 config LCD_EA8061
 	tristate "EA8061 MIPI AMOLED LCD Driver"
-	depends on S5P_MIPI_DSI2 && BACKLIGHT_CLASS_DEVICE && \
-			(MACH_SLP_T0_LTE)
+	depends on S5P_MIPI_DSI2 && BACKLIGHT_CLASS_DEVICE
 	default n
 	help
 	  If you have an S6E8AA0 MIPI AMOLED LCD Panel, say Y to enable its
