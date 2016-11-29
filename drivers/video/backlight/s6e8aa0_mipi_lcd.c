@@ -196,7 +196,6 @@ static int update_brightness(int brightness)
 	int backlightlevel;
 
 	backlightlevel = get_backlight_level(brightness);
-	if (!(soc_is_exynos5260())) {
 	while (s5p_mipi_dsi_wr_data(dsim_base, MIPI_DSI_DCS_LONG_WRITE,
 			(unsigned int)gamma22_table[backlightlevel],
 				GAMMA_PARAM_SIZE) == -1)
@@ -206,7 +205,6 @@ static int update_brightness(int brightness)
 			(unsigned int)gamma_update,
 				ARRAY_SIZE(gamma_update)) == -1)
 		printk(KERN_ERR "fail to update gamma value.\n");
-	}
 	return 1;
 }
 
