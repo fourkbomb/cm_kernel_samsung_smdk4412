@@ -1021,6 +1021,7 @@ config MACH_MIDAS
 	select S5P_GPIO_INT
 	select S5P_DEV_MFC
 	select S5P_DEV_FIMG2D
+	select S5P_DEV_FIMD0
 	select S5P_DEV_FIMD_S5P
 	select S5P_DEV_USB_EHCI
 	select S5P_DEV_USBGADGET
